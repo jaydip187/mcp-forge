@@ -136,6 +136,7 @@ Stage 1 review → then Stage 2: rmcp ServerHandler (list_tools / call_tool) fro
 - 2026-10-21 · Tool `kind.auth_ref` is mirrored in a `tools.auth_ref` FK column (NO ACTION, so project cascade works); the store also checks the config belongs to the same project → 422 `kind.auth_ref`. Deleting an in-use auth config → 409 listing the tools
 - 2026-10-21 · Updating a project without `slug` keeps the existing slug (renames don't move the MCP URL)
 - 2026-10-21 · REST: ids (UUID) in paths; POST 201, DELETE 204, PUT = full replace of user-editable fields (`source`/`overrides` system-managed, API-created tools are always `Source::Manual`). Errors: `{"error":{"code","message","fields"?}}` with 400/404/409/422/500; internal errors are logged, not echoed
+- 2026-10-21 · `.gitattributes` forces LF (esp. `migrations/*.sql`) · sqlx checksums migrations; CRLF conversion on Windows checkouts would break existing DBs
 - 2026-10-21 · Timestamps truncated to ms so they round-trip through SQLite exactly
 
 ## Open questions
