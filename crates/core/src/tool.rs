@@ -306,6 +306,10 @@ impl HttpSpec {
             }
         }
 
+        for problem in self.derived_arg_problems() {
+            errs.push("kind.params", problem);
+        }
+
         if self.timeout_ms == 0 || self.timeout_ms > MAX_TIMEOUT_MS {
             errs.push(
                 "kind.timeout_ms",

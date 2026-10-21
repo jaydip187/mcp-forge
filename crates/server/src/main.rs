@@ -1,5 +1,9 @@
+use std::sync::Arc;
+use std::time::Duration;
+
 use anyhow::Context;
 use clap::Parser;
+use forge_exec_http::{DefaultSecretResolver, HttpExecutor};
 use forge_store::Store;
 use mcp_forge::config::{Cli, Command, ServeArgs, StdioArgs};
 use mcp_forge::AppState;
@@ -32,21 +36,24 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         .await
         .with_context(|| format!("binding {}", args.bind))?;
     tracing::info!(addr = %listener.local_addr()?, data_dir = %data_dir.display(), "mcp-forge listening");
-    mcp_forge::serve(listener, AppState { store }, shutdown_signal()).await?;
+    let state = AppState::new(store, Arc::new(DefaultSecretResolver));
+    mcp_forge::serve(listener, state, shutdown_signal()).await?;
     tracing::info!("shut down");
     Ok(())
 }
 
 async fn stdio(args: StdioArgs) -> anyhow::Result<()> {
     let data_dir = args.common.resolve_data_dir()?;
-    let _store = Store::open(&data_dir)
+    let store = Store::open(&data_dir)
         .await
         .with_context(|| format!("opening store in {}", data_dir.display()))?;
-    anyhow::bail!(
-        "stdio transport for project '{}' is not implemented yet (Stage 2)",
-        args.project
-    )
+    let exec = HttpExecutor::new(Arc::new(DefaultSecretResolver));
+    forge_mcp::serve_stdio(store, exec, &args.project, STDIO_POLL).await?;
+    Ok(())
 }
+
+/// How often stdio mode checks the store for tool edits made by other processes.
+const STDIO_POLL: Duration = Duration::from_secs(2);
 
 async fn shutdown_signal() {
     if let Err(e) = tokio::signal::ctrl_c().await {

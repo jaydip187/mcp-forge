@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use forge_exec_http::MapSecretResolver;
 use forge_store::{Store, DB_FILE};
 use mcp_forge::AppState;
 use tokio::net::TcpListener;
@@ -13,9 +16,13 @@ async fn serve_creates_db_and_answers_healthz() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let (tx, rx) = oneshot::channel::<()>();
-    let server = tokio::spawn(mcp_forge::serve(listener, AppState { store }, async {
-        let _ = rx.await;
-    }));
+    let server = tokio::spawn(mcp_forge::serve(
+        listener,
+        AppState::new(store, Arc::new(MapSecretResolver::default())),
+        async {
+            let _ = rx.await;
+        },
+    ));
 
     let resp = reqwest::get(format!("http://{addr}/healthz"))
         .await

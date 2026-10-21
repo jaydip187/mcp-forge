@@ -217,3 +217,25 @@ async fn stored_json_is_ir_shaped() {
     assert_eq!(kind["path_template"], "/users/{id}");
     assert_eq!(source, r#"{"type":"manual"}"#);
 }
+
+#[tokio::test]
+async fn lookup_by_name_and_fingerprint() {
+    let s = store().await;
+    let p = s.create_project(&project("A")).await.unwrap();
+    let empty = s.tools_fingerprint(p.id).await.unwrap();
+    let t = s.create_tool(p.id, &tool("t", None)).await.unwrap();
+    assert_eq!(s.get_tool_by_name(p.id, "t").await.unwrap(), t);
+    assert!(matches!(
+        s.get_tool_by_name(p.id, "nope").await,
+        Err(StoreError::NotFound(_))
+    ));
+
+    let one = s.tools_fingerprint(p.id).await.unwrap();
+    assert_ne!(one, empty);
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    s.update_tool(p.id, t.id, &tool("t", None)).await.unwrap();
+    let edited = s.tools_fingerprint(p.id).await.unwrap();
+    assert_ne!(edited, one);
+    s.delete_tool(p.id, t.id).await.unwrap();
+    assert_eq!(s.tools_fingerprint(p.id).await.unwrap(), empty);
+}

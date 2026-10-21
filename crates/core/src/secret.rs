@@ -42,6 +42,14 @@ impl SecretRef {
     }
 }
 
+/// Turns a [`SecretRef`] into the secret value at call time.
+///
+/// Implementations may block (e.g. OS keyring); callers run them off the async runtime.
+/// Error messages must never contain the secret value.
+pub trait SecretResolver: Send + Sync {
+    fn resolve(&self, r: &SecretRef) -> Result<String, String>;
+}
+
 impl fmt::Display for SecretRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)

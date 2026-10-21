@@ -117,6 +117,34 @@ impl Store {
         .try_into()
     }
 
+    pub async fn get_tool_by_name(
+        &self,
+        project_id: Uuid,
+        name: &str,
+    ) -> Result<ToolDef, StoreError> {
+        sqlx::query_as::<_, ToolRow>(&format!(
+            "SELECT {COLUMNS} FROM tools WHERE project_id = ? AND name = ?"
+        ))
+        .bind(project_id.to_string())
+        .bind(name)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(StoreError::NotFound("tool"))?
+        .try_into()
+    }
+
+    /// Cheap value that changes whenever the project's tool set changes
+    /// (add, delete, edit, enable/disable). Used to detect out-of-process edits.
+    pub async fn tools_fingerprint(&self, project_id: Uuid) -> Result<String, StoreError> {
+        let (fp,): (String,) = sqlx::query_as(
+            "SELECT COALESCE(GROUP_CONCAT(id || ':' || updated_at, ','), '')              FROM (SELECT id, updated_at FROM tools WHERE project_id = ? ORDER BY id)",
+        )
+        .bind(project_id.to_string())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(fp)
+    }
+
     /// Replaces the user-editable fields; `source`, `overrides` and `created_at` are kept.
     pub async fn update_tool(
         &self,

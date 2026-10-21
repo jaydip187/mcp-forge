@@ -4,10 +4,10 @@
 > Legend: `[ ]` todo · `[~]` in progress / partial · `[x]` done · `[-]` dropped (say why)
 
 ## Next up
-Stage 1 review → then Stage 2: rmcp ServerHandler (list_tools / call_tool) from store
+Stage 2 review → then Stage 3: Vite React TS app + rust-embed
 
 ## Current stage
-**Stage 1 — IR + store + REST API** · status: done · review: requested
+**Stage 2 — MCP server + HTTP executor** · status: done · review: requested
 
 ---
 
@@ -28,17 +28,17 @@ Stage 1 review → then Stage 2: rmcp ServerHandler (list_tools / call_tool) fro
 - [x] Repository layer
 - [x] REST CRUD under `/api`
 - [x] Integration tests
-- [ ] Stage review approved
+- [x] Stage review approved
 
 ### Stage 2 — MCP server + HTTP executor
-- [ ] rmcp ServerHandler (list_tools / call_tool) from store
-- [ ] Schema derivation + arg location map
-- [ ] Streamable HTTP `/mcp/{slug}`
-- [ ] stdio mode
-- [ ] HTTP executor + auth via secret refs (env:, keyring:)
-- [ ] LLM-friendly errors
-- [ ] `tools/list_changed` notifications
-- [ ] wiremock + MCP client tests
+- [x] rmcp ServerHandler (list_tools / call_tool) from store
+- [x] Schema derivation + arg location map
+- [x] Streamable HTTP `/mcp/{slug}`
+- [x] stdio mode
+- [x] HTTP executor + auth via secret refs (env:, keyring:)
+- [x] LLM-friendly errors
+- [x] `tools/list_changed` notifications
+- [x] wiremock + MCP client tests
 - [ ] Stage review approved
 
 ### Stage 3 — Embedded UI (manual flow)
@@ -136,17 +136,28 @@ Stage 1 review → then Stage 2: rmcp ServerHandler (list_tools / call_tool) fro
 - 2026-10-21 · Tool `kind.auth_ref` is mirrored in a `tools.auth_ref` FK column (NO ACTION, so project cascade works); the store also checks the config belongs to the same project → 422 `kind.auth_ref`. Deleting an in-use auth config → 409 listing the tools
 - 2026-10-21 · Updating a project without `slug` keeps the existing slug (renames don't move the MCP URL)
 - 2026-10-21 · REST: ids (UUID) in paths; POST 201, DELETE 204, PUT = full replace of user-editable fields (`source`/`overrides` system-managed, API-created tools are always `Source::Manual`). Errors: `{"error":{"code","message","fields"?}}` with 400/404/409/422/500; internal errors are logged, not echoed
+- 2026-10-21 · rmcp is **3.6** (supports both initialize-based protocol ≤2025-11-25 and stateless 2026-07-28). reqwest bumped 0.12→0.13 to share rmcp's version
+- 2026-10-21 · Deps added: `rmcp`, `keyring` 3.6 (apple-native, windows-native, async-secret-service+crypto-rust → no system libs on Linux), `wiremock` (dev), `tokio-util` (CancellationToken for rmcp config; already transitive)
+- 2026-10-21 · Input schema derived in `forge-core` (`HttpSpec::derive_input`): fixed-value params hidden; a name used in >1 location is prefixed `{location}_{name}` (only on collision); `body_schema` exposed as arg `body`; `additionalProperties: false`. Validation rejects derived-name clashes and names >64 chars
+- 2026-10-21 · Arg checking is light (unknown/missing/top-level `type`/`enum`), not full JSON Schema · `jsonschema` crate not in stack; upstream validates the rest
+- 2026-10-21 · Executor: path values percent-encoded (unreserved only, `..` blocked); query arrays repeat the key; header/path arrays comma-joined; JSON body from body params or whole `body`. Redirects followed only to the same host (max 5) so custom auth headers never leave the origin
+- 2026-10-21 · Secret values redacted (raw + URL-encoded; Basic token too) from reported URL, error messages and response bodies; reqwest errors use `without_url()`. Secret resolution runs in `spawn_blocking` (keyring may block). `SecretResolver` trait lives in core; `DefaultSecretResolver` (env, then keyring service `mcp-forge`, user = NAME) in exec_http
+- 2026-10-21 · Tool results: 2xx/3xx → body text (empty → status line); ≥400 → `isError` with status line, method, redacted URL, body cut to 4000 chars; arg errors list each arg; config/transport problems → `isError` with a clear prefix. Unknown/disabled tool → JSON-RPC invalid_params
+- 2026-10-21 · Annotations for HTTP tools: `readOnlyHint` true for GET/HEAD/OPTIONS, `openWorldHint` true, `destructiveHint` true for DELETE. Empty description → `"METHOD /path"`
+- 2026-10-21 · `/mcp/{slug}`: one `StreamableHttpService` (LocalSessionManager, rmcp defaults incl. loopback-only Host allowlist) per project id, created lazily; handler re-reads tools from the store per request. Shutdown cancels a token so SSE streams don't block graceful shutdown
+- 2026-10-21 · list_changed: in-process `ChangeBus` (broadcast) published by REST tool create/update/delete and project delete. Legacy sessions get push notifications (forwarder task per session, exits when transport closes); 2026-07-28 clients via `subscriptions/listen`. stdio mode polls a store fingerprint every 2s to catch edits from the `serve` process
 - 2026-10-21 · `.gitattributes` forces LF (esp. `migrations/*.sql`) · sqlx checksums migrations; CRLF conversion on Windows checkouts would break existing DBs
 - 2026-10-21 · Timestamps truncated to ms so they round-trip through SQLite exactly
 
 ## Open questions
 <!-- Append: YYYY-MM-DD · question · temporary choice made -->
-- 2026-10-21 · What should `mcp-forge stdio` do before Stage 2? · opens the store then exits with a clear "not implemented yet (Stage 2)" error
 - 2026-10-21 · Upstream param names that aren't MCP-safe (e.g. `filter[name]`, `$top`) — need a separate wire name vs agent-facing name? · for now param name = wire name and must be MCP-safe; revisit in Stage 4 (likely add optional `wire_name`)
 - 2026-10-21 · Should tool `description` be required? · optional (empty allowed) for now; importers will fill from summary/description
 
 ## Known issues / tech debt
 <!-- Append: YYYY-MM-DD · issue · stage to fix -->
+- 2026-10-21 · rmcp's default Host allowlist is loopback-only, so `/mcp` rejects non-loopback Host headers when binding 0.0.0.0. · Stage 3 (non-loopback bind + admin token) must configure `allowed_hosts`
+- 2026-10-21 · Tested with the rmcp client + raw JSON-RPC (protocol 2025-06-18), not the MCP Inspector UI itself (needs npx/network). · manual check at Stage 3 review
 - 2026-10-21 · Local Windows dev box has no MSVC `link.exe`; builds use `stable-x86_64-pc-windows-gnu` via `rustup override` (not committed). Also, in Git Bash, coreutils `link` shadows MSVC's — run cargo from PowerShell. CI uses default toolchains. · env only
 
 ---
@@ -162,6 +173,14 @@ Stage 1 review → then Stage 2: rmcp ServerHandler (list_tools / call_tool) fro
 - **Gotchas:** 
 - **Next step:** 
 -->
+
+### Session 3 — 2026-10-21
+- **Stage/task:** Stage 2 — MCP server + HTTP executor (all tasks)
+- **Done:** schema derivation + arg map (core); `forge-exec-http` executor (args check, path/query/header/body, auth via env/keyring refs, timeouts, redaction, same-host redirects, 5 MiB cap); `forge-mcp` ServerHandler (list/call, annotations, LLM-friendly errors, list_changed for both protocol generations, stdio + store polling); `/mcp/{slug}` streamable HTTP; REST publishes changes
+- **Not done / partial:** none
+- **Tests:** passing (69: core 24, exec_http 13, store 14, server 18 incl. MCP-over-HTTP e2e ×4 and stdio-binary e2e ×2); clippy + fmt clean; raw JSON-RPC smoke against the binary OK
+- **Gotchas:** rmcp 3.x structs are `#[non_exhaustive]` → use builders (`StreamableHttpServerConfig::default().with_…`). Unknown tools must be protocol errors per rmcp docs, everything else `CallToolResult::error`
+- **Next step:** Stage 2 review, then Stage 3 UI
 
 ### Session 2 — 2026-10-21
 - **Stage/task:** Stage 1 — IR + store + REST API (all tasks)

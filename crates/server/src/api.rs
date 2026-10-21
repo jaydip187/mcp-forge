@@ -153,6 +153,7 @@ async fn delete_project(
     ApiPath(id): ApiPath<Uuid>,
 ) -> ApiResult<StatusCode> {
     s.store.delete_project(id).await?;
+    s.changes.notify(id);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -170,10 +171,9 @@ async fn create_tool(
     ApiPath(project_id): ApiPath<Uuid>,
     ApiJson(input): ApiJson<ToolInput>,
 ) -> ApiResult<(StatusCode, Json<ToolDef>)> {
-    Ok((
-        StatusCode::CREATED,
-        Json(s.store.create_tool(project_id, &input).await?),
-    ))
+    let tool = s.store.create_tool(project_id, &input).await?;
+    s.changes.notify(project_id);
+    Ok((StatusCode::CREATED, Json(tool)))
 }
 
 async fn get_tool(
@@ -188,7 +188,9 @@ async fn update_tool(
     ApiPath((project_id, id)): ApiPath<(Uuid, Uuid)>,
     ApiJson(input): ApiJson<ToolInput>,
 ) -> ApiResult<Json<ToolDef>> {
-    Ok(Json(s.store.update_tool(project_id, id, &input).await?))
+    let tool = s.store.update_tool(project_id, id, &input).await?;
+    s.changes.notify(project_id);
+    Ok(Json(tool))
 }
 
 async fn delete_tool(
@@ -196,6 +198,7 @@ async fn delete_tool(
     ApiPath((project_id, id)): ApiPath<(Uuid, Uuid)>,
 ) -> ApiResult<StatusCode> {
     s.store.delete_tool(project_id, id).await?;
+    s.changes.notify(project_id);
     Ok(StatusCode::NO_CONTENT)
 }
 

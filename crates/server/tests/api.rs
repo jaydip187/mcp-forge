@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use forge_exec_http::MapSecretResolver;
 use forge_store::Store;
 use mcp_forge::AppState;
 use reqwest::{Client, StatusCode};
@@ -16,7 +19,7 @@ impl Api {
         let base = format!("http://{}/api", listener.local_addr().unwrap());
         tokio::spawn(mcp_forge::serve(
             listener,
-            AppState { store },
+            AppState::new(store, Arc::new(MapSecretResolver::default())),
             std::future::pending(),
         ));
         Self {
