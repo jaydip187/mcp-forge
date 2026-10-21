@@ -1,5 +1,6 @@
 //! axum application: REST API, UI and MCP endpoints.
 
+pub mod api;
 pub mod config;
 
 use axum::extract::State;
@@ -19,6 +20,7 @@ pub struct AppState {
 pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
+        .nest("/api", api::router())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }

@@ -1,10 +1,17 @@
 //! SQLite-backed store for projects, tools and auth configs.
 
+mod auth;
+mod projects;
+mod tools;
+
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 
+use chrono::{DateTime, SubsecRound, Utc};
+use forge_core::ValidationErrors;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
+use uuid::Uuid;
 
 /// File name of the internal database inside the data directory.
 pub const DB_FILE: &str = "mcp-forge.db";
@@ -13,6 +20,14 @@ static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
+    #[error("{0} not found")]
+    NotFound(&'static str),
+    #[error("{0}")]
+    Conflict(String),
+    #[error("invalid input: {0}")]
+    Validation(#[from] ValidationErrors),
+    #[error("stored data is corrupt: {0}")]
+    Corrupt(String),
     #[error("failed to create data directory {path}: {source}")]
     DataDir {
         path: PathBuf,
@@ -22,6 +37,31 @@ pub enum StoreError {
     Db(#[from] sqlx::Error),
     #[error("migration error: {0}")]
     Migrate(#[from] sqlx::migrate::MigrateError),
+}
+
+/// Maps a unique-constraint violation to `Conflict(msg)`; other errors pass through.
+fn on_unique(e: sqlx::Error, msg: impl FnOnce() -> String) -> StoreError {
+    match &e {
+        sqlx::Error::Database(db) if db.is_unique_violation() => StoreError::Conflict(msg()),
+        _ => StoreError::Db(e),
+    }
+}
+
+/// Current time at millisecond precision, so values round-trip through SQLite unchanged.
+fn now() -> DateTime<Utc> {
+    Utc::now().trunc_subsecs(3)
+}
+
+fn parse_id(s: &str) -> Result<Uuid, StoreError> {
+    Uuid::parse_str(s).map_err(|e| StoreError::Corrupt(format!("bad id {s:?}: {e}")))
+}
+
+fn from_json<T: serde::de::DeserializeOwned>(s: &str, what: &str) -> Result<T, StoreError> {
+    serde_json::from_str(s).map_err(|e| StoreError::Corrupt(format!("bad {what} JSON: {e}")))
+}
+
+fn to_json<T: serde::Serialize>(v: &T) -> String {
+    serde_json::to_string(v).expect("IR types always serialize")
 }
 
 #[derive(Clone, Debug)]

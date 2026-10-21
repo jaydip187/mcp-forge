@@ -1,0 +1,182 @@
+use chrono::{DateTime, Utc};
+use forge_core::{Overrides, Source, ToolDef, ToolInput, ValidationErrors};
+use uuid::Uuid;
+
+use crate::{from_json, now, on_unique, parse_id, to_json, Store, StoreError};
+
+#[derive(sqlx::FromRow)]
+struct ToolRow {
+    id: String,
+    project_id: String,
+    name: String,
+    description: String,
+    kind: String,
+    enabled: bool,
+    source: String,
+    overrides: String,
+    response_shape: Option<String>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+impl TryFrom<ToolRow> for ToolDef {
+    type Error = StoreError;
+    fn try_from(r: ToolRow) -> Result<Self, StoreError> {
+        Ok(ToolDef {
+            id: parse_id(&r.id)?,
+            project_id: parse_id(&r.project_id)?,
+            name: r.name,
+            description: r.description,
+            kind: from_json(&r.kind, "tool kind")?,
+            enabled: r.enabled,
+            source: from_json(&r.source, "tool source")?,
+            overrides: from_json(&r.overrides, "tool overrides")?,
+            response_shape: r.response_shape,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        })
+    }
+}
+
+const COLUMNS: &str = "id, project_id, name, description, kind, enabled, source, overrides, \
+                       response_shape, created_at, updated_at";
+
+fn name_taken(name: &str) -> impl FnOnce() -> String + '_ {
+    move || format!("a tool named `{name}` already exists in this project")
+}
+
+impl Store {
+    /// Creates a manual tool. Importers will set other sources (Stage 4+).
+    pub async fn create_tool(
+        &self,
+        project_id: Uuid,
+        input: &ToolInput,
+    ) -> Result<ToolDef, StoreError> {
+        input.validate()?;
+        self.ensure_project(project_id).await?;
+        self.check_auth_ref(project_id, input).await?;
+        let ts = now();
+        let tool = ToolDef {
+            id: Uuid::new_v4(),
+            project_id,
+            name: input.name.clone(),
+            description: input.description.clone(),
+            kind: input.kind.clone(),
+            enabled: input.enabled,
+            source: Source::Manual,
+            overrides: Overrides::default(),
+            response_shape: input.response_shape.clone(),
+            created_at: ts,
+            updated_at: ts,
+        };
+        sqlx::query(
+            "INSERT INTO tools (id, project_id, name, description, kind, auth_ref, enabled, source, \
+             overrides, response_shape, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(tool.id.to_string())
+        .bind(project_id.to_string())
+        .bind(&tool.name)
+        .bind(&tool.description)
+        .bind(to_json(&tool.kind))
+        .bind(tool.kind.auth_ref().map(|id| id.to_string()))
+        .bind(tool.enabled)
+        .bind(to_json(&tool.source))
+        .bind(to_json(&tool.overrides))
+        .bind(&tool.response_shape)
+        .bind(tool.created_at)
+        .bind(tool.updated_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| on_unique(e, name_taken(&tool.name)))?;
+        Ok(tool)
+    }
+
+    pub async fn list_tools(&self, project_id: Uuid) -> Result<Vec<ToolDef>, StoreError> {
+        self.ensure_project(project_id).await?;
+        sqlx::query_as::<_, ToolRow>(&format!(
+            "SELECT {COLUMNS} FROM tools WHERE project_id = ? ORDER BY name"
+        ))
+        .bind(project_id.to_string())
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(ToolDef::try_from)
+        .collect()
+    }
+
+    pub async fn get_tool(&self, project_id: Uuid, id: Uuid) -> Result<ToolDef, StoreError> {
+        sqlx::query_as::<_, ToolRow>(&format!(
+            "SELECT {COLUMNS} FROM tools WHERE project_id = ? AND id = ?"
+        ))
+        .bind(project_id.to_string())
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(StoreError::NotFound("tool"))?
+        .try_into()
+    }
+
+    /// Replaces the user-editable fields; `source`, `overrides` and `created_at` are kept.
+    pub async fn update_tool(
+        &self,
+        project_id: Uuid,
+        id: Uuid,
+        input: &ToolInput,
+    ) -> Result<ToolDef, StoreError> {
+        input.validate()?;
+        let mut tool = self.get_tool(project_id, id).await?;
+        self.check_auth_ref(project_id, input).await?;
+        tool.name = input.name.clone();
+        tool.description = input.description.clone();
+        tool.kind = input.kind.clone();
+        tool.enabled = input.enabled;
+        tool.response_shape = input.response_shape.clone();
+        tool.updated_at = now();
+        sqlx::query(
+            "UPDATE tools SET name = ?, description = ?, kind = ?, auth_ref = ?, enabled = ?, \
+             response_shape = ?, updated_at = ? WHERE project_id = ? AND id = ?",
+        )
+        .bind(&tool.name)
+        .bind(&tool.description)
+        .bind(to_json(&tool.kind))
+        .bind(tool.kind.auth_ref().map(|id| id.to_string()))
+        .bind(tool.enabled)
+        .bind(&tool.response_shape)
+        .bind(tool.updated_at)
+        .bind(project_id.to_string())
+        .bind(id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| on_unique(e, name_taken(&tool.name)))?;
+        Ok(tool)
+    }
+
+    pub async fn delete_tool(&self, project_id: Uuid, id: Uuid) -> Result<(), StoreError> {
+        let done = sqlx::query("DELETE FROM tools WHERE project_id = ? AND id = ?")
+            .bind(project_id.to_string())
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        if done.rows_affected() == 0 {
+            return Err(StoreError::NotFound("tool"));
+        }
+        Ok(())
+    }
+
+    /// A tool may only reference an auth config from its own project.
+    async fn check_auth_ref(&self, project_id: Uuid, input: &ToolInput) -> Result<(), StoreError> {
+        let Some(auth_id) = input.kind.auth_ref() else {
+            return Ok(());
+        };
+        match self.get_auth_config(project_id, auth_id).await {
+            Ok(_) => Ok(()),
+            Err(StoreError::NotFound(_)) => Err(ValidationErrors::single(
+                "kind.auth_ref",
+                format!("no auth config {auth_id} in this project"),
+            )
+            .into()),
+            Err(e) => Err(e),
+        }
+    }
+}
