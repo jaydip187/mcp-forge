@@ -82,7 +82,7 @@ impl ForgeMcp {
         Ok(tools.into_iter().filter(|t| t.enabled).collect())
     }
 
-    async fn run_tool(
+    async fn call_named(
         &self,
         name: &str,
         args: &Map<String, serde_json::Value>,
@@ -97,39 +97,89 @@ impl ForgeMcp {
             }
             Err(e) => return Err(internal(e)),
         };
-        let ToolKind::Http(spec) = &tool.kind;
-        let auth = match spec.auth_ref {
-            Some(id) => match self.store.get_auth_config(self.project_id, id).await {
-                Ok(a) => Some(a),
-                Err(StoreError::NotFound(_)) => {
-                    return Ok(error_text(format!(
-                        "Configuration error: tool `{name}` references a missing auth config."
-                    )));
-                }
-                Err(e) => return Err(internal(e)),
-            },
-            None => None,
-        };
-        let result = self.exec.execute(spec, auth.as_ref(), args).await;
+        let run = run_tool(&self.store, &self.exec, &tool, args)
+            .await
+            .map_err(internal)?;
         tracing::info!(
             tool = name,
-            ok = matches!(&result, Ok(o) if o.is_success()),
-            status = result.as_ref().ok().map(|o| o.status),
+            ok = !run.is_error,
+            status = run.outcome.as_ref().ok().map(|o| o.status),
             "tool call"
         );
-        Ok(match result {
-            Ok(out) => outcome_to_result(&out),
+        let content = vec![ContentBlock::text(run.text)];
+        Ok(if run.is_error {
+            CallToolResult::error(content)
+        } else {
+            CallToolResult::success(content)
+        })
+    }
+}
+
+/// Result of running a tool: the raw outcome plus exactly what the agent sees.
+#[derive(Debug)]
+pub struct ToolRun {
+    pub outcome: Result<HttpOutcome, ExecError>,
+    pub is_error: bool,
+    pub text: String,
+}
+
+/// Runs a stored tool (enabled or not). Shared by MCP `tools/call` and the
+/// UI test console so both report identical results.
+pub async fn run_tool(
+    store: &Store,
+    exec: &HttpExecutor,
+    tool: &ToolDef,
+    args: &Map<String, serde_json::Value>,
+) -> Result<ToolRun, StoreError> {
+    let ToolKind::Http(spec) = &tool.kind;
+    let auth = match spec.auth_ref {
+        Some(id) => match store.get_auth_config(tool.project_id, id).await {
+            Ok(a) => Some(a),
+            Err(StoreError::NotFound(_)) => {
+                let outcome = Err(ExecError::Config(format!(
+                    "tool `{}` references a missing auth config",
+                    tool.name
+                )));
+                return Ok(ToolRun::from_outcome(outcome));
+            }
+            Err(e) => return Err(e),
+        },
+        None => None,
+    };
+    let outcome = exec.execute(spec, auth.as_ref(), args).await;
+    Ok(ToolRun::from_outcome(outcome))
+}
+
+impl ToolRun {
+    fn from_outcome(outcome: Result<HttpOutcome, ExecError>) -> Self {
+        let (is_error, text) = match &outcome {
+            Ok(out) => outcome_text(out),
             Err(ExecError::InvalidArgs(errs)) => {
                 let lines: Vec<String> = errs
                     .errors
                     .iter()
                     .map(|e| format!("- `{}`: {}", e.field, e.message))
                     .collect();
-                error_text(format!("Invalid arguments:\n{}", lines.join("\n")))
+                (
+                    true,
+                    format!(
+                        "Invalid arguments:
+{}",
+                        lines.join(
+                            "
+"
+                        )
+                    ),
+                )
             }
-            Err(ExecError::Config(m)) => error_text(format!("Configuration error: {m}")),
-            Err(ExecError::Request(m)) => error_text(format!("Request failed: {m}")),
-        })
+            Err(ExecError::Config(m)) => (true, format!("Configuration error: {m}")),
+            Err(ExecError::Request(m)) => (true, format!("Request failed: {m}")),
+        };
+        Self {
+            outcome,
+            is_error,
+            text,
+        }
     }
 }
 
@@ -138,37 +188,47 @@ fn internal(e: StoreError) -> ErrorData {
     ErrorData::internal_error("internal error", None)
 }
 
-fn error_text(msg: String) -> CallToolResult {
-    CallToolResult::error(vec![ContentBlock::text(msg)])
-}
-
-fn outcome_to_result(out: &HttpOutcome) -> CallToolResult {
+fn outcome_text(out: &HttpOutcome) -> (bool, String) {
     if out.is_success() {
         let mut body = out.body.clone();
         if body.is_empty() {
             body = format!("HTTP {} (empty body)", out.status_line());
         }
         if out.truncated {
-            body.push_str("\n\n[response truncated: upstream body exceeded the size limit]");
+            body.push_str(
+                "
+
+[response truncated: upstream body exceeded the size limit]",
+            );
         }
-        return CallToolResult::success(vec![ContentBlock::text(body)]);
+        return (false, body);
     }
     let mut body: String = out.body.chars().take(MAX_ERROR_BODY_CHARS).collect();
     let cut = body.len() < out.body.len() || out.truncated;
     if cut {
-        body.push_str("\n[truncated]");
+        body.push_str(
+            "
+[truncated]",
+        );
     }
     let detail = if body.is_empty() {
         "(empty body)".to_owned()
     } else {
-        format!("Response body:\n{body}")
+        format!(
+            "Response body:
+{body}"
+        )
     };
-    error_text(format!(
-        "Upstream returned HTTP {} for {} {}.\n{detail}",
-        out.status_line(),
-        out.method,
-        out.url
-    ))
+    (
+        true,
+        format!(
+            "Upstream returned HTTP {} for {} {}.
+{detail}",
+            out.status_line(),
+            out.method,
+            out.url
+        ),
+    )
 }
 
 /// MCP view of a stored tool. Input schema is derived, never stored.
@@ -230,7 +290,7 @@ impl ServerHandler for ForgeMcp {
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
         let args = request.arguments.unwrap_or_default();
-        self.run_tool(&request.name, &args).await.map(Into::into)
+        self.call_named(&request.name, &args).await.map(Into::into)
     }
 
     async fn on_initialized(&self, context: NotificationContext<RoleServer>) {

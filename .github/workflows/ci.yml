@@ -9,8 +9,28 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  ui:
+    name: ui (typecheck / test / build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm --prefix ui ci
+      - run: npm --prefix ui run typecheck
+      - run: npm --prefix ui test
+      - run: npm --prefix ui run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+
   check:
     name: fmt / clippy / test (${{ matrix.os }})
+    needs: ui
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -18,6 +38,11 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
+      # Embed the real UI so the binary under test matches a release build.
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy

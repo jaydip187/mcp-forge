@@ -6,6 +6,8 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
+use crate::security::{Security, MIN_TOKEN_LEN};
+
 pub const DEFAULT_BIND: &str = "127.0.0.1:7410";
 pub const DATA_DIR_NAME: &str = ".mcp-forge";
 
@@ -40,8 +42,33 @@ pub struct ServeArgs {
     /// Address to listen on.
     #[arg(long, env = "MCP_FORGE_BIND", default_value = DEFAULT_BIND)]
     pub bind: SocketAddr,
+    /// Bearer token required on /api and /mcp. Mandatory when --bind is not a
+    /// loopback address. Prefer the env var: flags show up in process lists.
+    #[arg(long, env = "MCP_FORGE_ADMIN_TOKEN", hide_env_values = true)]
+    pub admin_token: Option<String>,
     #[command(flatten)]
     pub common: CommonArgs,
+}
+
+impl ServeArgs {
+    /// Security settings for this bind, or an error if they'd be unsafe.
+    pub fn security(&self) -> anyhow::Result<Security> {
+        let loopback = self.bind.ip().is_loopback();
+        if let Some(t) = &self.admin_token {
+            if t.len() < MIN_TOKEN_LEN {
+                anyhow::bail!("--admin-token must be at least {MIN_TOKEN_LEN} characters");
+            }
+        } else if !loopback {
+            anyhow::bail!(
+                "binding to non-loopback address {} requires --admin-token (or MCP_FORGE_ADMIN_TOKEN)",
+                self.bind
+            );
+        }
+        Ok(Security {
+            admin_token: self.admin_token.as_deref().map(Into::into),
+            loopback_hosts_only: loopback,
+        })
+    }
 }
 
 #[derive(Debug, Args)]
@@ -108,6 +135,34 @@ mod tests {
             s.common.resolve_data_dir().unwrap(),
             PathBuf::from("/tmp/x")
         );
+    }
+
+    #[test]
+    fn non_loopback_requires_token() {
+        let serve = |args: &[&str]| {
+            let mut full = vec!["mcp-forge", "serve"];
+            full.extend_from_slice(args);
+            match parse(&full).command {
+                Command::Serve(s) => s,
+                Command::Stdio(_) => unreachable!(),
+            }
+        };
+        let local = serve(&[]).security().unwrap();
+        assert!(local.loopback_hosts_only && local.admin_token.is_none());
+        assert!(serve(&["--bind", "0.0.0.0:7410"]).security().is_err());
+        assert!(serve(&["--bind", "0.0.0.0:7410", "--admin-token", "short"])
+            .security()
+            .is_err());
+        let open = serve(&[
+            "--bind",
+            "0.0.0.0:7410",
+            "--admin-token",
+            "0123456789abcdef",
+        ])
+        .security()
+        .unwrap();
+        assert!(!open.loopback_hosts_only);
+        assert_eq!(open.admin_token.as_deref(), Some("0123456789abcdef"));
     }
 
     #[test]

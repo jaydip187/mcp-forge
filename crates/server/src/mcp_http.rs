@@ -37,8 +37,12 @@ impl McpServices {
                     state.exec.clone(),
                     state.changes.clone(),
                 );
-                let config = StreamableHttpServerConfig::default()
+                let mut config = StreamableHttpServerConfig::default()
                     .with_cancellation_token(state.shutdown.child_token());
+                if !state.security.loopback_hosts_only {
+                    // Non-loopback binds are protected by the admin token instead.
+                    config = config.disable_allowed_hosts();
+                }
                 StreamableHttpService::new(
                     move || {
                         Ok(ForgeMcp::new(

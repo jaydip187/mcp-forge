@@ -4,10 +4,10 @@
 > Legend: `[ ]` todo · `[~]` in progress / partial · `[x]` done · `[-]` dropped (say why)
 
 ## Next up
-Stage 2 review → then Stage 3: Vite React TS app + rust-embed
+Stage 3 review → then Stage 4: OpenAPI 3.x importer (file / URL import)
 
 ## Current stage
-**Stage 2 — MCP server + HTTP executor** · status: done · review: requested
+**Stage 3 — Embedded UI (manual flow)** · status: done · review: requested
 
 ---
 
@@ -39,15 +39,15 @@ Stage 2 review → then Stage 3: Vite React TS app + rust-embed
 - [x] LLM-friendly errors
 - [x] `tools/list_changed` notifications
 - [x] wiremock + MCP client tests
-- [ ] Stage review approved
+- [x] Stage review approved
 
 ### Stage 3 — Embedded UI (manual flow)
-- [ ] Vite React TS app + rust-embed
-- [ ] Projects / tools / auth screens
-- [ ] Tool form (params table, body schema, fixed values)
-- [ ] Test console
-- [ ] Endpoint view + client config snippets
-- [ ] Loopback default + admin token for non-loopback
+- [x] Vite React TS app + rust-embed
+- [x] Projects / tools / auth screens
+- [x] Tool form (params table, body schema, fixed values)
+- [x] Test console
+- [x] Endpoint view + client config snippets
+- [x] Loopback default + admin token for non-loopback
 - [ ] Stage review approved
 
 ### Stage 4 — OpenAPI 3.x importer
@@ -146,18 +146,29 @@ Stage 2 review → then Stage 3: Vite React TS app + rust-embed
 - 2026-10-21 · Annotations for HTTP tools: `readOnlyHint` true for GET/HEAD/OPTIONS, `openWorldHint` true, `destructiveHint` true for DELETE. Empty description → `"METHOD /path"`
 - 2026-10-21 · `/mcp/{slug}`: one `StreamableHttpService` (LocalSessionManager, rmcp defaults incl. loopback-only Host allowlist) per project id, created lazily; handler re-reads tools from the store per request. Shutdown cancels a token so SSE streams don't block graceful shutdown
 - 2026-10-21 · list_changed: in-process `ChangeBus` (broadcast) published by REST tool create/update/delete and project delete. Legacy sessions get push notifications (forwarder task per session, exits when transport closes); 2026-07-28 clients via `subscriptions/listen`. stdio mode polls a store fingerprint every 2s to catch edits from the `serve` process
+- 2026-10-21 · UI uses **shadcn/ui** (radix base, "nova" preset) + Tailwind v4 (`@tailwindcss/vite`), lucide icons, sonner toasts · user request mid-stage; replaced hand-written CSS. Theme retuned to steel + teal tokens (light/dark follow OS via `.dark` class); `next-themes` dropped from the generated Toaster
+- 2026-10-21 · Fonts bundled via `@fontsource-variable/geist` + `geist-mono` (embedded in the binary) · PROMPT forbids network calls beyond upstreams, so no Google Fonts
+- 2026-10-21 · Hash routing (`#/p/{id}/tools/{tid}`) · server never needs an SPA fallback; unknown asset paths 404
+- 2026-10-21 · rust-embed `allow_missing` + `crates/server/build.rs` `rerun-if-changed=../../ui/dist` · binary builds without Node (serves a "UI not built" page); rebuilding the UI re-embeds it. CI builds the UI first and passes `ui/dist` to the Rust jobs
+- 2026-10-21 · UI responses carry CSP (`default-src 'self'`, inline styles allowed for Radix), nosniff, no-referrer; hashed `assets/*` cached immutable, `index.html` no-cache
+- 2026-10-21 · Security: loopback bind (default) → requests must carry a loopback `Host` (blocks DNS rebinding against /api, /mcp and UI). Non-loopback bind → `--admin-token`/`MCP_FORGE_ADMIN_TOKEN` required (≥16 chars), checked constant-time as Bearer on **/api and /mcp**, and rmcp's Host allowlist is disabled. `/healthz` is always open
+- 2026-10-21 · Admin token in the browser lives in `sessionStorage` (per tab) and is sent as a Bearer header; 401 → unlock screen
+- 2026-10-21 · New endpoints: `GET /api/info` (version, exe, data_dir, auth_required for snippets), `GET /api/projects/{pid}/tools/{tid}/mcp` (tool exactly as MCP clients see it), `POST …/tools/{tid}/test {arguments}` → `{request, response, error, agent_view, shaped:null}`. Test console and MCP `tools/call` share `forge_mcp::run_tool`, so results are identical. Console runs disabled tools too
+- 2026-10-21 · Snippets: Claude Code CLI (`claude mcp add --transport http …` / `-- <exe> stdio …`) + `mcpServers` JSON for HTTP and stdio; single-quoted shell args (literal in bash and PowerShell); token shown only as `<your-admin-token>`
+- 2026-10-21 · vitest 5 (vitest 3 pulled tinypool with critical advisories); `npm audit` clean
 - 2026-10-21 · `.gitattributes` forces LF (esp. `migrations/*.sql`) · sqlx checksums migrations; CRLF conversion on Windows checkouts would break existing DBs
 - 2026-10-21 · Timestamps truncated to ms so they round-trip through SQLite exactly
 
 ## Open questions
 <!-- Append: YYYY-MM-DD · question · temporary choice made -->
+- 2026-10-21 · PROMPT says bearer on "/api and UI". Static files can't carry a bearer from a browser navigation. · UI shell (no data) is public; all data goes through /api, which requires the token. Revisit if a cookie session is wanted
 - 2026-10-21 · Upstream param names that aren't MCP-safe (e.g. `filter[name]`, `$top`) — need a separate wire name vs agent-facing name? · for now param name = wire name and must be MCP-safe; revisit in Stage 4 (likely add optional `wire_name`)
 - 2026-10-21 · Should tool `description` be required? · optional (empty allowed) for now; importers will fill from summary/description
 
 ## Known issues / tech debt
 <!-- Append: YYYY-MM-DD · issue · stage to fix -->
-- 2026-10-21 · rmcp's default Host allowlist is loopback-only, so `/mcp` rejects non-loopback Host headers when binding 0.0.0.0. · Stage 3 (non-loopback bind + admin token) must configure `allowed_hosts`
-- 2026-10-21 · Tested with the rmcp client + raw JSON-RPC (protocol 2025-06-18), not the MCP Inspector UI itself (needs npx/network). · manual check at Stage 3 review
+- 2026-10-21 · Tested with the rmcp client + raw JSON-RPC (protocol 2025-06-18), not the MCP Inspector UI itself (needs npx/network). · manual check at review
+- 2026-10-21 · No browser-level (Playwright) UI tests; UI logic is unit-tested (vitest) and the full flow was verified manually in Chrome. · consider for Stage 11
 - 2026-10-21 · Local Windows dev box has no MSVC `link.exe`; builds use `stable-x86_64-pc-windows-gnu` via `rustup override` (not committed). Also, in Git Bash, coreutils `link` shadows MSVC's — run cargo from PowerShell. CI uses default toolchains. · env only
 
 ---
@@ -173,6 +184,14 @@ Stage 2 review → then Stage 3: Vite React TS app + rust-embed
 - **Gotchas:** 
 - **Next step:** 
 -->
+
+### Session 4 — 2026-10-21
+- **Stage/task:** Stage 3 — Embedded UI (all tasks)
+- **Done:** shadcn/Tailwind React UI (projects, project tabs Tools/Auth/Connect/Settings, tool editor with request-line preview, params editor with fixed values + per-param JSON schema, body schema, auth configs, test console with Agent sees/Response/Request, connect snippets, token unlock); rust-embed serving + CSP; security guard (loopback Host / admin token); info, MCP-view and test endpoints; CI builds UI before Rust
+- **Not done / partial:** none
+- **Tests:** passing (Rust 77 incl. 5 new stage3 + security/config units; UI vitest 13); clippy + fmt clean; manual browser run: created project + tool in UI, ran it in the console (200), listed + called it over MCP JSON-RPC
+- **Gotchas:** rust-embed only re-embeds when the crate recompiles → build.rs. Browser QA found prefilled `https://`/`/` defaults got appended to; now empty with placeholders
+- **Next step:** Stage 3 review, then Stage 4 OpenAPI importer
 
 ### Session 3 — 2026-10-21
 - **Stage/task:** Stage 2 — MCP server + HTTP executor (all tasks)

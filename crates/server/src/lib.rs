@@ -1,9 +1,12 @@
 //! axum application: REST API, UI and MCP endpoints.
 
 pub mod api;
+mod assets;
 pub mod config;
 mod mcp_http;
+pub mod security;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::extract::State;
@@ -19,6 +22,8 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::trace::TraceLayer;
 
+pub use security::Security;
+
 #[derive(Clone)]
 pub struct AppState {
     pub store: Store,
@@ -27,6 +32,9 @@ pub struct AppState {
     pub changes: ChangeBus,
     /// Cancelled on shutdown so long-lived MCP streams close.
     pub shutdown: CancellationToken,
+    pub security: Security,
+    /// Shown in the UI's stdio config snippet.
+    pub data_dir: Option<PathBuf>,
     mcp: Arc<mcp_http::McpServices>,
 }
 
@@ -37,8 +45,20 @@ impl AppState {
             exec: HttpExecutor::new(secrets),
             changes: ChangeBus::new(),
             shutdown: CancellationToken::new(),
+            security: Security::default(),
+            data_dir: None,
             mcp: Arc::default(),
         }
+    }
+
+    pub fn with_security(mut self, security: Security) -> Self {
+        self.security = security;
+        self
+    }
+
+    pub fn with_data_dir(mut self, dir: PathBuf) -> Self {
+        self.data_dir = Some(dir);
+        self
     }
 }
 
@@ -47,6 +67,11 @@ pub fn app(state: AppState) -> Router {
         .route("/healthz", get(healthz))
         .nest("/api", api::router())
         .route("/mcp/{slug}", any(mcp_http::handle))
+        .fallback(assets::serve)
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            security::guard,
+        ))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }

@@ -28,6 +28,7 @@ fn init_tracing() {
 }
 
 async fn serve(args: ServeArgs) -> anyhow::Result<()> {
+    let security = args.security()?;
     let data_dir = args.common.resolve_data_dir()?;
     let store = Store::open(&data_dir)
         .await
@@ -35,8 +36,17 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
     let listener = TcpListener::bind(args.bind)
         .await
         .with_context(|| format!("binding {}", args.bind))?;
-    tracing::info!(addr = %listener.local_addr()?, data_dir = %data_dir.display(), "mcp-forge listening");
-    let state = AppState::new(store, Arc::new(DefaultSecretResolver));
+    let addr = listener.local_addr()?;
+    tracing::info!(%addr, data_dir = %data_dir.display(), "mcp-forge listening");
+    if addr.ip().is_loopback() {
+        tracing::info!("open http://{addr}/ in your browser");
+    }
+    if security.admin_token.is_some() {
+        tracing::info!("admin token required on /api and /mcp");
+    }
+    let state = AppState::new(store, Arc::new(DefaultSecretResolver))
+        .with_security(security)
+        .with_data_dir(data_dir);
     mcp_forge::serve(listener, state, shutdown_signal()).await?;
     tracing::info!("shut down");
     Ok(())

@@ -10,8 +10,10 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use forge_core::{AuthConfig, AuthConfigInput, Project, ProjectInput, ToolDef, ToolInput};
+use forge_exec_http::ExecError;
 use forge_store::StoreError;
-use serde_json::json;
+use serde::Deserialize;
+use serde_json::{json, Map, Value};
 use uuid::Uuid;
 
 use crate::AppState;
@@ -31,6 +33,15 @@ pub fn router() -> Router<AppState> {
             "/projects/{project_id}/tools/{tool_id}",
             get(get_tool).put(update_tool).delete(delete_tool),
         )
+        .route(
+            "/projects/{project_id}/tools/{tool_id}/mcp",
+            get(get_tool_mcp_view),
+        )
+        .route(
+            "/projects/{project_id}/tools/{tool_id}/test",
+            axum::routing::post(test_tool),
+        )
+        .route("/info", get(info))
         .route(
             "/projects/{project_id}/auth-configs",
             get(list_auth_configs).post(create_auth_config),
@@ -245,4 +256,76 @@ async fn delete_auth_config(
 ) -> ApiResult<StatusCode> {
     s.store.delete_auth_config(project_id, id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ---- info, MCP view, test console ---------------------------------------------
+
+/// What the UI needs to render connection snippets.
+async fn info(State(s): State<AppState>) -> Json<Value> {
+    let exe = std::env::current_exe()
+        .ok()
+        .map(|p| p.display().to_string());
+    Json(json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "exe": exe,
+        "data_dir": s.data_dir.as_ref().map(|d| d.display().to_string()),
+        "auth_required": s.security.admin_token.is_some(),
+    }))
+}
+
+/// The tool exactly as MCP clients see it (derived input schema, annotations).
+async fn get_tool_mcp_view(
+    State(s): State<AppState>,
+    ApiPath((project_id, id)): ApiPath<(Uuid, Uuid)>,
+) -> ApiResult<Json<rmcp::model::Tool>> {
+    let tool = s.store.get_tool(project_id, id).await?;
+    Ok(Json(forge_mcp::to_mcp_tool(&tool)))
+}
+
+#[derive(Deserialize)]
+struct TestRequest {
+    #[serde(default)]
+    arguments: Map<String, Value>,
+}
+
+/// Runs a saved tool (even if disabled) and reports the request sent, the raw
+/// upstream response and exactly what an agent would receive.
+async fn test_tool(
+    State(s): State<AppState>,
+    ApiPath((project_id, id)): ApiPath<(Uuid, Uuid)>,
+    ApiJson(req): ApiJson<TestRequest>,
+) -> ApiResult<Json<Value>> {
+    let tool = s.store.get_tool(project_id, id).await?;
+    let run = forge_mcp::run_tool(&s.store, &s.exec, &tool, &req.arguments).await?;
+    let (request, response, error) = match &run.outcome {
+        Ok(o) => (
+            json!({ "method": o.method, "url": o.url }),
+            json!({
+                "status": o.status,
+                "status_line": o.status_line(),
+                "content_type": o.content_type,
+                "body": o.body,
+                "truncated": o.truncated,
+            }),
+            Value::Null,
+        ),
+        Err(e) => {
+            let err = match e {
+                ExecError::InvalidArgs(v) => json!({
+                    "kind": "invalid_args", "message": v.to_string(), "fields": v.errors,
+                }),
+                ExecError::Config(m) => json!({ "kind": "config", "message": m }),
+                ExecError::Request(m) => json!({ "kind": "request", "message": m }),
+            };
+            (Value::Null, Value::Null, err)
+        }
+    };
+    Ok(Json(json!({
+        "request": request,
+        "response": response,
+        "error": error,
+        "agent_view": { "is_error": run.is_error, "text": run.text },
+        // Response shaping arrives in Stage 7.
+        "shaped": Value::Null,
+    })))
 }
