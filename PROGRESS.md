@@ -4,7 +4,7 @@
 > Legend: `[ ]` todo · `[~]` in progress / partial · `[x]` done · `[-]` dropped (say why)
 
 ## Next up
-Stage 11 review. All stages done; next: push to origin (github.com/jaydip187/mcp-forge), tag v0.1.0, test the installer one-liner
+Stage 11 review. All stages done; v0.1.0 released at github.com/jaydip187/mcp-forge
 
 ## Current stage
 **Stage 11 — Packaging & docs** · status: done · review: requested
@@ -112,7 +112,7 @@ Stage 11 review. All stages done; next: push to origin (github.com/jaydip187/mcp
 - [x] cargo-dist releases
 - [x] Dockerfile
 - [x] README + security model
-- [~] Fresh-install test (Docker path done; installer path needs a published release)
+- [x] Fresh-install test (Docker image + published v0.1.0 installer on a clean container)
 - [ ] Stage review approved
 
 ---
@@ -234,7 +234,6 @@ Stage 11 review. All stages done; next: push to origin (github.com/jaydip187/mcp
 
 ## Known issues / tech debt
 <!-- Append: YYYY-MM-DD · issue · stage to fix -->
-- 2026-10-22 · The installer path in the README can't be tested until a release is published (no remote yet); the release workflow was validated with `dist plan` / `dist generate --check` only, not run on GitHub. · first tag
 - 2026-10-22 · The README quick start was walked through on a fresh container via the REST API the UI calls plus a raw MCP client, not by clicking through the UI (browser-mcp input problems this session). · try the UI flow at review
 - 2026-10-22 · The affected-rows cap counts what the database reports for the statement: rows changed by triggers or cascading foreign keys aren't counted, and MySQL reports *changed* (not matched) rows for UPDATE. · document in the Stage 11 security model
 - 2026-10-22 · MySQL writes have no server-side statement timeout (max_execution_time is SELECT-only); lock waits are bounded and the client timer rolls back, but a long write keeps running server-side until it finishes or is rolled back. · document
@@ -271,6 +270,12 @@ Stage 11 review. All stages done; next: push to origin (github.com/jaydip187/mcp
 - **Gotchas:** 
 - **Next step:** 
 -->
+
+### Session 13 — 2026-10-22
+- **Stage/task:** Stage 11 follow-up: repository set to github.com/jaydip187/mcp-forge (user's choice), pushed `master`, tagged and pushed `v0.1.0`
+- **Done:** release run 39769017310 succeeded (plan, 5 platform builds, global artifacts, host, announce); release page has archives + checksums for 5 targets, shell + PowerShell installers, source tarball. Clean-machine test: fresh `debian:bookworm-slim`, README one-liner verbatim → `mcp-forge 0.1.0` in `~/.cargo/bin`, `serve` serves the embedded UI, quick start (project, `get_repo`, console, MCP initialize/list/call) works against the real GitHub API; 24 s total, 16 s of it installing curl in the bare image
+- **Not done / partial:** PowerShell installer not run (would install into the user's own profile); CI workflow didn't run on the `master` push (it triggers on `main` and PRs)
+- **Next step:** review; consider renaming the branch to `main` so CI runs on pushes
 
 ### Session 12 — 2026-10-22
 - **Stage/task:** Stage 11 — Packaging & docs; Stage 10 approved ("continue")
