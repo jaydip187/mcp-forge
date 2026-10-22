@@ -1217,7 +1217,7 @@ checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
 name = "forge-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "serde",
@@ -1229,7 +1229,7 @@ dependencies = [
 
 [[package]]
 name = "forge-exec-http"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "forge-core",
  "jaq-core",
@@ -1246,7 +1246,7 @@ dependencies = [
 
 [[package]]
 name = "forge-exec-sql"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "forge-core",
@@ -1266,7 +1266,7 @@ dependencies = [
 
 [[package]]
 name = "forge-importers"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "forge-core",
  "serde",
@@ -1278,7 +1278,7 @@ dependencies = [
 
 [[package]]
 name = "forge-mcp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "forge-core",
@@ -1295,7 +1295,7 @@ dependencies = [
 
 [[package]]
 name = "forge-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "forge-core",
@@ -2230,7 +2230,7 @@ checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
 name = "mcp-forge"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "argon2",
