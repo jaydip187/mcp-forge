@@ -4,10 +4,10 @@
 > Legend: `[ ]` todo · `[~]` in progress / partial · `[x]` done · `[-]` dropped (say why)
 
 ## Next up
-Stage 10 review → then Stage 11: cargo-dist releases
+Stage 11 review. All stages done; next: set the real repository URL, push, tag v0.1.0 (see Open questions)
 
 ## Current stage
-**Stage 10 — Writes** · status: done · review: requested
+**Stage 11 — Packaging & docs** · status: done · review: requested
 
 ---
 
@@ -106,13 +106,13 @@ Stage 10 review → then Stage 11: cargo-dist releases
 - [x] destructiveHint annotations
 - [x] Audit log + UI
 - [x] FullAccess confirmation UX
-- [ ] Stage review approved
+- [x] Stage review approved
 
 ### Stage 11 — Packaging & docs
-- [ ] cargo-dist releases
-- [ ] Dockerfile
-- [ ] README + security model
-- [ ] Fresh-install test
+- [x] cargo-dist releases
+- [x] Dockerfile
+- [x] README + security model
+- [~] Fresh-install test (Docker path done; installer path needs a published release)
 - [ ] Stage review approved
 
 ---
@@ -217,6 +217,10 @@ Stage 10 review → then Stage 11: cargo-dist releases
 - 2026-10-22 · FullAccess needs explicit confirmation: API `confirm_full_access: true` when a create/update turns it on (422 on `access_mode` otherwise); bundle import (API flag, CLI `--confirm-full-access`); UI shows a destructive warning with a required checkbox. Connection updates now notify MCP sessions (schemas/annotations depend on the mode)
 - 2026-10-22 · SQL params can carry `enum` (UI "Allowed values"); checked by `check_args` before anything runs
 - 2026-10-22 · `[profile.dev] debug = "line-tables-only"`, deps `debug = false` · target/ hit 33 GB twice on a small drive; now ~1.6 GB for a build
+- 2026-10-22 · Releases: cargo-dist 0.33.0 (six weeks old; 0.33.1 was a day old), config in `dist-workspace.toml`, workflow `.github/workflows/release.yml` (generated; edit the toml and run `dist generate`). Targets: macOS arm64/x64, Linux x64/arm64 (native arm runner), Windows x64 MSVC; shell + PowerShell installers into `~/.cargo/bin`; `profile.dist` = release + thin LTO. The UI build runs first via `github-build-setup = "../build-setup.yml"`. `mcp-forge` has `publish = false`, so `[package.metadata.dist] dist = true` opts it in
+- 2026-10-22 · Dockerfile: node:22-bookworm-slim (UI) → rust:1.91-bookworm (release build, BuildKit cache mounts) → debian:bookworm-slim with ca-certificates, user `forge` uid 10001, `/data` volume, `MCP_FORGE_BIND=0.0.0.0:7410` (so an admin token is mandatory), entrypoint `mcp-forge serve`. 201 MB. No keyring in containers → `env:` refs. CI job builds it and checks /healthz, 401 without token, 200 with
+- 2026-10-22 · Logs use ANSI colours only when stderr is a terminal (`docker logs` showed escape codes)
+- 2026-10-22 · Licence files LICENSE-MIT / LICENSE-APACHE added to match the declared `MIT OR Apache-2.0`; copyright "the mcp-forge authors"
 - 2026-10-21 · `.gitattributes` forces LF (esp. `migrations/*.sql`) · sqlx checksums migrations; CRLF conversion on Windows checkouts would break existing DBs
 - 2026-10-21 · Timestamps truncated to ms so they round-trip through SQLite exactly
 
@@ -225,10 +229,13 @@ Stage 10 review → then Stage 11: cargo-dist releases
 - 2026-10-21 · PROMPT says bearer on "/api and UI". Static files can't carry a bearer from a browser navigation. · UI shell (no data) is public; all data goes through /api, which requires the token. Revisit if a cookie session is wanted
 - 2026-10-22 · PROMPT types `SqlMode::Query.params` as `Vec<ParamDef>`; HTTP locations/fixed values/wire names don't apply to SQL. · own `SqlParam` type
 - 2026-10-22 · PROMPT makes `dsn_ref` a secret ref for every driver, including SQLite file paths (not secret). · kept as refs (`env:SHOP_DB` holding the path) for one consistent rule; revisit if it's annoying
+- 2026-10-22 · No git remote is configured, but cargo-dist needs a repository URL (release hosting and installer URLs). · used `https://github.com/jaydip-valens/mcp-forge` (guessed from the git user name) in `[workspace.package] repository/homepage` and the README install commands; replace all occurrences before the first release
 - 2026-10-21 · Should tool `description` be required? · optional (empty allowed) for now; importers will fill from summary/description
 
 ## Known issues / tech debt
 <!-- Append: YYYY-MM-DD · issue · stage to fix -->
+- 2026-10-22 · The installer path in the README can't be tested until a release is published (no remote yet); the release workflow was validated with `dist plan` / `dist generate --check` only, not run on GitHub. · first tag
+- 2026-10-22 · The README quick start was walked through on a fresh container via the REST API the UI calls plus a raw MCP client, not by clicking through the UI (browser-mcp input problems this session). · try the UI flow at review
 - 2026-10-22 · The affected-rows cap counts what the database reports for the statement: rows changed by triggers or cascading foreign keys aren't counted, and MySQL reports *changed* (not matched) rows for UPDATE. · document in the Stage 11 security model
 - 2026-10-22 · MySQL writes have no server-side statement timeout (max_execution_time is SELECT-only); lock waits are bounded and the client timer rolls back, but a long write keeps running server-side until it finishes or is rolled back. · document
 - 2026-10-22 · Audit rows are written after the transaction ends; if the internal DB write fails the change isn't recorded (error logged). · consider write-ahead audit if needed
@@ -264,6 +271,14 @@ Stage 10 review → then Stage 11: cargo-dist releases
 - **Gotchas:** 
 - **Next step:** 
 -->
+
+### Session 12 — 2026-10-22
+- **Stage/task:** Stage 11 — Packaging & docs; Stage 10 approved ("continue")
+- **Done:** cargo-dist setup (dist-workspace.toml, release workflow with UI build steps, package metadata, licence files); Dockerfile + .dockerignore + CI docker smoke job; README (install, 5-minute quick start, clients, secrets, databases, security model, Docker, CLI, troubleshooting, building); plain-text logs when not on a terminal
+- **Not done / partial:** installer path untestable without a published release; UI click-through of the quick start
+- **Tests:** passing — workspace + clippy + fmt + UI; `dist plan` (5 targets, 2 installers) and `dist generate --check`; Docker image built locally and the README walkthrough run on a fresh container + empty volume: healthy 1 s after `docker run`, non-root uid 10001, 401 without token, project + `get_repo` tool created, test console and MCP initialize → tools/list → tools/call returned shaped GitHub data; ~4 s machine time, so the human part (reading, typing) is what fills the 5 minutes
+- **Gotchas:** cargo-dist skips `publish = false` packages unless `dist = true`; newest cargo-dist was a day old → pinned the previous release
+- **Next step:** set the repository URL, push to GitHub, tag `v0.1.0`, then install with the README one-liner on a clean machine
 
 ### Session 11 — 2026-10-22
 - **Stage/task:** Stage 10 — Writes (all tasks); Stage 9 approved ("continue")

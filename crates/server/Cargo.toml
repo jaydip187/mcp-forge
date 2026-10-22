@@ -3,6 +3,10 @@ name = "mcp-forge"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Turn HTTP APIs and SQL databases into curated MCP tools, from one self-hosted binary."
+readme = "../../README.md"
 publish = false
 
 [[bin]]
@@ -41,3 +45,7 @@ rmcp = { workspace = true, features = ["client", "transport-streamable-http-clie
 wiremock.workspace = true
 tempfile.workspace = true
 sqlx.workspace = true
+
+# Released with cargo-dist even though it isn't published to crates.io.
+[package.metadata.dist]
+dist = true

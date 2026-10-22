@@ -7,6 +7,9 @@ default-members = ["crates/*"]
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+# No remote is configured yet; change this before the first release.
+repository = "https://github.com/jaydip-valens/mcp-forge"
+homepage = "https://github.com/jaydip-valens/mcp-forge"
 
 [workspace.dependencies]
 forge-core = { path = "crates/core" }
@@ -51,3 +54,8 @@ debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

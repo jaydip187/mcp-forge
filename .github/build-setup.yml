@@ -1,0 +1,12 @@
+# Inserted by cargo-dist into the release build jobs (see dist-workspace.toml):
+# the UI is embedded into the binary, so it must be built first.
+- name: Set up Node
+  uses: actions/setup-node@v4
+  with:
+    node-version: 22
+    cache: npm
+    cache-dependency-path: ui/package-lock.json
+- name: Build the UI
+  run: |
+    npm --prefix ui ci
+    npm --prefix ui run build
