@@ -3,6 +3,7 @@
 pub mod api;
 mod assets;
 pub mod config;
+mod import;
 mod mcp_http;
 pub mod security;
 
@@ -65,7 +66,7 @@ impl AppState {
 pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
-        .nest("/api", api::router())
+        .nest("/api", api::router().merge(import::router()))
         .route("/mcp/{slug}", any(mcp_http::handle))
         .fallback(assets::serve)
         .layer(axum::middleware::from_fn_with_state(

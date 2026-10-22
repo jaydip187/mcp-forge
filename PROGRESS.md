@@ -4,10 +4,10 @@
 > Legend: `[ ]` todo · `[~]` in progress / partial · `[x]` done · `[-]` dropped (say why)
 
 ## Next up
-Stage 3 review → then Stage 4: OpenAPI 3.x importer (file / URL import)
+Stage 4 review → then Stage 5: Swagger 2.0 → IR conversion
 
 ## Current stage
-**Stage 3 — Embedded UI (manual flow)** · status: done · review: requested
+**Stage 4 — OpenAPI 3.x importer** · status: done · review: requested
 
 ---
 
@@ -48,15 +48,15 @@ Stage 3 review → then Stage 4: OpenAPI 3.x importer (file / URL import)
 - [x] Test console
 - [x] Endpoint view + client config snippets
 - [x] Loopback default + admin token for non-loopback
-- [ ] Stage review approved
+- [x] Stage review approved
 
 ### Stage 4 — OpenAPI 3.x importer
-- [ ] File / URL import
-- [ ] $ref resolution (depth cap, circular)
-- [ ] Naming + dedupe + collision prefixing
-- [ ] Preview + filter UI
-- [ ] Raw spec storage
-- [ ] Tests (Petstore + large real spec)
+- [x] File / URL import
+- [x] $ref resolution (depth cap, circular)
+- [x] Naming + dedupe + collision prefixing
+- [x] Preview + filter UI
+- [x] Raw spec storage
+- [x] Tests (Petstore + large real spec)
 - [ ] Stage review approved
 
 ### Stage 5 — Swagger 2.0 importer
@@ -156,18 +156,29 @@ Stage 3 review → then Stage 4: OpenAPI 3.x importer (file / URL import)
 - 2026-10-21 · New endpoints: `GET /api/info` (version, exe, data_dir, auth_required for snippets), `GET /api/projects/{pid}/tools/{tid}/mcp` (tool exactly as MCP clients see it), `POST …/tools/{tid}/test {arguments}` → `{request, response, error, agent_view, shaped:null}`. Test console and MCP `tools/call` share `forge_mcp::run_tool`, so results are identical. Console runs disabled tools too
 - 2026-10-21 · Snippets: Claude Code CLI (`claude mcp add --transport http …` / `-- <exe> stdio …`) + `mcpServers` JSON for HTTP and stdio; single-quoted shell args (literal in bash and PowerShell); token shown only as `<your-admin-token>`
 - 2026-10-21 · vitest 5 (vitest 3 pulled tinypool with critical advisories); `npm audit` clean
+- 2026-10-22 · OpenAPI parsed as `serde_json::Value`, **not** the `openapiv3` crate · `openapiv3` only models 3.0.x; real specs (e.g. GitHub's descriptions-next) are 3.1. Value-based handling covers both and makes $ref inlining with depth/cycle control simple
+- 2026-10-22 · YAML via `serde_yaml_ng` 0.10 (maintained fork of deprecated `serde_yaml`); non-string YAML keys (`200:`) are stringified. Stage 6 YAML export will reuse it
+- 2026-10-22 · `$ref` handling: local refs only (external → descriptive stub); schemas fully inlined up to 8 nested refs; a ref already on the expansion stack becomes `{type: object, description: "…recursive; not expanded"}`; sibling keywords next to $ref override (3.1). 3.0 `nullable: true` → type union. `allOf/oneOf/anyOf` passed through
+- 2026-10-22 · **ParamDef.wire_name** (resolves the Stage 1 open question): agent-facing `name` is MCP-safe (sanitized), `wire_name` keeps the upstream name (`filter[name]`, `$top`, `@type`). Not allowed on path params — the importer rewrites `{placeholder}`s instead. Duplicate check is on (location, wire name)
+- 2026-10-22 · Import mapping: tool name = sanitized operationId, else `{method}_{path}`, deduped `_2…` within the spec and against existing project tools (preview shows final names). Description = [Deprecated.] summary + description. JSON request bodies that are plain objects are flattened into body params (readOnly props dropped); composed/non-object bodies become one `body` arg. Accept/Content-Type/Authorization header params dropped. Cookie params skipped (required → op unsupported). Required non-JSON bodies → unsupported; optional ones skipped with a warning. Undeclared `{placeholders}` become required string params
+- 2026-10-22 · Base URL: op/path-item `servers` win, else user override, else first doc server (variables → defaults; relative URLs resolved against the fetch URL). No base → op unsupported until the user enters one
+- 2026-10-22 · Auth on import: user picks an existing auth config; applied to ops whose effective `security` is non-empty (or to all ops if the spec declares no security). Security schemes are described with a suggested AuthKind; auth configs aren't auto-created
+- 2026-10-22 · Stateless import API: `POST …/import/openapi/preview {content|url, base_url}` and `POST …/import/openapi {content, source_url, filename, base_url, auth_ref, operations:[{key, name?}]}`; both re-parse. URL fetched server-side only on the preview call (http/https, 30 s, 48 MB cap, ≤5 redirects); fetched content echoed back for the commit. Body limit raised to 48 MB on these two routes
+- 2026-10-22 · Commit is one transaction (spec row + all tools); tools get `Source::OpenApi { spec_id, op_id }` with op_id = operationId or `"METHOD /path"` (the op key, used for Stage 6 re-import)
+- 2026-10-22 · Preview UI: specs with ≤50 operations start fully selected, larger ones start empty; filters by tag, method and path (glob: `*`/`?` within a segment, `**` across; no wildcard → substring)
 - 2026-10-21 · `.gitattributes` forces LF (esp. `migrations/*.sql`) · sqlx checksums migrations; CRLF conversion on Windows checkouts would break existing DBs
 - 2026-10-21 · Timestamps truncated to ms so they round-trip through SQLite exactly
 
 ## Open questions
 <!-- Append: YYYY-MM-DD · question · temporary choice made -->
 - 2026-10-21 · PROMPT says bearer on "/api and UI". Static files can't carry a bearer from a browser navigation. · UI shell (no data) is public; all data goes through /api, which requires the token. Revisit if a cookie session is wanted
-- 2026-10-21 · Upstream param names that aren't MCP-safe (e.g. `filter[name]`, `$top`) — need a separate wire name vs agent-facing name? · for now param name = wire name and must be MCP-safe; revisit in Stage 4 (likely add optional `wire_name`)
 - 2026-10-21 · Should tool `description` be required? · optional (empty allowed) for now; importers will fill from summary/description
 
 ## Known issues / tech debt
 <!-- Append: YYYY-MM-DD · issue · stage to fix -->
 - 2026-10-21 · Tested with the rmcp client + raw JSON-RPC (protocol 2025-06-18), not the MCP Inspector UI itself (needs npx/network). · manual check at review
+- 2026-10-22 · Large-spec test (`large_real_spec`) is `#[ignore]` and reads `MCP_FORGE_LARGE_SPEC`; GitHub's 13 MB spec isn't vendored. Result on 2026-10-22: GitHub REST 3.0.3 and 3.1.0 → 1242/1242 ops supported, unique names, all valid, largest tool 25 KB, ~95 ms (release). · consider a CI job that downloads it
+- 2026-10-22 · Import preview renders all operations without virtualization (fine at 1242 rows in manual testing). · revisit if slower specs show up
 - 2026-10-21 · No browser-level (Playwright) UI tests; UI logic is unit-tested (vitest) and the full flow was verified manually in Chrome. · consider for Stage 11
 - 2026-10-21 · Local Windows dev box has no MSVC `link.exe`; builds use `stable-x86_64-pc-windows-gnu` via `rustup override` (not committed). Also, in Git Bash, coreutils `link` shadows MSVC's — run cargo from PowerShell. CI uses default toolchains. · env only
 
@@ -184,6 +195,14 @@ Stage 3 review → then Stage 4: OpenAPI 3.x importer (file / URL import)
 - **Gotchas:** 
 - **Next step:** 
 -->
+
+### Session 5 — 2026-10-22
+- **Stage/task:** Stage 4 — OpenAPI 3.x importer (all tasks)
+- **Done:** `ParamDef.wire_name` (core + executor + UI type); `forge-importers` (JSON/YAML parse, $ref resolver, OpenAPI 3.0/3.1 → ToolInput with naming/dedupe/flattening/warnings, security scheme summary); migration `0002_specs` + transactional `Store::import_tools`; preview/commit/list-specs endpoints with URL fetch; Import page (file or URL, base URL, auth, tag/method/glob filters, selection)
+- **Not done / partial:** none
+- **Tests:** passing (Rust 98 + 1 ignored large-spec test, run manually on GitHub 3.0 + 3.1; UI 14); clippy + fmt clean; browser QA via browser-mcp: Petstore fetched by URL, filtered to /store/**, 4 tools imported; GitHub spec previewed and glob-filtered in the UI
+- **Gotchas:** in a `$ref` cycle the stub appears at the first self-reference, not one level deeper. axum's default 2 MB JSON limit would reject real specs → per-route `DefaultBodyLimit`
+- **Next step:** Stage 4 review, then Stage 5 Swagger 2.0
 
 ### Session 4 — 2026-10-21
 - **Stage/task:** Stage 3 — Embedded UI (all tasks)

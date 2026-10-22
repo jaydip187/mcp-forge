@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { KeyRoundIcon, PlusIcon } from "lucide-react";
+import { FileJsonIcon, KeyRoundIcon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
@@ -60,11 +60,18 @@ export function ToolsTab({ projectId }: { projectId: string }) {
             ? "No tools yet."
             : `${tools.filter((t) => t.enabled).length} of ${tools.length} tools visible to agents.`}
         </p>
-        <Button asChild>
-          <a href={href.tool(projectId, null)}>
-            <PlusIcon /> New tool
-          </a>
-        </Button>
+        <div className="flex gap-2">
+          <Button asChild variant="outline">
+            <a href={href.import(projectId)}>
+              <FileJsonIcon /> Import OpenAPI
+            </a>
+          </Button>
+          <Button asChild>
+            <a href={href.tool(projectId, null)}>
+              <PlusIcon /> New tool
+            </a>
+          </Button>
+        </div>
       </div>
 
       {tools.length === 0 ? (
@@ -73,9 +80,14 @@ export function ToolsTab({ projectId }: { projectId: string }) {
           <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
             Give it a method and URL, say which parts the agent fills in, and test it right here before any agent sees it.
           </p>
-          <Button asChild className="mt-4">
-            <a href={href.tool(projectId, null)}>Create the first tool</a>
-          </Button>
+          <div className="mt-4 flex justify-center gap-2">
+            <Button asChild>
+              <a href={href.tool(projectId, null)}>Create the first tool</a>
+            </Button>
+            <Button asChild variant="outline">
+              <a href={href.import(projectId)}>Import from OpenAPI</a>
+            </Button>
+          </div>
         </div>
       ) : (
         <ul className="divide-y rounded-lg border bg-card">

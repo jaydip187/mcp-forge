@@ -13,10 +13,12 @@ pub const BODY_ARG: &str = "body";
 /// Where an argument's value goes in the outgoing request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArgTarget {
-    /// A declared param; `name` is the wire name.
+    /// A declared param. `name` is its IR name (the `{placeholder}` for path
+    /// params); `wire` is the name sent upstream.
     Param {
         location: ParamLocation,
         name: String,
+        wire: String,
     },
     /// The entire JSON request body (`body_schema`).
     WholeBody,
@@ -72,6 +74,7 @@ impl HttpSpec {
                 target: ArgTarget::Param {
                     location: p.location,
                     name: p.name.clone(),
+                    wire: p.wire().to_owned(),
                 },
                 schema: &p.schema,
                 description: p.description.as_deref(),
@@ -193,7 +196,8 @@ mod tests {
             d.bindings[0].target,
             ArgTarget::Param {
                 location: ParamLocation::Path,
-                name: "id".into()
+                name: "id".into(),
+                wire: "id".into(),
             }
         );
     }

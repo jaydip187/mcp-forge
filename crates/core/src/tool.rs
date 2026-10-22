@@ -141,6 +141,17 @@ pub struct ParamDef {
     /// When set, the value is always sent and the param is hidden from the agent.
     #[serde(default)]
     pub fixed_value: Option<Value>,
+    /// Name sent upstream when it differs from the MCP-safe `name` (e.g.
+    /// `filter[name]`). Not allowed on path params, whose placeholder is `{name}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wire_name: Option<String>,
+}
+
+impl ParamDef {
+    /// The name used in the outgoing request.
+    pub fn wire(&self) -> &str {
+        self.wire_name.as_deref().unwrap_or(&self.name)
+    }
 }
 
 fn default_param_schema() -> Value {
@@ -246,11 +257,30 @@ impl HttpSpec {
                     format!("must be 1–{MAX_NAME_LEN} characters of a-z, A-Z, 0-9, _, . or -"),
                 );
             }
-            if !seen.insert((p.location, p.name.as_str())) {
+            if !seen.insert((p.location, p.wire())) {
                 errs.push(
                     at("name"),
-                    format!("duplicate {:?} param `{}`", p.location, p.name).to_lowercase(),
+                    format!("duplicate {} param `{}`", p.location.as_str(), p.wire()),
                 );
+            }
+            if let Some(w) = &p.wire_name {
+                if p.location == ParamLocation::Path {
+                    errs.push(
+                        at("wire_name"),
+                        "path params can't have a wire name; rename the `{placeholder}` instead",
+                    );
+                } else if w.is_empty() || w.len() > 256 || w.chars().any(char::is_control) {
+                    errs.push(
+                        at("wire_name"),
+                        "must be 1–256 characters without control characters",
+                    );
+                } else if p.location == ParamLocation::Header
+                    && !w
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+                {
+                    errs.push(at("wire_name"), "not a valid HTTP header name");
+                }
             }
             if !p.schema.is_object() {
                 errs.push(at("schema"), "must be a JSON Schema object");
@@ -434,6 +464,24 @@ mod tests {
         // Same name in a different location is allowed.
         s["params"][2]["location"] = json!("header");
         tool(s).validate().unwrap();
+    }
+
+    #[test]
+    fn wire_names() {
+        let mut s = valid_spec();
+        s["params"][1]["name"] = json!("filter_name");
+        s["params"][1]["wire_name"] = json!("filter[name]");
+        tool(s.clone()).validate().unwrap();
+        // Same wire name twice in one location is a duplicate.
+        s["params"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "name": "other", "location": "query", "wire_name": "filter[name]" }));
+        assert!(errs(s.clone()).has("kind.params[2].name"));
+        // Not on path params.
+        let mut s = valid_spec();
+        s["params"][0]["wire_name"] = json!("user-id");
+        assert!(errs(s).has("kind.params[0].wire_name"));
     }
 
     #[test]

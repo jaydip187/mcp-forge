@@ -12,11 +12,13 @@ path = "src/main.rs"
 [dependencies]
 forge-core.workspace = true
 forge-exec-http.workspace = true
+forge-importers.workspace = true
 forge-mcp.workspace = true
 forge-store.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 clap.workspace = true
+reqwest.workspace = true
 rmcp.workspace = true
 rust-embed.workspace = true
 serde.workspace = true

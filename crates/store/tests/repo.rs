@@ -239,3 +239,68 @@ async fn lookup_by_name_and_fingerprint() {
     s.delete_tool(p.id, t.id).await.unwrap();
     assert_eq!(s.tools_fingerprint(p.id).await.unwrap(), empty);
 }
+
+#[tokio::test]
+async fn import_tools_is_atomic_and_tags_source() {
+    let s = store().await;
+    let p = s.create_project(&project("A")).await.unwrap();
+    let spec = forge_store::NewSpec {
+        kind: "openapi3".into(),
+        title: "Pets".into(),
+        version: "1.0".into(),
+        source_url: None,
+        filename: Some("pets.json".into()),
+        raw: "{\"openapi\":\"3.0.0\"}".into(),
+    };
+    let (rec, tools) = s
+        .import_tools(
+            p.id,
+            &spec,
+            &[
+                (tool("a", None), "getA".into()),
+                (tool("b", None), "GET /b".into()),
+            ],
+        )
+        .await
+        .unwrap();
+    assert_eq!(tools.len(), 2);
+    assert_eq!(
+        tools[0].source,
+        Source::OpenApi {
+            spec_id: rec.id,
+            op_id: "getA".into()
+        }
+    );
+    assert_eq!(s.list_specs(p.id).await.unwrap(), vec![rec.clone()]);
+    assert_eq!(s.get_spec_raw(p.id, rec.id).await.unwrap(), spec.raw);
+    let mut names = s.tool_names(p.id).await.unwrap();
+    names.sort();
+    assert_eq!(names, ["a", "b"]);
+
+    // A clash in the batch rolls back everything, including the spec row.
+    let r = s
+        .import_tools(
+            p.id,
+            &spec,
+            &[
+                (tool("c", None), "c".into()),
+                (tool("a", None), "dup".into()),
+            ],
+        )
+        .await;
+    assert!(matches!(r, Err(StoreError::Conflict(_))), "{r:?}");
+    assert_eq!(s.list_specs(p.id).await.unwrap().len(), 1);
+    assert_eq!(s.tool_names(p.id).await.unwrap().len(), 2);
+
+    // Invalid tool → validation error naming its index.
+    let mut bad = tool("ok", None);
+    bad.name = "bad name".into();
+    let r = s
+        .import_tools(
+            p.id,
+            &spec,
+            &[(tool("ok2", None), "x".into()), (bad, "y".into())],
+        )
+        .await;
+    assert!(matches!(r, Err(StoreError::Validation(e)) if e.has("tools[1].name")));
+}

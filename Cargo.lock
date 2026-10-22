@@ -978,6 +978,14 @@ version = "0.1.0"
 [[package]]
 name = "forge-importers"
 version = "0.1.0"
+dependencies = [
+ "forge-core",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "thiserror",
+ "url",
+]
 
 [[package]]
 name = "forge-mcp"
@@ -1750,6 +1758,7 @@ dependencies = [
  "clap",
  "forge-core",
  "forge-exec-http",
+ "forge-importers",
  "forge-mcp",
  "forge-store",
  "reqwest",
@@ -2785,6 +2794,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_yaml_ng"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b4db627b98b36d4203a7b458cf3573730f2bb591b28871d916dfa9efabfd41f"
+dependencies = [
+ "indexmap",
+ "itoa",
+ "ryu",
+ "serde",
+ "unsafe-libyaml",
+]
+
+[[package]]
 name = "sha1"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3509,6 +3531,12 @@ name = "unicode-properties"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7df058c713841ad818f1dc5d3fd88063241cc61f49f5fbea4b951e8cf5a8d71d"
+
+[[package]]
+name = "unsafe-libyaml"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "untrusted"

@@ -45,6 +45,48 @@ fn name_taken(name: &str) -> impl FnOnce() -> String + '_ {
     move || format!("a tool named `{name}` already exists in this project")
 }
 
+pub(crate) fn new_tool_def(project_id: Uuid, input: &ToolInput, source: Source) -> ToolDef {
+    let ts = now();
+    ToolDef {
+        id: Uuid::new_v4(),
+        project_id,
+        name: input.name.clone(),
+        description: input.description.clone(),
+        kind: input.kind.clone(),
+        enabled: input.enabled,
+        source,
+        overrides: Overrides::default(),
+        response_shape: input.response_shape.clone(),
+        created_at: ts,
+        updated_at: ts,
+    }
+}
+
+pub(crate) async fn insert_tool<'e, E>(exec: E, tool: &ToolDef) -> Result<(), StoreError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
+    sqlx::query(
+        "INSERT INTO tools (id, project_id, name, description, kind, auth_ref, enabled, source,          overrides, response_shape, created_at, updated_at)          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(tool.id.to_string())
+    .bind(tool.project_id.to_string())
+    .bind(&tool.name)
+    .bind(&tool.description)
+    .bind(to_json(&tool.kind))
+    .bind(tool.kind.auth_ref().map(|id| id.to_string()))
+    .bind(tool.enabled)
+    .bind(to_json(&tool.source))
+    .bind(to_json(&tool.overrides))
+    .bind(&tool.response_shape)
+    .bind(tool.created_at)
+    .bind(tool.updated_at)
+    .execute(exec)
+    .await
+    .map_err(|e| on_unique(e, name_taken(&tool.name)))?;
+    Ok(())
+}
+
 impl Store {
     /// Creates a manual tool. Importers will set other sources (Stage 4+).
     pub async fn create_tool(
@@ -55,40 +97,8 @@ impl Store {
         input.validate()?;
         self.ensure_project(project_id).await?;
         self.check_auth_ref(project_id, input).await?;
-        let ts = now();
-        let tool = ToolDef {
-            id: Uuid::new_v4(),
-            project_id,
-            name: input.name.clone(),
-            description: input.description.clone(),
-            kind: input.kind.clone(),
-            enabled: input.enabled,
-            source: Source::Manual,
-            overrides: Overrides::default(),
-            response_shape: input.response_shape.clone(),
-            created_at: ts,
-            updated_at: ts,
-        };
-        sqlx::query(
-            "INSERT INTO tools (id, project_id, name, description, kind, auth_ref, enabled, source, \
-             overrides, response_shape, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(tool.id.to_string())
-        .bind(project_id.to_string())
-        .bind(&tool.name)
-        .bind(&tool.description)
-        .bind(to_json(&tool.kind))
-        .bind(tool.kind.auth_ref().map(|id| id.to_string()))
-        .bind(tool.enabled)
-        .bind(to_json(&tool.source))
-        .bind(to_json(&tool.overrides))
-        .bind(&tool.response_shape)
-        .bind(tool.created_at)
-        .bind(tool.updated_at)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| on_unique(e, name_taken(&tool.name)))?;
+        let tool = new_tool_def(project_id, input, Source::Manual);
+        insert_tool(&self.pool, &tool).await?;
         Ok(tool)
     }
 
@@ -193,7 +203,11 @@ impl Store {
     }
 
     /// A tool may only reference an auth config from its own project.
-    async fn check_auth_ref(&self, project_id: Uuid, input: &ToolInput) -> Result<(), StoreError> {
+    pub(crate) async fn check_auth_ref(
+        &self,
+        project_id: Uuid,
+        input: &ToolInput,
+    ) -> Result<(), StoreError> {
         let Some(auth_id) = input.kind.auth_ref() else {
             return Ok(());
         };

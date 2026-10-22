@@ -2,10 +2,12 @@ import type {
   AuthConfig,
   AuthConfigInput,
   FieldError,
+  ImportPreview,
   JsonObject,
   McpToolView,
   Project,
   ServerInfo,
+  SpecRecord,
   TestRun,
   Tool,
   ToolInput,
@@ -107,6 +109,21 @@ export const api = {
   toolMcpView: (pid: string, id: string) => request<McpToolView>("GET", `${p(pid)}/tools/${id}/mcp`),
   testTool: (pid: string, id: string, args: JsonObject) =>
     request<TestRun>("POST", `${p(pid)}/tools/${id}/test`, { arguments: args }),
+
+  previewOpenApi: (pid: string, body: { content?: string; url?: string; base_url?: string }) =>
+    request<ImportPreview>("POST", `${p(pid)}/import/openapi/preview`, body),
+  importOpenApi: (
+    pid: string,
+    body: {
+      content: string;
+      source_url?: string | null;
+      filename?: string | null;
+      base_url?: string;
+      auth_ref?: string | null;
+      operations: { key: string; name?: string }[];
+    },
+  ) => request<{ spec: SpecRecord; created: Tool[] }>("POST", `${p(pid)}/import/openapi`, body),
+  listSpecs: (pid: string) => request<SpecRecord[]>("GET", `${p(pid)}/specs`),
 
   listAuth: (pid: string) => request<AuthConfig[]>("GET", `${p(pid)}/auth-configs`),
   createAuth: (pid: string, input: AuthConfigInput) => request<AuthConfig>("POST", `${p(pid)}/auth-configs`, input),

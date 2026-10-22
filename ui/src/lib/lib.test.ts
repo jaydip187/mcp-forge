@@ -84,6 +84,7 @@ describe("router", () => {
     expect(parseRoute("#/p/abc/bogus")).toEqual({ name: "project", projectId: "abc", tab: "tools" });
     expect(parseRoute("#/p/abc/tools/new")).toEqual({ name: "tool", projectId: "abc", toolId: null });
     expect(parseRoute("#/p/abc/tools/t1")).toEqual({ name: "tool", projectId: "abc", toolId: "t1" });
+    expect(parseRoute("#/p/abc/import")).toEqual({ name: "import", projectId: "abc" });
   });
 });
 
@@ -146,5 +147,21 @@ describe("toolForm", () => {
   it("maps server param errors to rows", () => {
     expect(paramIndex("kind.params[3].name")).toBe(3);
     expect(paramIndex("kind.params")).toBeNull();
+  });
+});
+
+import { pathMatcher } from "./glob";
+
+describe("glob", () => {
+  it("matches globs and substrings", () => {
+    const pets = pathMatcher("/pet/*");
+    expect(pets("/pet/{petId}")).toBe(true);
+    expect(pets("/pet/{petId}/uploadImage")).toBe(false);
+    expect(pathMatcher("/pet/**")("/pet/{petId}/uploadImage")).toBe(true);
+    expect(pathMatcher("/repos/*/*/issues")("/repos/{owner}/{repo}/issues")).toBe(true);
+    expect(pathMatcher("store")("/store/inventory")).toBe(true);
+    expect(pathMatcher("STORE")("/store/inventory")).toBe(true);
+    expect(pathMatcher("/a.b/*")("/aXb/c")).toBe(false);
+    expect(pathMatcher("")("/anything")).toBe(true);
   });
 });

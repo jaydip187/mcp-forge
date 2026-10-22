@@ -24,6 +24,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ProjectsProvider, useProjects } from "@/lib/projects";
 import { href, useRoute, type Route } from "@/lib/router";
 import { Home } from "@/pages/Home";
+import { ImportPage } from "@/pages/ImportPage";
 import { ProjectPage } from "@/pages/ProjectPage";
 import { ToolEditor } from "@/pages/ToolEditor";
 import { Unlock } from "@/pages/Unlock";
@@ -98,6 +99,8 @@ function Page({ route, info }: { route: Route; info: ServerInfo }) {
       return <Home />;
     case "project":
       return <ProjectPage key={route.projectId} projectId={route.projectId} tab={route.tab} info={info} />;
+    case "import":
+      return <ImportPage key={route.projectId} projectId={route.projectId} />;
     case "tool":
       return <ToolEditor key={`${route.projectId}/${route.toolId ?? "new"}`} projectId={route.projectId} toolId={route.toolId} />;
   }

@@ -317,3 +317,37 @@ async fn cross_host_redirects_not_followed() {
         .unwrap();
     assert_eq!(out.status, 302);
 }
+
+#[tokio::test]
+async fn wire_names_used_on_the_wire() {
+    let server = MockServer::start().await;
+    Mock::given(path("/search"))
+        .and(query_param("filter[name]", "ada"))
+        .and(query_param("$top", "5"))
+        .and(body_json(json!({ "@type": "user" })))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let s = spec(
+        &server.uri(),
+        json!({
+            "method": "POST",
+            "path_template": "/search",
+            "params": [
+                { "name": "filter_name", "wire_name": "filter[name]", "location": "query" },
+                { "name": "top", "wire_name": "$top", "location": "query", "fixed_value": 5 },
+                { "name": "type", "wire_name": "@type", "location": "body" }
+            ]
+        }),
+    );
+    let out = exec(MapSecretResolver::default())
+        .execute(
+            &s,
+            None,
+            &args(json!({ "filter_name": "ada", "type": "user" })),
+        )
+        .await
+        .unwrap();
+    assert_eq!(out.status, 200);
+}

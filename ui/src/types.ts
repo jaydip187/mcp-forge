@@ -24,6 +24,8 @@ export interface ParamDef {
   required: boolean;
   description: string | null;
   fixed_value: Json | null;
+  /** Upstream name when it differs from `name` (set by importers). */
+  wire_name?: string;
 }
 
 export interface HttpSpec {
@@ -102,4 +104,46 @@ export interface ServerInfo {
   exe: string | null;
   data_dir: string | null;
   auth_required: boolean;
+}
+
+export interface ImportOperation {
+  key: string;
+  operation_id: string | null;
+  method: HttpMethod;
+  path: string;
+  name: string;
+  tags: string[];
+  summary: string | null;
+  deprecated: boolean;
+  needs_auth: boolean;
+  param_count: number;
+  base_url: string;
+  supported: boolean;
+  warnings: string[];
+}
+
+export interface ImportPreview {
+  info: {
+    title: string;
+    api_version: string;
+    openapi: string;
+    servers: string[];
+    base_url: string | null;
+    security_schemes: { name: string; description: string; suggested: AuthKind | null }[];
+  };
+  operations: ImportOperation[];
+  any_auth: boolean;
+  /** Present when the server fetched the spec from a URL. */
+  content: string | null;
+  source_url: string | null;
+}
+
+export interface SpecRecord {
+  id: string;
+  kind: string;
+  title: string;
+  version: string;
+  source_url: string | null;
+  filename: string | null;
+  created_at: string;
 }

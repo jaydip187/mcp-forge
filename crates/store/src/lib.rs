@@ -2,7 +2,10 @@
 
 mod auth;
 mod projects;
+mod specs;
 mod tools;
+
+pub use specs::{NewSpec, SpecRecord};
 
 use std::path::{Path, PathBuf};
 use std::str::FromStr;

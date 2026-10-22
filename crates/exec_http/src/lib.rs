@@ -106,14 +106,16 @@ impl HttpExecutor {
         let derived = spec.derive_input();
         check_args(&derived.bindings, &derived.schema, args).map_err(ExecError::InvalidArgs)?;
 
-        // Collect wire values: fixed values first, then agent args.
-        let mut values: Vec<(ParamLocation, &str, &Value)> = spec
+        // Collect (location, IR name, wire name, value): fixed values first,
+        // then agent args. Path placeholders use the IR name; everything else
+        // goes out under the wire name.
+        let mut values: Vec<(ParamLocation, &str, &str, &Value)> = spec
             .params
             .iter()
             .filter_map(|p| {
                 p.fixed_value
                     .as_ref()
-                    .map(|v| (p.location, p.name.as_str(), v))
+                    .map(|v| (p.location, p.name.as_str(), p.wire(), v))
             })
             .collect();
         let mut whole_body: Option<&Value> = None;
@@ -122,14 +124,18 @@ impl HttpExecutor {
                 continue;
             };
             match &b.target {
-                ArgTarget::Param { location, name } => values.push((*location, name, v)),
+                ArgTarget::Param {
+                    location,
+                    name,
+                    wire,
+                } => values.push((*location, name, wire, v)),
                 ArgTarget::WholeBody => whole_body = Some(v),
             }
         }
 
         // Path.
         let mut path = spec.path_template.clone();
-        for (loc, name, v) in &values {
+        for (loc, name, _, v) in &values {
             if *loc == ParamLocation::Path {
                 let seg = encode_path_segment(&args::joined_value(v));
                 path = path.replace(&format!("{{{name}}}"), &seg);
@@ -142,10 +148,10 @@ impl HttpExecutor {
         // Query.
         {
             let mut q = url.query_pairs_mut();
-            for (loc, name, v) in &values {
+            for (loc, _, wire, v) in &values {
                 if *loc == ParamLocation::Query {
                     for item in args::query_values(v) {
-                        q.append_pair(name, &item);
+                        q.append_pair(wire, &item);
                     }
                 }
             }
@@ -157,12 +163,12 @@ impl HttpExecutor {
         // Headers.
         let mut headers = HeaderMap::new();
         let mut bad = ValidationErrors::default();
-        for (loc, name, v) in &values {
+        for (loc, name, wire, v) in &values {
             if *loc != ParamLocation::Header {
                 continue;
             }
             match (
-                HeaderName::from_bytes(name.as_bytes()),
+                HeaderName::from_bytes(wire.as_bytes()),
                 HeaderValue::from_str(&args::joined_value(v)),
             ) {
                 (Ok(n), Ok(val)) => {
@@ -179,7 +185,7 @@ impl HttpExecutor {
         let body_fields: Map<String, Value> = values
             .iter()
             .filter(|(loc, ..)| *loc == ParamLocation::Body)
-            .map(|(_, name, v)| ((*name).to_owned(), (*v).clone()))
+            .map(|(_, _, wire, v)| ((*wire).to_owned(), (*v).clone()))
             .collect();
         let body = match whole_body {
             Some(v) => Some(v.clone()),
