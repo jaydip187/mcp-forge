@@ -155,8 +155,9 @@ async fn commit(
         let mut tool = op.tool.clone();
         tool.name = sel.name.clone().unwrap_or_else(|| names[&op.key].clone());
         if op.needs_auth || !any_auth {
-            let ToolKind::Http(h) = &mut tool.kind;
-            h.auth_ref = req.auth_ref;
+            if let ToolKind::Http(h) = &mut tool.kind {
+                h.auth_ref = req.auth_ref;
+            }
         }
         tools.push((tool, op.op_id()));
     }

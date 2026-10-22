@@ -2,6 +2,9 @@ import type {
   AuthConfig,
   AuthConfigInput,
   BundleReport,
+  ConnectionReport,
+  DbConnection,
+  DbConnectionInput,
   FieldError,
   ImportPreview,
   JsonObject,
@@ -173,4 +176,13 @@ export const api = {
   updateAuth: (pid: string, id: string, input: AuthConfigInput) =>
     request<AuthConfig>("PUT", `${p(pid)}/auth-configs/${id}`, input),
   deleteAuth: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/auth-configs/${id}`),
+
+  listConnections: (pid: string) => request<DbConnection[]>("GET", `${p(pid)}/db-connections`),
+  createConnection: (pid: string, input: DbConnectionInput) =>
+    request<DbConnection>("POST", `${p(pid)}/db-connections`, input),
+  updateConnection: (pid: string, id: string, input: DbConnectionInput) =>
+    request<DbConnection>("PUT", `${p(pid)}/db-connections/${id}`, input),
+  deleteConnection: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/db-connections/${id}`),
+  testConnection: (pid: string, id: string) =>
+    request<ConnectionReport>("POST", `${p(pid)}/db-connections/${id}/test`, {}),
 };

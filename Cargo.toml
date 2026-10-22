@@ -19,6 +19,7 @@ forge-mcp = { path = "crates/mcp" }
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 axum = { version = "0.8", features = ["macros"] }
+futures-util = { version = "0.3", default-features = false }
 clap = { version = "4", features = ["derive", "env"] }
 jaq-core = "3.1"
 jaq-json = { version = "2.0", features = ["serde"] }
@@ -30,8 +31,10 @@ rmcp = { version = "3.6", default-features = false, features = ["server", "macro
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml_ng = "0.10"
+sqlparser = { version = "0.63", features = ["visitor"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros", "chrono"] }
 tempfile = "3"
+testcontainers-modules = { version = "0.15", features = ["postgres", "mysql"] }
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "sync"] }
 tokio-util = "0.7"

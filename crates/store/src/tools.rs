@@ -81,7 +81,7 @@ where
     E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
 {
     sqlx::query(
-        "UPDATE tools SET name = ?, description = ?, kind = ?, auth_ref = ?, enabled = ?, 
+        "UPDATE tools SET name = ?, description = ?, kind = ?, auth_ref = ?, connection_ref = ?, enabled = ?, 
          tags = ?, source = ?, overrides = ?, response_shape = ?, updated_at = ? 
          WHERE project_id = ? AND id = ?",
     )
@@ -89,6 +89,7 @@ where
     .bind(&tool.description)
     .bind(to_json(&tool.kind))
     .bind(tool.kind.auth_ref().map(|id| id.to_string()))
+    .bind(tool.kind.connection_ref().map(|id| id.to_string()))
     .bind(tool.enabled)
     .bind(to_json(&tool.tags))
     .bind(to_json(&tool.source))
@@ -108,9 +109,7 @@ where
     E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
 {
     sqlx::query(
-        "INSERT INTO tools (id, project_id, name, description, kind, auth_ref, enabled, tags, source, 
-         overrides, response_shape, created_at, updated_at) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO tools (id, project_id, name, description, kind, auth_ref, connection_ref,          enabled, tags, source, overrides, response_shape, created_at, updated_at)          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(tool.id.to_string())
     .bind(tool.project_id.to_string())
@@ -118,6 +117,7 @@ where
     .bind(&tool.description)
     .bind(to_json(&tool.kind))
     .bind(tool.kind.auth_ref().map(|id| id.to_string()))
+    .bind(tool.kind.connection_ref().map(|id| id.to_string()))
     .bind(tool.enabled)
     .bind(to_json(&tool.tags))
     .bind(to_json(&tool.source))
@@ -199,7 +199,6 @@ impl Store {
         Ok(fp)
     }
 
-    /// Replaces the user-editable fields; `source`, `overrides` and `created_at` are kept.
     /// Replaces the user-editable fields; `source` and `created_at` are kept.
     /// On an imported tool, every field that changes is recorded in
     /// `overrides` so a later re-import keeps the user's version.
@@ -212,6 +211,13 @@ impl Store {
         input.validate()?;
         let mut tool = self.get_tool(project_id, id).await?;
         self.check_auth_ref(project_id, input).await?;
+        if tool.source != Source::Manual && tool.kind.type_name() != input.kind.type_name() {
+            return Err(ValidationErrors::single(
+                "kind.type",
+                "an imported tool can't change its kind",
+            )
+            .into());
+        }
         if tool.source != Source::Manual {
             for f in changed_fields(&tool.input(), input) {
                 tool.overrides.fields.insert(f.to_owned());
@@ -256,12 +262,26 @@ impl Store {
         Ok(())
     }
 
-    /// A tool may only reference an auth config from its own project.
+    /// A tool may only reference an auth config or DB connection from its
+    /// own project.
     pub(crate) async fn check_auth_ref(
         &self,
         project_id: Uuid,
         input: &ToolInput,
     ) -> Result<(), StoreError> {
+        if let Some(conn_id) = input.kind.connection_ref() {
+            match self.get_connection(project_id, conn_id).await {
+                Ok(_) => {}
+                Err(StoreError::NotFound(_)) => {
+                    return Err(ValidationErrors::single(
+                        "kind.connection_id",
+                        format!("no connection {conn_id} in this project"),
+                    )
+                    .into())
+                }
+                Err(e) => return Err(e),
+            }
+        }
         let Some(auth_id) = input.kind.auth_ref() else {
             return Ok(());
         };

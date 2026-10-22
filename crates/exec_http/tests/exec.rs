@@ -31,7 +31,9 @@ fn spec(base: &str, v: Value) -> HttpSpec {
     kind["base_url"] = json!(base);
     let t: ToolInput = serde_json::from_value(json!({ "name": "t", "kind": kind })).unwrap();
     t.validate().unwrap();
-    let ToolKind::Http(h) = t.kind;
+    let ToolKind::Http(h) = t.kind else {
+        panic!("expected an HTTP tool")
+    };
     h
 }
 

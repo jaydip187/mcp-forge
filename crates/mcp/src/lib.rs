@@ -6,11 +6,13 @@
 //! initialize-based sessions and through `subscriptions/listen` for
 //! 2026-07-28 clients.
 
+use std::sync::Arc;
 use std::time::Duration;
 
-use forge_core::{HttpMethod, ProjectSettings, ToolDef, ToolKind};
+use forge_core::{HttpMethod, ProjectSettings, SecretResolver, ToolDef, ToolKind};
 use forge_exec_http::shape::{shape_body, ShapeOptions};
 use forge_exec_http::{ExecError, HttpExecutor, HttpOutcome};
+use forge_exec_sql::{SqlError, SqlExecutor, SqlOutcome};
 use forge_store::{Store, StoreError};
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
@@ -55,6 +57,22 @@ impl ChangeBus {
     }
 }
 
+/// The executors tool calls run on: HTTP upstreams and SQL databases.
+#[derive(Clone)]
+pub struct Executors {
+    pub http: HttpExecutor,
+    pub sql: SqlExecutor,
+}
+
+impl Executors {
+    pub fn new(secrets: Arc<dyn SecretResolver>) -> Self {
+        Self {
+            http: HttpExecutor::new(secrets.clone()),
+            sql: SqlExecutor::new(secrets),
+        }
+    }
+}
+
 /// Meta-tools listed instead of the real tools when a project has
 /// `tool_search` on: agents find tools by keyword, then call them by name.
 pub const SEARCH_TOOL: &str = "search_tools";
@@ -67,12 +85,12 @@ const MAX_SEARCH_LIMIT: usize = 25;
 pub struct ForgeMcp {
     store: Store,
     project_id: Uuid,
-    exec: HttpExecutor,
+    exec: Executors,
     changes: ChangeBus,
 }
 
 impl ForgeMcp {
-    pub fn new(store: Store, project_id: Uuid, exec: HttpExecutor, changes: ChangeBus) -> Self {
+    pub fn new(store: Store, project_id: Uuid, exec: Executors, changes: ChangeBus) -> Self {
         Self {
             store,
             project_id,
@@ -121,8 +139,12 @@ impl ForgeMcp {
             .map_err(internal)?;
         tracing::info!(
             tool = name,
+            kind = tool.kind.type_name(),
             ok = !run.is_error,
-            status = run.outcome.as_ref().ok().map(|o| o.status),
+            status = match &run.outcome {
+                RunOutcome::Http(Ok(o)) => Some(o.status),
+                _ => None,
+            },
             "tool call"
         );
         Ok(result(run.is_error, run.text))
@@ -193,10 +215,12 @@ pub fn search_tools<'a>(tools: &'a [ToolDef], query: &str, limit: usize) -> Vec<
     let mut scored: Vec<(u32, &ToolDef)> = tools
         .iter()
         .filter_map(|t| {
-            let ToolKind::Http(h) = &t.kind;
             let name = t.name.to_lowercase();
             let desc = t.description.to_lowercase();
-            let path = h.path_template.to_lowercase();
+            let path = match &t.kind {
+                ToolKind::Http(h) => h.path_template.to_lowercase(),
+                ToolKind::Sql(_) => String::new(),
+            };
             let score: u32 = terms
                 .iter()
                 .map(|term| {
@@ -267,10 +291,17 @@ fn json_object(v: Value) -> Map<String, Value> {
     }
 }
 
+/// What the executor returned, before it became agent text.
+#[derive(Debug)]
+pub enum RunOutcome {
+    Http(Result<HttpOutcome, ExecError>),
+    Sql(Result<SqlOutcome, SqlError>),
+}
+
 /// Result of running a tool: the raw outcome plus exactly what the agent sees.
 #[derive(Debug)]
 pub struct ToolRun {
-    pub outcome: Result<HttpOutcome, ExecError>,
+    pub outcome: RunOutcome,
     pub is_error: bool,
     pub text: String,
     /// Set when shaping (jq, null stripping or the size cap) changed the body.
@@ -282,12 +313,28 @@ pub struct ToolRun {
 /// both report identical results.
 pub async fn run_tool(
     store: &Store,
-    exec: &HttpExecutor,
+    exec: &Executors,
     tool: &ToolDef,
     args: &Map<String, Value>,
     settings: &ProjectSettings,
 ) -> Result<ToolRun, StoreError> {
-    let ToolKind::Http(spec) = &tool.kind;
+    let spec = match &tool.kind {
+        ToolKind::Http(spec) => spec,
+        ToolKind::Sql(spec) => {
+            let outcome = match store
+                .get_connection(tool.project_id, spec.connection_id)
+                .await
+            {
+                Ok(conn) => exec.sql.run_query(&conn, spec, args).await,
+                Err(StoreError::NotFound(_)) => Err(SqlError::Config(format!(
+                    "tool `{}` references a missing connection",
+                    tool.name
+                ))),
+                Err(e) => return Err(e),
+            };
+            return Ok(ToolRun::from_sql(outcome, tool, settings));
+        }
+    };
     let auth = match spec.auth_ref {
         Some(id) => match store.get_auth_config(tool.project_id, id).await {
             Ok(a) => Some(a),
@@ -302,11 +349,73 @@ pub async fn run_tool(
         },
         None => None,
     };
-    let outcome = exec.execute(spec, auth.as_ref(), args).await;
+    let outcome = exec.http.execute(spec, auth.as_ref(), args).await;
     Ok(ToolRun::from_outcome(outcome, tool, settings))
 }
 
+/// jq, null stripping and the size cap, as configured for the project.
+/// Returns the agent text and whether shaping changed it.
+fn shaped_text(
+    body: &str,
+    content_type: Option<&str>,
+    tool: &ToolDef,
+    settings: &ProjectSettings,
+) -> (String, bool) {
+    let opts = ShapeOptions {
+        strip_nulls: settings.strip_nulls,
+        max_chars: settings.max_response_chars as usize,
+    };
+    let s = shape_body(body, content_type, tool.response_shape.as_deref(), &opts);
+    let changed = s.transformed || s.truncated || s.shape_error.is_some();
+    (s.text, changed)
+}
+
+fn invalid_args_text(errs: &forge_core::ValidationErrors) -> String {
+    let lines: Vec<String> = errs
+        .errors
+        .iter()
+        .map(|e| format!("- `{}`: {}", e.field, e.message))
+        .collect();
+    format!("Invalid arguments:\n{}", lines.join("\n"))
+}
+
 impl ToolRun {
+    fn from_sql(
+        outcome: Result<SqlOutcome, SqlError>,
+        tool: &ToolDef,
+        settings: &ProjectSettings,
+    ) -> Self {
+        let mut shaped = None;
+        let (is_error, text) = match &outcome {
+            Ok(out) => {
+                let body = out.result_json().to_string();
+                let (text, changed) = shaped_text(&body, Some("application/json"), tool, settings);
+                if changed {
+                    shaped = Some(text.clone());
+                }
+                (false, text)
+            }
+            Err(SqlError::InvalidArgs(errs)) => (true, invalid_args_text(errs)),
+            Err(SqlError::Rejected(m)) => (true, format!("Query rejected: {m}")),
+            Err(SqlError::Config(m)) => (true, format!("Configuration error: {m}")),
+            Err(SqlError::Connect(m)) => (true, format!("Database connection failed: {m}")),
+            Err(SqlError::Timeout(ms)) => (
+                true,
+                format!(
+                    "The query did not finish within {ms} ms. Try narrower arguments; \
+                     an admin can raise the connection's timeout."
+                ),
+            ),
+            Err(SqlError::Database(m)) => (true, format!("Database error: {m}")),
+        };
+        Self {
+            outcome: RunOutcome::Sql(outcome),
+            is_error,
+            text,
+            shaped,
+        }
+    }
+
     fn from_outcome(
         outcome: Result<HttpOutcome, ExecError>,
         tool: &ToolDef,
@@ -315,41 +424,25 @@ impl ToolRun {
         let mut shaped = None;
         let (is_error, text) = match &outcome {
             Ok(out) if out.is_success() && !out.body.is_empty() => {
-                let opts = ShapeOptions {
-                    strip_nulls: settings.strip_nulls,
-                    max_chars: settings.max_response_chars as usize,
-                };
-                let s = shape_body(
-                    &out.body,
-                    out.content_type.as_deref(),
-                    tool.response_shape.as_deref(),
-                    &opts,
-                );
-                let mut text = s.text;
+                let (mut text, changed) =
+                    shaped_text(&out.body, out.content_type.as_deref(), tool, settings);
                 if out.truncated {
                     text.push_str(
                         "\n\n[The upstream body exceeded the download limit and was cut before shaping.]",
                     );
                 }
-                if s.transformed || s.truncated || s.shape_error.is_some() {
+                if changed {
                     shaped = Some(text.clone());
                 }
                 (false, text)
             }
             Ok(out) => outcome_text(out),
-            Err(ExecError::InvalidArgs(errs)) => {
-                let lines: Vec<String> = errs
-                    .errors
-                    .iter()
-                    .map(|e| format!("- `{}`: {}", e.field, e.message))
-                    .collect();
-                (true, format!("Invalid arguments:\n{}", lines.join("\n")))
-            }
+            Err(ExecError::InvalidArgs(errs)) => (true, invalid_args_text(errs)),
             Err(ExecError::Config(m)) => (true, format!("Configuration error: {m}")),
             Err(ExecError::Request(m)) => (true, format!("Request failed: {m}")),
         };
         Self {
-            outcome,
+            outcome: RunOutcome::Http(outcome),
             is_error,
             text,
             shaped,
@@ -389,7 +482,23 @@ fn outcome_text(out: &HttpOutcome) -> (bool, String) {
 
 /// MCP view of a stored tool. Input schema is derived, never stored.
 pub fn to_mcp_tool(t: &ToolDef) -> Tool {
-    let ToolKind::Http(spec) = &t.kind;
+    let spec = match &t.kind {
+        ToolKind::Http(spec) => spec,
+        ToolKind::Sql(spec) => {
+            let description = if t.description.trim().is_empty() {
+                "Runs a read-only SQL query and returns {columns, rows, truncated}.".to_owned()
+            } else {
+                t.description.clone()
+            };
+            // Curated queries only read, and only from the configured database.
+            let annotations = ToolAnnotations::new()
+                .read_only(true)
+                .destructive(false)
+                .open_world(false);
+            return Tool::new(t.name.clone(), description, spec.derive_input().schema)
+                .with_annotations(annotations);
+        }
+    };
     let description = if t.description.trim().is_empty() {
         format!("{} {}", method_str(spec.method), spec.path_template)
     } else {
@@ -552,7 +661,7 @@ pub enum StdioError {
 /// polling the store every `poll` and announced as list changes.
 pub async fn serve_stdio(
     store: Store,
-    exec: HttpExecutor,
+    exec: Executors,
     slug: &str,
     poll: Duration,
 ) -> Result<(), StdioError> {

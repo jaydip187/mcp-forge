@@ -3,7 +3,9 @@
 //! Importers produce these types; the store persists them; the UI and MCP server
 //! read only these. MCP input schemas are derived from them, never stored.
 
+mod args;
 mod auth;
+mod db;
 mod overrides;
 mod project;
 mod schema;
@@ -12,7 +14,13 @@ mod settings;
 mod tool;
 mod validate;
 
+pub use args::check_args;
 pub use auth::{ApiKeyLocation, AuthConfig, AuthConfigInput, AuthKind};
+pub use db::{
+    is_valid_sql_param_name, AccessMode, ColumnMask, DbConnection, DbConnectionInput, Driver,
+    SqlMode, SqlParam, SqlSpec, DEFAULT_ROW_LIMIT, DEFAULT_SQL_TIMEOUT_MS, MAX_ROW_LIMIT,
+    SQL_PARAM_TYPES,
+};
 pub use overrides::{changed_fields, merge_overrides, OVERRIDABLE_FIELDS};
 pub use project::{slugify, Project, ProjectInput};
 pub use schema::{ArgBinding, ArgTarget, DerivedInput, BODY_ARG};

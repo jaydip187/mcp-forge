@@ -82,8 +82,10 @@ describe("router", () => {
     expect(parseRoute("#/p/abc")).toEqual({ name: "project", projectId: "abc", tab: "tools" });
     expect(parseRoute("#/p/abc/connect")).toEqual({ name: "project", projectId: "abc", tab: "connect" });
     expect(parseRoute("#/p/abc/bogus")).toEqual({ name: "project", projectId: "abc", tab: "tools" });
-    expect(parseRoute("#/p/abc/tools/new")).toEqual({ name: "tool", projectId: "abc", toolId: null });
-    expect(parseRoute("#/p/abc/tools/t1")).toEqual({ name: "tool", projectId: "abc", toolId: "t1" });
+    expect(parseRoute("#/p/abc/tools/new")).toEqual({ name: "tool", projectId: "abc", toolId: null, kind: "http" });
+    expect(parseRoute("#/p/abc/tools/new-sql")).toEqual({ name: "tool", projectId: "abc", toolId: null, kind: "sql" });
+    expect(parseRoute("#/p/abc/tools/t1")).toEqual({ name: "tool", projectId: "abc", toolId: "t1", kind: "http" });
+    expect(parseRoute("#/p/abc/databases")).toEqual({ name: "project", projectId: "abc", tab: "databases" });
     expect(parseRoute("#/p/abc/import")).toEqual({ name: "import", projectId: "abc" });
     expect(parseRoute("#/p/abc/specs")).toEqual({ name: "project", projectId: "abc", tab: "specs" });
     expect(parseRoute("#/p/abc/specs/s1/reimport")).toEqual({ name: "reimport", projectId: "abc", specId: "s1" });
@@ -123,7 +125,7 @@ describe("toolForm", () => {
       row({ name: "v", location: "header" }, { fixedOn: true, fixedText: "2" }),
     ]);
     expect(r.ok).toBe(true);
-    if (!r.ok) return;
+    if (!r.ok || r.input.kind.type !== "http") throw new Error("expected an HTTP payload");
     expect(r.input.kind.params[1]!.fixed_value).toBe("2");
     expect(r.input.kind.timeout_ms).toBe(30000);
     expect(r.input.kind.body_schema).toBeNull();
@@ -196,7 +198,7 @@ describe("visibility", () => {
     ...s,
   });
   const tool = (method: string, path: string, tags: string[], enabled = true) =>
-    ({ enabled, tags, kind: { method, path_template: path } }) as unknown as Tool;
+    ({ enabled, tags, kind: { type: "http", method, path_template: path } }) as unknown as Tool;
 
   it("matches the server's rules", () => {
     expect(hiddenReason(tool("POST", "/a", []), settings({}))).toBeNull();
@@ -213,8 +215,57 @@ describe("visibility", () => {
     expect(hiddenReason(tool("GET", "/repos/{o}/{r}/issues", []), settings({ include_paths: ["/repos/**"] }))).toBeNull();
   });
 
+  it("treats SQL tools as read-only and outside path filters", () => {
+    const sql = { enabled: true, tags: ["db"], kind: { type: "sql" } } as unknown as Tool;
+    expect(hiddenReason(sql, settings({ read_only: true, include_paths: ["/api/**"] }))).toBeNull();
+    expect(hiddenReason(sql, settings({ exclude_tags: ["db"] }))).toBe("tag");
+  });
+
   it("splits tags", () => {
     expect(splitTags(" a, b,,a , c ")).toEqual(["a", "b", "c"]);
     expect(splitTags("")).toEqual([]);
+  });
+});
+
+import { buildSqlInput, newSqlForm, splitList, sqlParamIndex, sqlPlaceholders, syncSqlParams } from "./sqlForm";
+
+describe("sql form", () => {
+  it("finds :name placeholders outside strings, comments and casts", () => {
+    expect(
+      sqlPlaceholders(
+        "SELECT a::text, ':nope', \"x:y\" FROM t -- :c\nWHERE id = :id /* :d */ AND n = :name AND m = :id",
+      ),
+    ).toEqual(["id", "name"]);
+    expect(sqlPlaceholders("SELECT 1")).toEqual([]);
+  });
+
+  it("adds params for new placeholders only", () => {
+    const params = syncSqlParams("SELECT * FROM t WHERE a = :a AND b = :b", [
+      { name: "a", schema: { type: "integer" }, required: false, description: "kept" },
+    ]);
+    expect(params.map((p) => [p.name, p.schema.type, p.required])).toEqual([
+      ["a", "integer", false],
+      ["b", "string", true],
+    ]);
+  });
+
+  it("builds the payload and requires a connection", () => {
+    const form = { ...newSqlForm(), name: " q ", sql: "SELECT :x", params: [{ name: "x", schema: { type: "string" }, required: true, description: " " }] };
+    expect(buildSqlInput(form)).toEqual({ ok: false, fieldErrors: { "kind.connection_id": expect.any(String) } });
+    const r = buildSqlInput({ ...form, connection_id: "c1", tagsText: "a, b" });
+    if (!r.ok || r.input.kind.type !== "sql") throw new Error("expected a SQL payload");
+    expect(r.input.name).toBe("q");
+    expect(r.input.tags).toEqual(["a", "b"]);
+    expect(r.input.kind).toEqual({
+      type: "sql",
+      connection_id: "c1",
+      mode: { type: "query", sql: "SELECT :x", params: [{ name: "x", schema: { type: "string" }, required: true, description: null }] },
+    });
+  });
+
+  it("maps server error paths and splits lists", () => {
+    expect(sqlParamIndex("kind.mode.params[2].name")).toBe(2);
+    expect(sqlParamIndex("kind.mode.sql")).toBeNull();
+    expect(splitList("users.email\n*.ssn, users.email,")).toEqual(["users.email", "*.ssn"]);
   });
 });

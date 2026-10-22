@@ -83,8 +83,9 @@ fn plan<'a>(
         }
         let mut base = op.tool.clone();
         if op.needs_auth || !any_auth {
-            let ToolKind::Http(h) = &mut base.kind;
-            h.auth_ref = auth_ref;
+            if let ToolKind::Http(h) = &mut base.kind {
+                h.auth_ref = auth_ref;
+            }
         }
         let mut merged = merge_overrides(&tool.input(), &tool.overrides, &base);
         if merged.name != tool.name || taken.contains(&merged.name) {
@@ -316,8 +317,9 @@ async fn commit(
                 let mut t = op.tool.clone();
                 t.name = (*name).clone();
                 if op.needs_auth || !imported.operations.iter().any(|o| o.needs_auth) {
-                    let ToolKind::Http(h) = &mut t.kind;
-                    h.auth_ref = inp.auth_ref;
+                    if let ToolKind::Http(h) = &mut t.kind {
+                        h.auth_ref = inp.auth_ref;
+                    }
                 }
                 inserts.push((t, op.op_id()));
             }

@@ -10,7 +10,9 @@ const BASE: &str = "https://petstore.swagger.io/v2";
 /// What makes two imports "equivalent": the tool an agent would see and the
 /// request it would send.
 fn signature(o: &BuiltOperation) -> Value {
-    let ToolKind::Http(h) = &o.tool.kind;
+    let ToolKind::Http(h) = &o.tool.kind else {
+        panic!("expected an HTTP tool")
+    };
     let mut params: Vec<Value> = h
         .params
         .iter()
@@ -108,7 +110,9 @@ fn swagger2_petstore_details() {
     // Body param with $ref'd definition is flattened like a 3.x JSON body.
     let add = op("POST /pet");
     assert!(add.supported, "{:?}", add.warnings);
-    let ToolKind::Http(h) = &add.tool.kind;
+    let ToolKind::Http(h) = &add.tool.kind else {
+        panic!("expected an HTTP tool")
+    };
     let body: Vec<_> = h
         .params
         .iter()
@@ -122,7 +126,9 @@ fn swagger2_petstore_details() {
 
     // Array body → one whole-body arg.
     let many = op("POST /user/createWithList");
-    let ToolKind::Http(h) = &many.tool.kind;
+    let ToolKind::Http(h) = &many.tool.kind else {
+        panic!("expected an HTTP tool")
+    };
     assert_eq!(h.body_schema.as_ref().unwrap()["type"], "array");
 
     // collectionFormat multi = repeated keys, which is what the executor sends.

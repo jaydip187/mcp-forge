@@ -1,11 +1,13 @@
-//! Bulk import of auth configs and tools (the YAML bundle), all or nothing.
+//! Bulk import of auth configs, DB connections and tools (the YAML bundle),
+//! all or nothing.
 
 use std::collections::HashMap;
 
-use forge_core::{AuthConfigInput, ToolInput, ToolKind, ValidationErrors};
+use forge_core::{AuthConfigInput, DbConnectionInput, ToolInput, ToolKind, ValidationErrors};
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::connections::{insert_connection, new_connection};
 use crate::tools::{apply_input, insert_tool, new_tool_def, write_tool};
 use crate::{now, to_json, Store, StoreError};
 
@@ -28,19 +30,35 @@ pub struct BundleReport {
     pub auth_updated: Vec<String>,
     /// Existing configs kept (identical, or skipped by policy).
     pub auth_kept: Vec<String>,
+    pub connections_created: Vec<String>,
+    pub connections_updated: Vec<String>,
+    /// Existing connections kept (identical, or skipped by policy).
+    pub connections_kept: Vec<String>,
     pub tools_created: Vec<String>,
     pub tools_updated: Vec<String>,
     pub tools_skipped: Vec<String>,
 }
 
+/// A bundle tool with its references by name.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BundleTool {
+    pub input: ToolInput,
+    /// Auth config name (HTTP tools).
+    pub auth: Option<String>,
+    /// DB connection name (SQL tools).
+    pub connection: Option<String>,
+}
+
 impl Store {
-    /// Imports auth configs then tools. A tool's `auth` names an auth config
-    /// from the bundle or already in the project. New tools are manual tools.
+    /// Imports auth configs, connections, then tools. A tool's `auth` /
+    /// `connection` names an item from the bundle or already in the project.
+    /// New tools are manual tools.
     pub async fn import_bundle(
         &self,
         project_id: Uuid,
         auths: &[AuthConfigInput],
-        tools: &[(ToolInput, Option<String>)],
+        conns: &[DbConnectionInput],
+        tools: &[BundleTool],
         policy: ConflictPolicy,
     ) -> Result<BundleReport, StoreError> {
         self.ensure_project(project_id).await?;
@@ -57,6 +75,19 @@ impl Store {
             .await?
             .into_iter()
             .map(|a| (a.name.clone(), a))
+            .collect();
+        for (i, c) in conns.iter().enumerate() {
+            if let Err(e) = c.validate() {
+                for f in e.errors {
+                    errs.push(format!("db_connections[{i}].{}", f.field), f.message);
+                }
+            }
+        }
+        let existing_conns: HashMap<String, _> = self
+            .list_connections(project_id)
+            .await?
+            .into_iter()
+            .map(|c| (c.name.clone(), c))
             .collect();
         let existing_tools: HashMap<String, _> = self
             .list_tools(project_id)
@@ -118,23 +149,78 @@ impl Store {
             }
         }
 
-        let mut resolved = Vec::with_capacity(tools.len());
-        for (i, (t, auth)) in tools.iter().enumerate() {
-            let mut t = t.clone();
-            let ToolKind::Http(h) = &mut t.kind;
-            h.auth_ref = match auth {
-                None => None,
-                Some(name) => match auth_ids.get(name) {
-                    Some(id) => Some(*id),
-                    None => {
-                        errs.push(
-                            format!("tools[{i}].auth"),
-                            format!("no auth config named `{name}`"),
-                        );
-                        None
+        let mut conn_ids: HashMap<String, Uuid> = existing_conns
+            .iter()
+            .map(|(n, c)| (n.clone(), c.id))
+            .collect();
+        for c in conns {
+            match existing_conns.get(&c.name) {
+                Some(cur) if &cur.input() == c => report.connections_kept.push(c.name.clone()),
+                Some(_) if policy == ConflictPolicy::Fail => {
+                    return Err(StoreError::Conflict(format!(
+                        "a connection named `{}` already exists with different settings",
+                        c.name
+                    )));
+                }
+                Some(_) if policy == ConflictPolicy::Skip => {
+                    report.connections_kept.push(c.name.clone())
+                }
+                Some(cur) => {
+                    if cur.driver != c.driver {
+                        return Err(StoreError::Conflict(format!(
+                            "connection `{}` exists with a different driver",
+                            c.name
+                        )));
                     }
+                    let mut updated = new_connection(project_id, c);
+                    updated.id = cur.id;
+                    updated.created_at = cur.created_at;
+                    sqlx::query("DELETE FROM db_connections WHERE id = ?")
+                        .bind(cur.id.to_string())
+                        .execute(&mut *tx)
+                        .await?;
+                    insert_connection(&mut *tx, &updated).await?;
+                    report.connections_updated.push(c.name.clone());
+                }
+                None => {
+                    let created = new_connection(project_id, c);
+                    insert_connection(&mut *tx, &created).await?;
+                    conn_ids.insert(c.name.clone(), created.id);
+                    report.connections_created.push(c.name.clone());
+                }
+            }
+        }
+
+        let mut resolved = Vec::with_capacity(tools.len());
+        for (i, bt) in tools.iter().enumerate() {
+            let mut t = bt.input.clone();
+            match &mut t.kind {
+                ToolKind::Http(h) => {
+                    h.auth_ref = match &bt.auth {
+                        None => None,
+                        Some(name) => match auth_ids.get(name) {
+                            Some(id) => Some(*id),
+                            None => {
+                                errs.push(
+                                    format!("tools[{i}].auth"),
+                                    format!("no auth config named `{name}`"),
+                                );
+                                None
+                            }
+                        },
+                    };
+                }
+                ToolKind::Sql(s) => match bt.connection.as_ref().and_then(|n| conn_ids.get(n)) {
+                    Some(id) => s.connection_id = *id,
+                    None => errs.push(
+                        format!("tools[{i}].connection"),
+                        match &bt.connection {
+                            Some(n) => format!("no connection named `{n}`"),
+                            None => "SQL tools need `connection: <connection name>`".into(),
+                        },
+                    ),
                 },
-            };
+            }
             if let Err(e) = t.validate() {
                 for f in e.errors {
                     errs.push(format!("tools[{i}].{}", f.field), f.message);

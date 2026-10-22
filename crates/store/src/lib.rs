@@ -1,12 +1,13 @@
-//! SQLite-backed store for projects, tools and auth configs.
+//! SQLite-backed store for projects, tools, auth configs and DB connections.
 
 mod auth;
 mod bundle;
+mod connections;
 mod projects;
 mod specs;
 mod tools;
 
-pub use bundle::{BundleReport, ConflictPolicy};
+pub use bundle::{BundleReport, BundleTool, ConflictPolicy};
 pub use specs::{NewSpec, ReimportResult, SpecRecord};
 
 use std::path::{Path, PathBuf};

@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use clap::Parser;
-use forge_exec_http::{DefaultSecretResolver, HttpExecutor};
+use forge_exec_http::DefaultSecretResolver;
 use forge_store::Store;
 use mcp_forge::config::{Cli, Command, ExportArgs, ImportArgs, OnConflict, ServeArgs, StdioArgs};
 use mcp_forge::AppState;
@@ -59,7 +59,7 @@ async fn stdio(args: StdioArgs) -> anyhow::Result<()> {
     let store = Store::open(&data_dir)
         .await
         .with_context(|| format!("opening store in {}", data_dir.display()))?;
-    let exec = HttpExecutor::new(Arc::new(DefaultSecretResolver));
+    let exec = forge_mcp::Executors::new(Arc::new(DefaultSecretResolver));
     forge_mcp::serve_stdio(store, exec, &args.project, STDIO_POLL).await?;
     Ok(())
 }
@@ -134,18 +134,28 @@ async fn import(args: ImportArgs) -> anyhow::Result<()> {
         OnConflict::Skip => forge_store::ConflictPolicy::Skip,
         OnConflict::Replace => forge_store::ConflictPolicy::Replace,
     };
+    mcp_forge::bundle::check_sql_tools(&store, project.id, &bundle).await?;
     let r = store
-        .import_bundle(project.id, &bundle.auth_configs, &bundle.tools, policy)
+        .import_bundle(
+            project.id,
+            &bundle.auth_configs,
+            &bundle.db_connections,
+            &bundle.tools,
+            policy,
+        )
         .await?;
     eprintln!(
-        "Imported into `{}`: tools {} created, {} updated, {} skipped; auth configs {} created, {} updated, {} kept",
+        "Imported into `{}`: tools {} created, {} updated, {} skipped; auth configs {} created, {} updated, {} kept; connections {} created, {} updated, {} kept",
         project.slug,
         r.tools_created.len(),
         r.tools_updated.len(),
         r.tools_skipped.len(),
         r.auth_created.len(),
         r.auth_updated.len(),
-        r.auth_kept.len()
+        r.auth_kept.len(),
+        r.connections_created.len(),
+        r.connections_updated.len(),
+        r.connections_kept.len()
     );
     Ok(())
 }

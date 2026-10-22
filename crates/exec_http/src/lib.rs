@@ -19,7 +19,8 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue, AUTHORIZATION};
 use reqwest::Url;
 use serde_json::{Map, Value};
 
-pub use args::{check_args, encode_path_segment};
+pub use args::encode_path_segment;
+pub use forge_core::check_args;
 pub use secrets::{DefaultSecretResolver, MapSecretResolver, KEYRING_SERVICE};
 
 /// Upstream bodies larger than this are cut off and flagged `truncated`.
@@ -131,6 +132,8 @@ impl HttpExecutor {
                     wire,
                 } => values.push((*location, name, wire, v)),
                 ArgTarget::WholeBody => whole_body = Some(v),
+                // SQL bindings never come from an HTTP spec.
+                ArgTarget::SqlParam { .. } => {}
             }
         }
 

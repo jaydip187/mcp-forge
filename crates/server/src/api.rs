@@ -1,4 +1,4 @@
-//! REST API under `/api`: CRUD for projects, tools and auth configs.
+//! REST API under `/api`: CRUD for projects, tools, auth configs and DB connections.
 //!
 //! Errors are JSON: `{"error": {"code", "message", "fields"?}}` with
 //! 400 (malformed request), 404, 409 (conflict), 422 (validation) or 500.
@@ -9,8 +9,13 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use forge_core::{AuthConfig, AuthConfigInput, Project, ProjectInput, ToolDef, ToolInput};
+use forge_core::{
+    AuthConfig, AuthConfigInput, DbConnection, DbConnectionInput, Project, ProjectInput, ToolDef,
+    ToolInput, ToolKind,
+};
 use forge_exec_http::ExecError;
+use forge_exec_sql::SqlError;
+use forge_mcp::RunOutcome;
 use forge_store::StoreError;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -65,6 +70,20 @@ pub fn router() -> Router<AppState> {
             get(get_auth_config)
                 .put(update_auth_config)
                 .delete(delete_auth_config),
+        )
+        .route(
+            "/projects/{project_id}/db-connections",
+            get(list_connections).post(create_connection),
+        )
+        .route(
+            "/projects/{project_id}/db-connections/{conn_id}",
+            get(get_connection)
+                .put(update_connection)
+                .delete(delete_connection),
+        )
+        .route(
+            "/projects/{project_id}/db-connections/{conn_id}/test",
+            axum::routing::post(test_connection),
         )
         .fallback(|| async { ApiError::Store(StoreError::NotFound("route")) })
 }
@@ -197,6 +216,7 @@ async fn create_tool(
     ApiJson(input): ApiJson<ToolInput>,
 ) -> ApiResult<(StatusCode, Json<ToolDef>)> {
     check_shape(&input)?;
+    check_sql(&s, project_id, &input).await?;
     let tool = s.store.create_tool(project_id, &input).await?;
     s.changes.notify(project_id);
     Ok((StatusCode::CREATED, Json(tool)))
@@ -215,6 +235,7 @@ async fn update_tool(
     ApiJson(input): ApiJson<ToolInput>,
 ) -> ApiResult<Json<ToolDef>> {
     check_shape(&input)?;
+    check_sql(&s, project_id, &input).await?;
     let tool = s.store.update_tool(project_id, id, &input).await?;
     s.changes.notify(project_id);
     Ok(Json(tool))
@@ -274,6 +295,76 @@ async fn delete_auth_config(
     Ok(StatusCode::NO_CONTENT)
 }
 
+// ---- DB connections -------------------------------------------------------------
+
+async fn list_connections(
+    State(s): State<AppState>,
+    ApiPath(project_id): ApiPath<Uuid>,
+) -> ApiResult<Json<Vec<DbConnection>>> {
+    Ok(Json(s.store.list_connections(project_id).await?))
+}
+
+async fn create_connection(
+    State(s): State<AppState>,
+    ApiPath(project_id): ApiPath<Uuid>,
+    ApiJson(input): ApiJson<DbConnectionInput>,
+) -> ApiResult<(StatusCode, Json<DbConnection>)> {
+    Ok((
+        StatusCode::CREATED,
+        Json(s.store.create_connection(project_id, &input).await?),
+    ))
+}
+
+async fn get_connection(
+    State(s): State<AppState>,
+    ApiPath((project_id, id)): ApiPath<(Uuid, Uuid)>,
+) -> ApiResult<Json<DbConnection>> {
+    Ok(Json(s.store.get_connection(project_id, id).await?))
+}
+
+async fn update_connection(
+    State(s): State<AppState>,
+    ApiPath((project_id, id)): ApiPath<(Uuid, Uuid)>,
+    ApiJson(input): ApiJson<DbConnectionInput>,
+) -> ApiResult<Json<DbConnection>> {
+    let conn = s.store.update_connection(project_id, id, &input).await?;
+    s.exec.sql.forget(id).await;
+    Ok(Json(conn))
+}
+
+async fn delete_connection(
+    State(s): State<AppState>,
+    ApiPath((project_id, id)): ApiPath<(Uuid, Uuid)>,
+) -> ApiResult<StatusCode> {
+    s.store.delete_connection(project_id, id).await?;
+    s.exec.sql.forget(id).await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Connects with the saved settings and reports version, user and whether
+/// the role can write.
+async fn test_connection(
+    State(s): State<AppState>,
+    ApiPath((project_id, id)): ApiPath<(Uuid, Uuid)>,
+) -> ApiResult<Json<forge_exec_sql::ConnectionReport>> {
+    let conn = s.store.get_connection(project_id, id).await?;
+    Ok(Json(s.exec.sql.test_connection(&conn).await))
+}
+
+/// A SQL tool's statement must pass the read-only check for its
+/// connection's dialect before it's saved.
+pub(crate) async fn check_sql(s: &AppState, project_id: Uuid, input: &ToolInput) -> ApiResult<()> {
+    let ToolKind::Sql(spec) = &input.kind else {
+        return Ok(());
+    };
+    // A missing connection is reported by the store (422 on kind.connection_id).
+    let Ok(conn) = s.store.get_connection(project_id, spec.connection_id).await else {
+        return Ok(());
+    };
+    forge_exec_sql::check_query_tool(spec, conn.driver)
+        .map_err(|e| ApiError::Store(StoreError::Validation(e)))
+}
+
 // ---- info, MCP view, test console ---------------------------------------------
 
 /// What the UI needs to render connection snippets.
@@ -315,7 +406,32 @@ async fn test_tool(
     let settings = s.store.get_project(project_id).await?.settings;
     let run = forge_mcp::run_tool(&s.store, &s.exec, &tool, &req.arguments, &settings).await?;
     let (request, response, error) = match &run.outcome {
-        Ok(o) => (
+        RunOutcome::Sql(Ok(o)) => (
+            json!({ "sql": o.sql, "params": o.params }),
+            json!({
+                "columns": o.columns,
+                "rows": o.rows,
+                "row_count": o.rows.len(),
+                "truncated": o.truncated,
+                "masked_columns": o.masked_columns,
+                "elapsed_ms": o.elapsed_ms,
+            }),
+            Value::Null,
+        ),
+        RunOutcome::Sql(Err(e)) => {
+            let err = match e {
+                SqlError::InvalidArgs(v) => json!({
+                    "kind": "invalid_args", "message": v.to_string(), "fields": v.errors,
+                }),
+                SqlError::Rejected(m) => json!({ "kind": "rejected", "message": m }),
+                SqlError::Config(m) => json!({ "kind": "config", "message": m }),
+                SqlError::Connect(m) => json!({ "kind": "connect", "message": m }),
+                SqlError::Timeout(_) => json!({ "kind": "timeout", "message": e.to_string() }),
+                SqlError::Database(m) => json!({ "kind": "database", "message": m }),
+            };
+            (Value::Null, Value::Null, err)
+        }
+        RunOutcome::Http(Ok(o)) => (
             json!({ "method": o.method, "url": o.url }),
             json!({
                 "status": o.status,
@@ -326,7 +442,7 @@ async fn test_tool(
             }),
             Value::Null,
         ),
-        Err(e) => {
+        RunOutcome::Http(Err(e)) => {
             let err = match e {
                 ExecError::InvalidArgs(v) => json!({
                     "kind": "invalid_args", "message": v.to_string(), "fields": v.errors,
@@ -338,6 +454,7 @@ async fn test_tool(
         }
     };
     Ok(Json(json!({
+        "kind": tool.kind.type_name(),
         "request": request,
         "response": response,
         "error": error,
@@ -402,8 +519,8 @@ async fn import_bundle(
 ) -> ApiResult<Json<forge_store::BundleReport>> {
     let bundle =
         crate::bundle::parse_bundle(&req.content).map_err(|e| ApiError::Store(e.into()))?;
-    for (i, (t, _)) in bundle.tools.iter().enumerate() {
-        check_shape(t).map_err(|e| match e {
+    for (i, t) in bundle.tools.iter().enumerate() {
+        check_shape(&t.input).map_err(|e| match e {
             ApiError::Store(StoreError::Validation(mut v)) => {
                 for f in &mut v.errors {
                     f.field = format!("tools[{i}].{}", f.field);
@@ -413,11 +530,13 @@ async fn import_bundle(
             other => other,
         })?;
     }
+    crate::bundle::check_sql_tools(&s.store, project_id, &bundle).await?;
     let report = s
         .store
         .import_bundle(
             project_id,
             &bundle.auth_configs,
+            &bundle.db_connections,
             &bundle.tools,
             req.on_conflict,
         )

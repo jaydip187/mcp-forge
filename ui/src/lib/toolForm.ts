@@ -45,6 +45,7 @@ export function newForm(): ToolForm {
 }
 
 export function formFromTool(t: Tool): ToolForm {
+  if (t.kind.type !== "http") throw new Error("formFromTool needs an HTTP tool");
   return {
     name: t.name,
     description: t.description,

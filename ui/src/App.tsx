@@ -27,6 +27,7 @@ import { Home } from "@/pages/Home";
 import { ImportPage } from "@/pages/ImportPage";
 import { ProjectPage } from "@/pages/ProjectPage";
 import { ReimportPage } from "@/pages/ReimportPage";
+import { SqlToolEditor } from "@/pages/SqlToolEditor";
 import { ToolEditor } from "@/pages/ToolEditor";
 import { Unlock } from "@/pages/Unlock";
 import type { ServerInfo } from "@/types";
@@ -105,6 +106,8 @@ function Page({ route, info }: { route: Route; info: ServerInfo }) {
     case "reimport":
       return <ReimportPage key={route.specId} projectId={route.projectId} specId={route.specId} />;
     case "tool":
+      if (!route.toolId && route.kind === "sql")
+        return <SqlToolEditor key={`${route.projectId}/new-sql`} projectId={route.projectId} tool={null} />;
       return <ToolEditor key={`${route.projectId}/${route.toolId ?? "new"}`} projectId={route.projectId} toolId={route.toolId} />;
   }
 }

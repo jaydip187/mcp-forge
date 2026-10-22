@@ -1,5 +1,5 @@
 //! Derives a tool's MCP input schema from its IR, plus the map that routes
-//! each agent-facing argument back to its place in the HTTP request.
+//! each agent-facing argument back to its place in the request.
 
 use std::collections::HashMap;
 
@@ -22,6 +22,8 @@ pub enum ArgTarget {
     },
     /// The entire JSON request body (`body_schema`).
     WholeBody,
+    /// A SQL tool's `:name` placeholder.
+    SqlParam { name: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,7 +166,9 @@ mod tests {
 
     fn spec(v: Value) -> HttpSpec {
         let t: ToolInput = serde_json::from_value(json!({ "name": "t", "kind": v })).unwrap();
-        let crate::ToolKind::Http(h) = t.kind;
+        let crate::ToolKind::Http(h) = t.kind else {
+            panic!("http tool")
+        };
         h
     }
 

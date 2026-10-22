@@ -37,7 +37,18 @@ impl ToolDef {
 }
 
 fn field_value(t: &ToolInput, field: &str) -> Value {
-    let ToolKind::Http(h) = &t.kind;
+    let ToolKind::Http(h) = &t.kind else {
+        // Only imported (HTTP) tools track overrides; other kinds compare whole.
+        let v = match field {
+            "name" => serde_json::to_value(&t.name),
+            "description" => serde_json::to_value(&t.description),
+            "enabled" => serde_json::to_value(t.enabled),
+            "tags" => serde_json::to_value(&t.tags),
+            "response_shape" => serde_json::to_value(&t.response_shape),
+            _ => serde_json::to_value(&t.kind),
+        };
+        return v.expect("IR fields serialize");
+    };
     let v = match field {
         "name" => serde_json::to_value(&t.name),
         "description" => serde_json::to_value(&t.description),
@@ -57,14 +68,18 @@ fn field_value(t: &ToolInput, field: &str) -> Value {
 }
 
 fn copy_field(from: &ToolInput, to: &mut ToolInput, field: &str) {
-    let ToolKind::Http(src) = &from.kind;
-    let ToolKind::Http(dst) = &mut to.kind;
     match field {
         "name" => to.name = from.name.clone(),
         "description" => to.description = from.description.clone(),
         "enabled" => to.enabled = from.enabled,
         "tags" => to.tags = from.tags.clone(),
         "response_shape" => to.response_shape = from.response_shape.clone(),
+        _ => {}
+    }
+    let (ToolKind::Http(src), ToolKind::Http(dst)) = (&from.kind, &mut to.kind) else {
+        return;
+    };
+    match field {
         "kind.method" => dst.method = src.method,
         "kind.base_url" => dst.base_url = src.base_url.clone(),
         "kind.path_template" => dst.path_template = src.path_template.clone(),
@@ -128,7 +143,9 @@ mod tests {
         assert!(changed_fields(&a, &b).is_empty());
         b.description = "two".into();
         b.enabled = false;
-        let ToolKind::Http(h) = &mut b.kind;
+        let ToolKind::Http(h) = &mut b.kind else {
+            panic!("http tool")
+        };
         h.timeout_ms = 5;
         assert_eq!(
             changed_fields(&a, &b),
@@ -147,7 +164,9 @@ mod tests {
         let merged = merge_overrides(&current, &ov, &base);
         assert_eq!(merged.description, "my words");
         assert!(merged.enabled, "enabled wasn't overridden, spec value wins");
-        let ToolKind::Http(h) = &merged.kind;
+        let ToolKind::Http(h) = &merged.kind else {
+            panic!("http tool")
+        };
         assert_eq!(h.path_template, "/users/{id}");
     }
 
@@ -158,7 +177,9 @@ mod tests {
         let mut ov = Overrides::default();
         ov.fields.insert("kind.params".into());
         let merged = merge_overrides(&current, &ov, &base);
-        let ToolKind::Http(h) = &merged.kind;
+        let ToolKind::Http(h) = &merged.kind else {
+            panic!("http tool")
+        };
         assert_eq!(h.path_template, "/u/{id}");
         merged.validate().unwrap();
     }

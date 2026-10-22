@@ -160,7 +160,9 @@ async fn auth_crud_and_reference_rules() {
     assert!(matches!(cross, Err(StoreError::Validation(e)) if e.has("kind.auth_ref")));
 
     let t = s.create_tool(a.id, &tool("t", Some(cfg.id))).await.unwrap();
-    let ToolKind::Http(h) = &t.kind;
+    let ToolKind::Http(h) = &t.kind else {
+        panic!("expected an HTTP tool")
+    };
     assert_eq!(h.auth_ref, Some(cfg.id));
 
     // In use → cannot delete; after unlinking → can.
@@ -386,7 +388,9 @@ async fn apply_reimport_updates_inserts_deletes_atomically() {
     v2.version = "2".into();
     let mut new_a = a.input();
     new_a.description = "mine".into();
-    let ToolKind::Http(h) = &mut new_a.kind;
+    let ToolKind::Http(h) = &mut new_a.kind else {
+        panic!("expected an HTTP tool")
+    };
     h.timeout_ms = 1234;
     let (rec, res) = s
         .apply_reimport(
@@ -405,7 +409,9 @@ async fn apply_reimport_updates_inserts_deletes_atomically() {
     assert_eq!(res.deleted, [b.id]);
     assert_eq!(res.created[0].source.spec_id(), Some(spec.id));
     let a2 = s.get_tool(p.id, a.id).await.unwrap();
-    let ToolKind::Http(h) = &a2.kind;
+    let ToolKind::Http(h) = &a2.kind else {
+        panic!("expected an HTTP tool")
+    };
     assert_eq!(h.timeout_ms, 1234);
     assert!(
         a2.overrides.fields.contains("description"),
@@ -438,6 +444,14 @@ async fn apply_reimport_updates_inserts_deletes_atomically() {
     assert_eq!(s.tools_for_spec(p.id, spec.id).await.unwrap().len(), 2);
 }
 
+fn bt(input: ToolInput, auth: Option<&str>) -> forge_store::BundleTool {
+    forge_store::BundleTool {
+        input,
+        auth: auth.map(str::to_owned),
+        connection: None,
+    }
+}
+
 #[tokio::test]
 async fn import_bundle_policies() {
     use forge_store::ConflictPolicy;
@@ -445,18 +459,20 @@ async fn import_bundle_policies() {
     let p = s.create_project(&project("A")).await.unwrap();
     let auths = vec![auth("token")];
     let tools = vec![
-        (tool("a", None), Some("token".to_owned())),
-        (tool("b", None), None),
+        bt(tool("a", None), Some("token")),
+        bt(tool("b", None), None),
     ];
 
     let r = s
-        .import_bundle(p.id, &auths, &tools, ConflictPolicy::Fail)
+        .import_bundle(p.id, &auths, &[], &tools, ConflictPolicy::Fail)
         .await
         .unwrap();
     assert_eq!(r.auth_created, ["token"]);
     assert_eq!(r.tools_created, ["a", "b"]);
     let a = s.get_tool_by_name(p.id, "a").await.unwrap();
-    let ToolKind::Http(h) = &a.kind;
+    let ToolKind::Http(h) = &a.kind else {
+        panic!("expected an HTTP tool")
+    };
     assert_eq!(
         h.auth_ref,
         Some(s.list_auth_configs(p.id).await.unwrap()[0].id)
@@ -465,11 +481,11 @@ async fn import_bundle_policies() {
 
     // Same bundle again: identical auth is kept, tools conflict.
     let r = s
-        .import_bundle(p.id, &auths, &tools, ConflictPolicy::Fail)
+        .import_bundle(p.id, &auths, &[], &tools, ConflictPolicy::Fail)
         .await;
     assert!(matches!(r, Err(StoreError::Conflict(_))), "{r:?}");
     let r = s
-        .import_bundle(p.id, &auths, &tools, ConflictPolicy::Skip)
+        .import_bundle(p.id, &auths, &[], &tools, ConflictPolicy::Skip)
         .await
         .unwrap();
     assert_eq!((r.auth_kept.len(), r.tools_skipped.len()), (1, 2));
@@ -480,7 +496,8 @@ async fn import_bundle_policies() {
         .import_bundle(
             p.id,
             &[],
-            &[(changed, Some("token".into())), (tool("c", None), None)],
+            &[],
+            &[bt(changed, Some("token")), bt(tool("c", None), None)],
             ConflictPolicy::Replace,
         )
         .await
@@ -499,7 +516,8 @@ async fn import_bundle_policies() {
         .import_bundle(
             p.id,
             &[],
-            &[(tool("d", None), Some("nope".into()))],
+            &[],
+            &[bt(tool("d", None), Some("nope"))],
             ConflictPolicy::Fail,
         )
         .await;
@@ -513,11 +531,139 @@ async fn import_bundle_policies() {
         .import_bundle(
             p.id,
             &[other],
-            &[(tool("e", None), None), (tool("a", None), None)],
+            &[],
+            &[bt(tool("e", None), None), bt(tool("a", None), None)],
             ConflictPolicy::Fail,
         )
         .await;
     assert!(matches!(r, Err(StoreError::Conflict(_))));
     assert!(s.get_tool_by_name(p.id, "e").await.is_err());
     assert_eq!(s.list_auth_configs(p.id).await.unwrap().len(), 1);
+}
+
+fn conn(name: &str, driver: &str) -> forge_core::DbConnectionInput {
+    serde_json::from_value(json!({ "name": name, "driver": driver, "dsn_ref": "env:DB_URL" }))
+        .unwrap()
+}
+
+fn sql_tool(name: &str, connection_id: Uuid) -> ToolInput {
+    serde_json::from_value(json!({
+        "name": name,
+        "kind": { "type": "sql", "connection_id": connection_id,
+                  "mode": { "type": "query", "sql": "SELECT 1" } }
+    }))
+    .unwrap()
+}
+
+#[tokio::test]
+async fn connection_crud_and_reference_rules() {
+    let s = store().await;
+    let p = s.create_project(&project("A")).await.unwrap();
+    let other = s.create_project(&project("B")).await.unwrap();
+    let c = s
+        .create_connection(p.id, &conn("shop", "postgres"))
+        .await
+        .unwrap();
+    assert_eq!(
+        s.list_connections(p.id).await.unwrap(),
+        std::slice::from_ref(&c)
+    );
+    assert_eq!(s.get_connection(p.id, c.id).await.unwrap(), c);
+    assert_conflict(s.create_connection(p.id, &conn("shop", "mysql")).await);
+    assert!(matches!(
+        s.get_connection(other.id, c.id).await,
+        Err(StoreError::NotFound(_))
+    ));
+
+    // Masks and limits round-trip through the settings column.
+    let mut input = conn("shop", "postgres");
+    input.row_limit = 5;
+    input.column_masks = vec![forge_core::ColumnMask::parse("users.email").unwrap()];
+    let c2 = s.update_connection(p.id, c.id, &input).await.unwrap();
+    assert_eq!(s.get_connection(p.id, c.id).await.unwrap(), c2);
+    assert_eq!(c2.row_limit, 5);
+
+    // Tools must use a connection from their own project.
+    let foreign = s
+        .create_connection(other.id, &conn("x", "sqlite"))
+        .await
+        .unwrap();
+    let r = s.create_tool(p.id, &sql_tool("q", foreign.id)).await;
+    assert!(matches!(r, Err(StoreError::Validation(e)) if e.has("kind.connection_id")));
+    let t = s.create_tool(p.id, &sql_tool("q", c.id)).await.unwrap();
+    assert_eq!(t.kind.connection_ref(), Some(c.id));
+
+    // In use: no delete, no driver change; other edits are fine.
+    assert_conflict(s.delete_connection(p.id, c.id).await);
+    assert_conflict(
+        s.update_connection(p.id, c.id, &conn("shop", "mysql"))
+            .await,
+    );
+    s.delete_tool(p.id, t.id).await.unwrap();
+    s.update_connection(p.id, c.id, &conn("shop", "mysql"))
+        .await
+        .unwrap();
+    s.delete_connection(p.id, c.id).await.unwrap();
+    assert!(s.list_connections(p.id).await.unwrap().is_empty());
+
+    // Project delete cascades through SQL tools and connections.
+    let c = s
+        .create_connection(p.id, &conn("shop", "sqlite"))
+        .await
+        .unwrap();
+    s.create_tool(p.id, &sql_tool("q", c.id)).await.unwrap();
+    s.delete_project(p.id).await.unwrap();
+}
+
+#[tokio::test]
+async fn bundle_imports_connections_and_sql_tools() {
+    use forge_store::{BundleTool, ConflictPolicy};
+    let s = store().await;
+    let p = s.create_project(&project("A")).await.unwrap();
+    let tools = vec![BundleTool {
+        input: sql_tool("q", Uuid::nil()),
+        auth: None,
+        connection: Some("shop".into()),
+    }];
+    let r = s
+        .import_bundle(
+            p.id,
+            &[],
+            &[conn("shop", "sqlite")],
+            &tools,
+            ConflictPolicy::Fail,
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.connections_created, ["shop"]);
+    let c = &s.list_connections(p.id).await.unwrap()[0];
+    let t = s.get_tool_by_name(p.id, "q").await.unwrap();
+    assert_eq!(t.kind.connection_ref(), Some(c.id));
+
+    // Identical connection is kept; a SQL tool without a connection name fails.
+    let r = s
+        .import_bundle(
+            p.id,
+            &[],
+            &[conn("shop", "sqlite")],
+            &[],
+            ConflictPolicy::Fail,
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.connections_kept, ["shop"]);
+    let r = s
+        .import_bundle(
+            p.id,
+            &[],
+            &[],
+            &[BundleTool {
+                input: sql_tool("q2", Uuid::nil()),
+                auth: None,
+                connection: None,
+            }],
+            ConflictPolicy::Fail,
+        )
+        .await;
+    assert!(matches!(r, Err(StoreError::Validation(e)) if e.has("tools[0].connection")));
 }

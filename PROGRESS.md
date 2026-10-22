@@ -4,10 +4,10 @@
 > Legend: `[ ]` todo · `[~]` in progress / partial · `[x]` done · `[-]` dropped (say why)
 
 ## Next up
-Stage 7 review → then Stage 8: DbConnection CRUD + UI
+Stage 8 review → then Stage 9: list_tables / describe_table / run_sql (opt-in)
 
 ## Current stage
-**Stage 7 — Curation & shaping** · status: done · review: requested
+**Stage 8 — DB connections + curated read-only queries** · status: done · review: requested
 
 ---
 
@@ -76,18 +76,18 @@ Stage 7 review → then Stage 8: DbConnection CRUD + UI
 - [x] Null stripping + size truncation
 - [x] Project filters (GET-only, tag/path)
 - [x] `search_tools` meta-tool
-- [ ] Stage review approved
+- [x] Stage review approved
 
 ### Stage 8 — DB connections + curated read-only queries
-- [ ] DbConnection CRUD + UI
-- [ ] Test connection + privilege check
-- [ ] Curated Query tools (bound params)
-- [ ] Read-only session per driver
-- [ ] AST check (single SELECT/WITH, full tree walk)
-- [ ] Function denylist
-- [ ] Row limit, timeout, cell cap, column masks
-- [ ] SQLite → Postgres → MySQL
-- [ ] testcontainers tests per layer
+- [x] DbConnection CRUD + UI
+- [x] Test connection + privilege check
+- [x] Curated Query tools (bound params)
+- [x] Read-only session per driver
+- [x] AST check (single SELECT/WITH, full tree walk)
+- [x] Function denylist
+- [x] Row limit, timeout, cell cap, column masks
+- [x] SQLite → Postgres → MySQL
+- [x] testcontainers tests per layer
 - [ ] Stage review approved
 
 ### Stage 9 — Exploration + read-only run_sql
@@ -184,16 +184,40 @@ Stage 7 review → then Stage 8: DbConnection CRUD + UI
 - 2026-10-22 · Stateless import API: `POST …/import/openapi/preview {content|url, base_url}` and `POST …/import/openapi {content, source_url, filename, base_url, auth_ref, operations:[{key, name?}]}`; both re-parse. URL fetched server-side only on the preview call (http/https, 30 s, 48 MB cap, ≤5 redirects); fetched content echoed back for the commit. Body limit raised to 48 MB on these two routes
 - 2026-10-22 · Commit is one transaction (spec row + all tools); tools get `Source::OpenApi { spec_id, op_id }` with op_id = operationId or `"METHOD /path"` (the op key, used for Stage 6 re-import)
 - 2026-10-22 · Preview UI: specs with ≤50 operations start fully selected, larger ones start empty; filters by tag, method and path (glob: `*`/`?` within a segment, `**` across; no wildcard → substring)
+- 2026-10-22 · `DbConnection` IR in core (`db.rs`): driver, `dsn_ref: SecretRef` (raw DSNs fail to parse), access_mode, row_limit (default 100, ≤10 000), timeout_ms (default 10 s, 100 ms–300 s), max_affected_rows, allow_ddl, table_allowlist, column_masks. Only `access_mode: read_only` and `allow_ddl: false` validate until Stage 10 · storing a write mode that does nothing would mislead
+- 2026-10-22 · Storage: `db_connections` table (migration 0005; limits/allowlist/masks in one `settings` JSON column) + `tools.connection_ref` FK mirroring `kind.connection_id` (same pattern as auth_ref). In-use connections can't be deleted or change driver (409); tools must use a connection from their own project (422 `kind.connection_id`)
+- 2026-10-22 · `ToolKind::Sql(SqlSpec { connection_id, mode: Query { sql, params: [SqlParam] } })`. `SqlParam` is its own type (name, scalar schema type string/integer/number/boolean, required, description), not `ParamDef` · location/fixed_value/wire_name are meaningless for SQL. Names `[A-Za-z_][A-Za-z0-9_]{0,63}`
+- 2026-10-22 · SQL placeholders are `:name`, rewritten with sqlparser's tokenizer (skips strings, comments, `::` casts) by splicing source offsets, so the rest of the SQL is byte-for-byte unchanged: PG `$n` (repeats reuse the number), SQLite/MySQL `?` per occurrence. Raw `?`/`$1` in curated SQL are refused. Binds are typed from the declared param type; missing optional params bind typed NULL
+- 2026-10-22 · Read-only layers: (2) PG pools start with `default_transaction_read_only=on`, each run `BEGIN READ ONLY` + `SET LOCAL statement_timeout`; MySQL `SET SESSION max_execution_time` (MariaDB fallback `max_statement_time`) + `START TRANSACTION READ ONLY`; SQLite `mode=ro` + `PRAGMA query_only=ON` + a progress handler that interrupts at the deadline; every run rolls back; a client-side timer (timeout + 2 s) backs it up. (3) sqlparser 0.63 (visitor) on the *rewritten* SQL: exactly one `Statement::Query`; any nested non-query statement (data-modifying CTEs), `FOR UPDATE/SHARE`, `SELECT … INTO` rejected. (4) function denylist on the unqualified name, in expressions and FROM table functions (pg_read_file, dblink*, lo_*, nextval/setval, pg_advisory*, query_to_xml, set_config, pg_sleep, SLEEP, BENCHMARK, LOAD_FILE, GET_LOCK, load_extension, writefile, …). (5) row limit (stream stops at limit+1 → `truncated`), cell cap 1 000 chars, masks
+- 2026-10-22 · Layers 3–4 also run at save time (API create/update, bundle import, CLI import) against the connection's dialect, plus placeholder ↔ param matching → 422 on `kind.mode.sql` / `kind.mode.params[i]`
+- 2026-10-22 · Result to agents: `{columns, rows, truncated}` as JSON text, then the project's shaping (jq, null stripping, size cap) like HTTP. NUMERIC/DECIMAL → string (exact), timestamps → ISO 8601, binary → `"<binary, N bytes>"`, unknown PG types → a note to cast. MySQL TINYINT(1) → boolean. Masked values → `"[masked]"` (NULL stays NULL)
+- 2026-10-22 · Column masks (`table.column`, `schema.table.column`, `*.column`, case-insensitive) match result column names when the query reads that table (tables collected from the AST; `users` ≈ `public.users`)
+- 2026-10-22 · Test connection (`POST …/db-connections/{id}/test`) never fails: reports ok, version, user, `can_write`, the privileges that allow writing and warnings. PG: superuser, INSERT/UPDATE/DELETE/TRUNCATE via `has_table_privilege` on user tables, CREATE on schemas/database. MySQL: parses `SHOW GRANTS`. SQLite: whether the file is writable. Warns when it can write. PG/MySQL DSNs must be URLs (`postgres://`, `mysql://`) · a SQLite path under the PG driver silently connected to localhost with defaults during browser QA
+- 2026-10-22 · `forge_mcp::Executors { http, sql }` replaces the bare `HttpExecutor` in `ForgeMcp`, `serve_stdio`, `AppState.exec`; `ToolRun.outcome` is `RunOutcome::{Http, Sql}`. Test console response gains `kind`; SQL runs report `request {sql, params}`, `response {columns, rows, row_count, truncated, masked_columns, elapsed_ms}`
+- 2026-10-22 · SQL tools: annotations `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: false`; project read-only mode keeps them; path filters ignore them (tags still apply). Imported tools can't switch kind (422 `kind.type`)
+- 2026-10-22 · `check_args` moved from exec_http to core (shared by both executors; exec_http re-exports it)
+- 2026-10-22 · sqlx `raw_sql` avoided in the executor: its generic `async fn` broke rustc's `Send` proof once awaited inside the rmcp handler; `Executor::execute(&str)` (also unprepared) works · found by bisecting PG/MySQL vs SQLite paths
+- 2026-10-22 · Bundle v1 gains optional `db_connections` (DbConnectionInput, DSN as ref); SQL tools reference them by name (`connection: shop`), never by id; identical existing connections are kept, `replace` refuses a driver change
+- 2026-10-22 · Deps: `sqlparser` 0.63 (visitor), sqlx features postgres/mysql/json/uuid/rust_decimal/tls-rustls-ring-webpki, `futures-util`, dev `testcontainers-modules` 0.15 (postgres:16-alpine, mysql:8.4)
+- 2026-10-22 · Docker tests (`crates/exec_sql/tests/containers.rs`) are `#[ignore = "needs Docker"]`; a dedicated ubuntu CI job runs them with `--ignored`
+- 2026-10-22 · UI: Databases tab (list, add/edit, Test with the write-access warning, SELECT-only recommendation), SQL tool editor (connection, SQL with `:name` param sync on blur, typed params, jq shape), SQL rows/query view in the test console; "New SQL tool" route `#/p/{id}/tools/new-sql`. `table_allowlist` is not shown until Stage 9 enforces it
 - 2026-10-21 · `.gitattributes` forces LF (esp. `migrations/*.sql`) · sqlx checksums migrations; CRLF conversion on Windows checkouts would break existing DBs
 - 2026-10-21 · Timestamps truncated to ms so they round-trip through SQLite exactly
 
 ## Open questions
 <!-- Append: YYYY-MM-DD · question · temporary choice made -->
 - 2026-10-21 · PROMPT says bearer on "/api and UI". Static files can't carry a bearer from a browser navigation. · UI shell (no data) is public; all data goes through /api, which requires the token. Revisit if a cookie session is wanted
+- 2026-10-22 · PROMPT types `SqlMode::Query.params` as `Vec<ParamDef>`; HTTP locations/fixed values/wire names don't apply to SQL. · own `SqlParam` type
+- 2026-10-22 · PROMPT makes `dsn_ref` a secret ref for every driver, including SQLite file paths (not secret). · kept as refs (`env:SHOP_DB` holding the path) for one consistent rule; revisit if it's annoying
 - 2026-10-21 · Should tool `description` be required? · optional (empty allowed) for now; importers will fill from summary/description
 
 ## Known issues / tech debt
 <!-- Append: YYYY-MM-DD · issue · stage to fix -->
+- 2026-10-22 · Column masks match result column *names*: an alias or expression (`SELECT email AS e`, `lower(email)`) escapes them. Fine for admin-written curated SQL, not for agent SQL. · Stage 9 run_sql must reject queries referencing masked columns
+- 2026-10-22 · `table_allowlist` is stored and validated but not enforced (exploration tools don't exist yet). · Stage 9
+- 2026-10-22 · Postgres binds are typed (`string` → TEXT), so comparing a string param to a date/uuid column needs a cast in the SQL (`:since::timestamptz`); the editor hint says so. · consider more param types (date, uuid) later
+- 2026-10-22 · Privilege check limits: MySQL roles granted to the user aren't expanded (reported as a warning); SQLite only checks file permissions; PgBouncer may reject the `default_transaction_read_only` startup option (the per-run `BEGIN READ ONLY` still applies). · revisit on user reports
+- 2026-10-22 · Pools are cached per connection in the process; `serve` drops them on edit/delete, but a CLI bundle import that changes a connection isn't seen by a running `serve` until its DSN/driver/timeout changes. · same as the existing out-of-process note
 - 2026-10-21 · Tested with the rmcp client + raw JSON-RPC (protocol 2025-06-18), not the MCP Inspector UI itself (needs npx/network). · manual check at review
 - 2026-10-22 · Large-spec test (`large_real_spec`) is `#[ignore]` and reads `MCP_FORGE_LARGE_SPEC`; GitHub's 13 MB spec isn't vendored. Result on 2026-10-22: GitHub REST 3.0.3 and 3.1.0 → 1242/1242 ops supported, unique names, all valid, largest tool 25 KB, ~95 ms (release). · consider a CI job that downloads it
 - 2026-10-22 · Executor can't send comma/space/pipe-joined array query values (2.0 default `csv`, 3.x `explode: false`); such params import with a warning and are sent as repeated keys. · add a per-param array style to the IR when a real API needs it
@@ -219,6 +243,14 @@ Stage 7 review → then Stage 8: DbConnection CRUD + UI
 - **Gotchas:** 
 - **Next step:** 
 -->
+
+### Session 9 — 2026-10-22
+- **Stage/task:** Stage 8 — DB connections + curated read-only queries (all tasks); Stage 7 approved ("continue")
+- **Done:** core `db.rs` (DbConnection, ColumnMask, SqlSpec/SqlParam, ToolKind::Sql) + `check_args` moved to core; store `db_connections` (migration 0005), `connection_ref`, bundle connections; `forge-exec-sql` (guard: placeholders + AST + denylist; session: per-driver read-only runs; value conversion; executor with pool cache, masks, redaction, test_connection); MCP `Executors` + SQL dispatch/annotations; API connection CRUD/test + save-time SQL checks; bundle export/import of connections; UI Databases tab, SQL tool editor, SQL test console view; CI job for Docker tests
+- **Not done / partial:** none
+- **Tests:** see the final run in this session's report; new: core +3, exec_sql unit 13, SQLite integration 8, containers 2 (PG 16, MySQL 8.4 — run locally with Docker, pass), store +2, server SQL 2, UI +5 (22 total). Browser QA (browser-mcp): added a SQLite connection, Test showed the write warning, created a SQL tool (param synced from `:customer_id`), test console showed 2 rows with email masked, saving a `WITH … DELETE` was refused
+- **Gotchas:** J: drive filled up (target/ was 33 GB) → `cargo clean`; sqlx `raw_sql` breaks `Send` inside rmcp handlers; Radix Select only opens from the keyboard in browser-mcp (focus + Enter)
+- **Next step:** Stage 8 review, then Stage 9 exploration tools + read-only run_sql
 
 ### Session 8 — 2026-10-22
 - **Stage/task:** Stage 7 — Curation & shaping (all tasks)

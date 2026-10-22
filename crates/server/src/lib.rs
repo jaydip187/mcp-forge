@@ -17,8 +17,7 @@ use axum::http::StatusCode;
 use axum::routing::{any, get};
 use axum::{Json, Router};
 use forge_core::SecretResolver;
-use forge_exec_http::HttpExecutor;
-use forge_mcp::ChangeBus;
+use forge_mcp::{ChangeBus, Executors};
 use forge_store::Store;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
@@ -30,7 +29,7 @@ pub use security::Security;
 #[derive(Clone)]
 pub struct AppState {
     pub store: Store,
-    pub exec: HttpExecutor,
+    pub exec: Executors,
     /// Announces tool-list changes to live MCP sessions.
     pub changes: ChangeBus,
     /// Cancelled on shutdown so long-lived MCP streams close.
@@ -45,7 +44,7 @@ impl AppState {
     pub fn new(store: Store, secrets: Arc<dyn SecretResolver>) -> Self {
         Self {
             store,
-            exec: HttpExecutor::new(secrets),
+            exec: Executors::new(secrets),
             changes: ChangeBus::new(),
             shutdown: CancellationToken::new(),
             security: Security::default(),

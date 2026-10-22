@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { href, navigate, type ProjectTab } from "@/lib/router";
 import { AuthTab } from "@/pages/AuthTab";
 import { ConnectTab, mcpUrl } from "@/pages/ConnectTab";
+import { DatabasesTab } from "@/pages/DatabasesTab";
 import { SettingsTab } from "@/pages/SettingsTab";
 import { SpecsTab } from "@/pages/SpecsTab";
 import { ToolsTab } from "@/pages/ToolsTab";
@@ -55,6 +56,7 @@ export function ProjectPage({ projectId, tab, info }: { projectId: string; tab: 
           <TabsTrigger value="tools">Tools</TabsTrigger>
           <TabsTrigger value="specs">Specs</TabsTrigger>
           <TabsTrigger value="auth">Auth</TabsTrigger>
+          <TabsTrigger value="databases">Databases</TabsTrigger>
           <TabsTrigger value="connect">Connect</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
@@ -66,6 +68,9 @@ export function ProjectPage({ projectId, tab, info }: { projectId: string; tab: 
         </TabsContent>
         <TabsContent value="auth" className="pt-4">
           <AuthTab projectId={project.id} />
+        </TabsContent>
+        <TabsContent value="databases" className="pt-4">
+          <DatabasesTab projectId={project.id} />
         </TabsContent>
         <TabsContent value="connect" className="pt-4">
           <ConnectTab project={project} info={info} />

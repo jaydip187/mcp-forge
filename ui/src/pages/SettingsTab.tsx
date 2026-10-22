@@ -135,6 +135,7 @@ function BundleCard({ project, onImported }: { project: Project; onImported: () 
         r.tools_updated.length ? `${r.tools_updated.length} replaced` : "",
         r.tools_skipped.length ? `${r.tools_skipped.length} skipped` : "",
         r.auth_created.length ? `${r.auth_created.length} auth configs added` : "",
+        r.connections_created.length ? `${r.connections_created.length} database connections added` : "",
       ].filter(Boolean);
       toast.success(`Imported ${file.name}: ${parts.join(", ")}`);
       await onImported();

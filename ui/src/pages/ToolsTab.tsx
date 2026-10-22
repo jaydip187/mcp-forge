@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { FileJsonIcon, KeyRoundIcon, PlusIcon } from "lucide-react";
+import { DatabaseIcon, FileJsonIcon, KeyRoundIcon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
@@ -16,10 +16,13 @@ import type { ProjectSettings, Tool } from "@/types";
 export function ToolsTab({ projectId, settings }: { projectId: string; settings: ProjectSettings }) {
   const [tools, setTools] = useState<Tool[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [connections, setConnections] = useState<Map<string, string>>(new Map());
 
   const load = useCallback(async () => {
     try {
-      setTools(await api.listTools(projectId));
+      const [ts, cs] = await Promise.all([api.listTools(projectId), api.listConnections(projectId)]);
+      setTools(ts);
+      setConnections(new Map(cs.map((c) => [c.id, c.name])));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     }
@@ -68,9 +71,14 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
               <FileJsonIcon /> Import API spec
             </a>
           </Button>
+          <Button asChild variant="outline">
+            <a href={href.tool(projectId, null, "sql")}>
+              <DatabaseIcon /> New SQL tool
+            </a>
+          </Button>
           <Button asChild>
             <a href={href.tool(projectId, null)}>
-              <PlusIcon /> New tool
+              <PlusIcon /> New HTTP tool
             </a>
           </Button>
         </div>
@@ -78,9 +86,9 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
 
       {tools.length === 0 ? (
         <div className="rounded-lg border border-dashed p-10 text-center">
-          <p className="font-medium">Describe an HTTP request, and agents can call it</p>
+          <p className="font-medium">Describe an HTTP request or a SQL query, and agents can call it</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-            Give it a method and URL, say which parts the agent fills in, and test it right here before any agent sees it.
+            Say which parts the agent fills in, and test it right here before any agent sees it.
           </p>
           <div className="mt-4 flex justify-center gap-2">
             <Button asChild>
@@ -88,6 +96,9 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
             </Button>
             <Button asChild variant="outline">
               <a href={href.import(projectId)}>Import from an API spec</a>
+            </Button>
+            <Button asChild variant="outline">
+              <a href={href.tool(projectId, null, "sql")}>Add a SQL query</a>
             </Button>
           </div>
         </div>
@@ -98,7 +109,7 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
               <a href={href.tool(projectId, t.id)} className="group min-w-0 flex-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <div className="flex items-center gap-2">
                   <span className="font-medium group-hover:underline">{t.name}</span>
-                  {t.kind.auth_ref && (
+                  {t.kind.type === "http" && t.kind.auth_ref && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <KeyRoundIcon className="size-3.5 text-muted-foreground" aria-label="Uses an auth config" />
@@ -107,7 +118,11 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
                     </Tooltip>
                   )}
                 </div>
-                <RequestLine method={t.kind.method} baseUrl={t.kind.base_url} path={t.kind.path_template} size="sm" showBase={false} className="mt-0.5" />
+                {t.kind.type === "http" ? (
+                  <RequestLine method={t.kind.method} baseUrl={t.kind.base_url} path={t.kind.path_template} size="sm" showBase={false} className="mt-0.5" />
+                ) : (
+                  <SqlLine sql={t.kind.mode.sql} connection={connections.get(t.kind.connection_id)} />
+                )}
                 {t.description && <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">{t.description}</p>}
                 {(() => {
                   const why = hiddenReason(t, settings);
@@ -126,5 +141,17 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
         </ul>
       )}
     </div>
+  );
+}
+
+/** One-line summary of a SQL tool: connection and the start of the query. */
+function SqlLine({ sql, connection }: { sql: string; connection: string | undefined }) {
+  const oneLine = sql.replace(/\s+/g, " ").trim();
+  return (
+    <p className="mt-0.5 flex min-w-0 items-center gap-2 font-mono text-xs text-muted-foreground">
+      <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-semibold text-foreground">SQL</span>
+      {connection && <span className="shrink-0">{connection}</span>}
+      <span className="truncate">{oneLine}</span>
+    </p>
   );
 }

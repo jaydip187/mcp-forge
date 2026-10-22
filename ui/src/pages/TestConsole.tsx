@@ -13,7 +13,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { buildArgs, prettyBody } from "@/lib/args";
 import { schemaType } from "@/lib/template";
-import type { McpToolView, TestRun } from "@/types";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import type { Json, McpToolView, SqlTestRun, TestRun } from "@/types";
 
 export function TestConsole({ projectId, toolId, version, dirty }: { projectId: string; toolId: string | null; version: string; dirty: boolean }) {
   const [view, setView] = useState<McpToolView | null>(null);
@@ -116,7 +117,17 @@ export function TestConsole({ projectId, toolId, version, dirty }: { projectId: 
   );
 }
 
+const SQL_ERROR_LABEL: Record<NonNullable<SqlTestRun["error"]>["kind"], string> = {
+  invalid_args: "Invalid arguments",
+  rejected: "Query rejected",
+  config: "Configuration error",
+  connect: "Couldn't connect",
+  timeout: "Timed out",
+  database: "Database error",
+};
+
 function RunResult({ run }: { run: TestRun }) {
+  if (run.kind === "sql") return <SqlRunResult run={run} />;
   const status = run.response ? (
     <Badge variant={run.response.status < 400 ? "secondary" : "destructive"} className="font-mono">
       {run.response.status_line}
@@ -167,6 +178,90 @@ function RunResult({ run }: { run: TestRun }) {
       </Tabs>
     </section>
   );
+}
+
+function SqlRunResult({ run }: { run: SqlTestRun }) {
+  const r = run.response;
+  return (
+    <section aria-label="Test result" className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {r ? (
+          <Badge variant="secondary" className="font-mono">
+            {r.row_count} {r.row_count === 1 ? "row" : "rows"}
+            {r.truncated && " (limit reached)"} · {r.elapsed_ms} ms
+          </Badge>
+        ) : (
+          <Badge variant="destructive">{run.error ? SQL_ERROR_LABEL[run.error.kind] : "Failed"}</Badge>
+        )}
+        {r && r.masked_columns.length > 0 && <Badge variant="outline">Masked: {r.masked_columns.join(", ")}</Badge>}
+        {run.shaped !== null && <Badge variant="outline">Shaped</Badge>}
+      </div>
+      <Tabs defaultValue="agent">
+        <TabsList className="w-full">
+          <TabsTrigger value="agent">Agent sees</TabsTrigger>
+          <TabsTrigger value="rows" disabled={!r}>
+            Rows
+          </TabsTrigger>
+          <TabsTrigger value="query" disabled={!run.request}>
+            Query
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="agent" className="space-y-2">
+          <p className="text-xs text-muted-foreground">{run.agent_view.is_error ? "Returned to the agent as an error." : "Returned to the agent as the tool result."}</p>
+          <Output text={run.agent_view.is_error ? run.agent_view.text : prettyBody(run.agent_view.text, "application/json")} />
+        </TabsContent>
+        {r && (
+          <TabsContent value="rows">
+            {r.columns.length === 0 ? (
+              <p className="text-sm text-muted-foreground">The query returned no columns.</p>
+            ) : (
+              <div className="max-h-96 overflow-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      {r.columns.map((c, i) => (
+                        <TableHead key={i} className="font-mono text-xs">
+                          {c}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {r.rows.map((row, i) => (
+                      <TableRow key={i}>
+                        {row.map((v, j) => (
+                          <TableCell key={j} className="max-w-48 truncate font-mono text-xs" title={cellText(v)}>
+                            {v === null ? <span className="text-muted-foreground">NULL</span> : cellText(v)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+            {r.rows.length === 0 && r.columns.length > 0 && <p className="mt-2 text-sm text-muted-foreground">No rows matched.</p>}
+          </TabsContent>
+        )}
+        {run.request && (
+          <TabsContent value="query" className="space-y-2">
+            <Output text={run.request.sql} />
+            {run.request.params.length > 0 && (
+              <>
+                <p className="text-xs text-muted-foreground">Values sent alongside the SQL, in order:</p>
+                <Output text={run.request.params.map((v, i) => `${i + 1}: ${JSON.stringify(v)}`).join("\n")} />
+              </>
+            )}
+          </TabsContent>
+        )}
+      </Tabs>
+      {run.error && run.error.kind !== "invalid_args" && <p className="text-xs text-muted-foreground">{run.error.message}</p>}
+    </section>
+  );
+}
+
+function cellText(v: Json): string {
+  return typeof v === "string" ? v : JSON.stringify(v);
 }
 
 function Output({ text }: { text: string }) {

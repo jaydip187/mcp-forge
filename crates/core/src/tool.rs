@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::db::SqlSpec;
+use crate::schema::DerivedInput;
 use crate::validate::{is_valid_name, ValidationErrors, MAX_NAME_LEN};
 
 pub const DEFAULT_TIMEOUT_MS: u32 = 30_000;
@@ -52,11 +54,12 @@ fn default_true() -> bool {
     true
 }
 
-/// What a tool does. SQL tools are added in Stage 8.
+/// What a tool does.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ToolKind {
     Http(HttpSpec),
+    Sql(SqlSpec),
 }
 
 impl ToolKind {
@@ -64,6 +67,31 @@ impl ToolKind {
     pub fn auth_ref(&self) -> Option<Uuid> {
         match self {
             ToolKind::Http(h) => h.auth_ref,
+            ToolKind::Sql(_) => None,
+        }
+    }
+
+    /// The database connection this tool runs against, if any.
+    pub fn connection_ref(&self) -> Option<Uuid> {
+        match self {
+            ToolKind::Http(_) => None,
+            ToolKind::Sql(s) => Some(s.connection_id),
+        }
+    }
+
+    /// `"http"` or `"sql"`, as in the serialized `type` tag.
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            ToolKind::Http(_) => "http",
+            ToolKind::Sql(_) => "sql",
+        }
+    }
+
+    /// The MCP input schema and argument bindings.
+    pub fn derive_input(&self) -> DerivedInput {
+        match self {
+            ToolKind::Http(h) => h.derive_input(),
+            ToolKind::Sql(s) => s.derive_input(),
         }
     }
 }
@@ -240,6 +268,7 @@ impl ToolInput {
         }
         match &self.kind {
             ToolKind::Http(h) => h.validate_into(&mut errs),
+            ToolKind::Sql(s) => s.validate_into(&mut errs),
         }
         errs.into_result()
     }
@@ -434,7 +463,9 @@ mod tests {
         let t = tool(valid_spec());
         t.validate().unwrap();
         assert!(t.enabled);
-        let ToolKind::Http(h) = &t.kind;
+        let ToolKind::Http(h) = &t.kind else {
+            panic!("http tool")
+        };
         assert_eq!(h.timeout_ms, DEFAULT_TIMEOUT_MS);
         assert_eq!(h.params[0].schema, json!({ "type": "string" }));
     }

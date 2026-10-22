@@ -16,7 +16,9 @@ fn op<'a>(imported: &'a Imported, key: &str) -> &'a BuiltOperation {
 }
 
 fn args(o: &BuiltOperation) -> Vec<String> {
-    let ToolKind::Http(h) = &o.tool.kind;
+    let ToolKind::Http(h) = &o.tool.kind else {
+        panic!("expected an HTTP tool")
+    };
     h.derive_input()
         .bindings
         .into_iter()
@@ -57,14 +59,18 @@ fn petstore_imports_cleanly() {
     assert_eq!(get_pet.tool.name, "getPetById");
     assert_eq!(get_pet.tags, ["pet"]);
     assert!(get_pet.needs_auth);
-    let ToolKind::Http(h) = &get_pet.tool.kind;
+    let ToolKind::Http(h) = &get_pet.tool.kind else {
+        panic!("expected an HTTP tool")
+    };
     assert_eq!(h.method, HttpMethod::Get);
     assert_eq!(h.base_url, "https://petstore3.swagger.io/api/v3");
     assert_eq!(h.params[0].schema["type"], "integer");
 
     // JSON body flattened into fields, with $ref'd Category inlined.
     let add = op(&imported, "POST /pet");
-    let ToolKind::Http(h) = &add.tool.kind;
+    let ToolKind::Http(h) = &add.tool.kind else {
+        panic!("expected an HTTP tool")
+    };
     let body: Vec<_> = h
         .params
         .iter()
@@ -111,7 +117,9 @@ fn relative_server_without_source_needs_base_url() {
     )
     .unwrap();
     assert!(with_base.operations.iter().all(|o| o.supported));
-    let ToolKind::Http(h) = &with_base.operations[0].tool.kind;
+    let ToolKind::Http(h) = &with_base.operations[0].tool.kind else {
+        panic!("expected an HTTP tool")
+    };
     assert_eq!(h.base_url, "https://pets.example.com/api/v3");
 }
 
@@ -216,7 +224,9 @@ fn synthetic_covers_refs_collisions_naming() {
         !a.contains(&"created".into()),
         "readOnly fields aren't sent"
     );
-    let ToolKind::Http(h) = &update.tool.kind;
+    let ToolKind::Http(h) = &update.tool.kind else {
+        panic!("expected an HTTP tool")
+    };
     let children = h.params.iter().find(|p| p.name == "children").unwrap();
     // Node is already being expanded, so its self-reference becomes a stub.
     assert!(children.schema["items"]["description"]
@@ -228,7 +238,9 @@ fn synthetic_covers_refs_collisions_naming() {
     // Wire names for unsafe query names; reserved headers dropped; `security: []` → no auth.
     let get = op(&imported, "GET /nodes/{id}");
     assert!(!get.needs_auth);
-    let ToolKind::Http(h) = &get.tool.kind;
+    let ToolKind::Http(h) = &get.tool.kind else {
+        panic!("expected an HTTP tool")
+    };
     let q: Vec<_> = h
         .params
         .iter()
@@ -242,7 +254,9 @@ fn synthetic_covers_refs_collisions_naming() {
     // Duplicate operationId → deduped; composed +json schema → whole body arg.
     let shapes = op(&imported, "POST /shapes");
     assert_eq!(shapes.tool.name, "nodes_update_2");
-    let ToolKind::Http(h) = &shapes.tool.kind;
+    let ToolKind::Http(h) = &shapes.tool.kind else {
+        panic!("expected an HTTP tool")
+    };
     assert!(h.body_schema.as_ref().unwrap()["oneOf"].is_array());
     let d = h.derive_input();
     assert_eq!(d.bindings[0].target, ArgTarget::WholeBody);

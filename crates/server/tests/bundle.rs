@@ -161,7 +161,9 @@ async fn cli_export_then_import_into_new_project() {
         .unwrap();
         let a = store.create_auth_config(p.id, &auth).await.unwrap();
         let mut t: ToolInput = serde_json::from_value(tool_json("get_user")).unwrap();
-        let forge_core::ToolKind::Http(h) = &mut t.kind;
+        let forge_core::ToolKind::Http(h) = &mut t.kind else {
+            panic!("expected an HTTP tool")
+        };
         h.auth_ref = Some(a.id);
         store.create_tool(p.id, &t).await.unwrap();
         store.pool().close().await;
@@ -218,7 +220,9 @@ async fn cli_export_then_import_into_new_project() {
     assert_eq!(copy.name, "Origin");
     let tools = store.list_tools(copy.id).await.unwrap();
     let auths = store.list_auth_configs(copy.id).await.unwrap();
-    let forge_core::ToolKind::Http(h) = &tools[0].kind;
+    let forge_core::ToolKind::Http(h) = &tools[0].kind else {
+        panic!("expected an HTTP tool")
+    };
     assert_eq!(h.auth_ref, Some(auths[0].id));
 
     // Second import without a policy fails and changes nothing.

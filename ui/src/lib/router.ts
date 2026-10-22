@@ -4,18 +4,22 @@ import { useEffect, useState } from "react";
 export type Route =
   | { name: "home" }
   | { name: "project"; projectId: string; tab: ProjectTab }
-  | { name: "tool"; projectId: string; toolId: string | null }
+  | { name: "tool"; projectId: string; toolId: string | null; kind: "http" | "sql" }
   | { name: "import"; projectId: string }
   | { name: "reimport"; projectId: string; specId: string };
 
-export type ProjectTab = "tools" | "specs" | "auth" | "connect" | "settings";
-const TABS: ProjectTab[] = ["tools", "specs", "auth", "connect", "settings"];
+export type ProjectTab = "tools" | "specs" | "auth" | "databases" | "connect" | "settings";
+const TABS: ProjectTab[] = ["tools", "specs", "auth", "databases", "connect", "settings"];
 
 export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   const [a, pid, b, tid, c] = parts;
   if (a === "p" && pid) {
-    if (b === "tools" && tid) return { name: "tool", projectId: pid, toolId: tid === "new" ? null : tid };
+    if (b === "tools" && tid) {
+      if (tid === "new") return { name: "tool", projectId: pid, toolId: null, kind: "http" };
+      if (tid === "new-sql") return { name: "tool", projectId: pid, toolId: null, kind: "sql" };
+      return { name: "tool", projectId: pid, toolId: tid, kind: "http" };
+    }
     if (b === "import") return { name: "import", projectId: pid };
     if (b === "specs" && tid && c === "reimport") return { name: "reimport", projectId: pid, specId: tid };
     const tab = (TABS as string[]).includes(b ?? "") ? (b as ProjectTab) : "tools";
@@ -28,7 +32,8 @@ export const href = {
   home: () => "#/",
   project: (pid: string, tab: ProjectTab = "tools") =>
     tab === "tools" ? `#/p/${encodeURIComponent(pid)}` : `#/p/${encodeURIComponent(pid)}/${tab}`,
-  tool: (pid: string, tid: string | null) => `#/p/${encodeURIComponent(pid)}/tools/${tid ?? "new"}`,
+  tool: (pid: string, tid: string | null, kind: "http" | "sql" = "http") =>
+    `#/p/${encodeURIComponent(pid)}/tools/${tid ?? (kind === "sql" ? "new-sql" : "new")}`,
   import: (pid: string) => `#/p/${encodeURIComponent(pid)}/import`,
   reimport: (pid: string, sid: string) => `#/p/${encodeURIComponent(pid)}/specs/${encodeURIComponent(sid)}/reimport`,
 };

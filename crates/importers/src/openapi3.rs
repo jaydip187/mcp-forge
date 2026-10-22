@@ -102,7 +102,9 @@ pub struct OperationSummary {
 
 impl BuiltOperation {
     pub fn summary(&self) -> OperationSummary {
-        let ToolKind::Http(h) = &self.tool.kind;
+        let ToolKind::Http(h) = &self.tool.kind else {
+            unreachable!("importers build HTTP tools")
+        };
         OperationSummary {
             key: self.key.clone(),
             operation_id: self.operation_id.clone(),

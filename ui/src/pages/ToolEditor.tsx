@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { ArrowLeftIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
+import { Field, Section } from "@/components/FormSection";
 import { RequestLine } from "@/components/RequestLine";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -18,6 +18,7 @@ import { listLabels } from "@/lib/fields";
 import { syncPathParams } from "@/lib/template";
 import { buildToolInput, formFromTool, newForm, paramIndex, type ToolForm } from "@/lib/toolForm";
 import { ParamsEditor, toRow, type ParamRow } from "@/pages/ParamsEditor";
+import { SqlToolEditor } from "@/pages/SqlToolEditor";
 import { TestConsole } from "@/pages/TestConsole";
 import { describeAuth } from "@/pages/AuthTab";
 import { METHODS, type AuthConfig, type HttpMethod, type Tool } from "@/types";
@@ -32,12 +33,17 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [sqlTool, setSqlTool] = useState<Tool | null>(null);
 
   useEffect(() => {
     api.listAuth(projectId).then(setAuths, () => {});
     if (!toolId) return;
     api.getTool(projectId, toolId).then(
       (t) => {
+        if (t.kind.type === "sql") {
+          setSqlTool(t);
+          return;
+        }
         setSaved(t);
         setForm(formFromTool(t));
         setRows(t.kind.params.map(toRow));
@@ -53,6 +59,7 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
     return JSON.stringify(built.input) !== JSON.stringify({ name, description, enabled, response_shape, kind });
   }, [saved, built]);
 
+  if (sqlTool) return <SqlToolEditor projectId={projectId} tool={sqlTool} />;
   if (loadErr)
     return (
       <Alert variant="destructive">
@@ -300,28 +307,6 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
           <TestConsole projectId={projectId} toolId={saved?.id ?? null} version={saved?.updated_at ?? ""} dirty={dirty} />
         </aside>
       </div>
-    </div>
-  );
-}
-
-function Section({ title, description, children }: { title: string; description: string; children: ReactNode }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4">{children}</CardContent>
-    </Card>
-  );
-}
-
-function Field({ id, label, error, hint, children }: { id: string; label: string; error?: string; hint?: string; children: ReactNode }) {
-  return (
-    <div className="grid gap-1.5">
-      <Label htmlFor={id}>{label}</Label>
-      {children}
-      {error ? <p className="text-xs text-destructive">{error}</p> : hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }

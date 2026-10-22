@@ -84,15 +84,21 @@ impl ProjectSettings {
 
     /// `None` if agents can see the tool, else the first reason it's hidden.
     pub fn hidden_reason(&self, tool: &ToolDef) -> Option<Hidden> {
-        let ToolKind::Http(h) = &tool.kind;
         if !tool.enabled {
             return Some(Hidden::Disabled);
         }
+        let http = match &tool.kind {
+            ToolKind::Http(h) => Some(h),
+            // Curated queries only read.
+            ToolKind::Sql(_) => None,
+        };
         if self.read_only
-            && !matches!(
-                h.method,
-                HttpMethod::Get | HttpMethod::Head | HttpMethod::Options
-            )
+            && http.is_some_and(|h| {
+                !matches!(
+                    h.method,
+                    HttpMethod::Get | HttpMethod::Head | HttpMethod::Options
+                )
+            })
         {
             return Some(Hidden::ReadOnly);
         }
@@ -106,11 +112,14 @@ impl ProjectSettings {
         {
             return Some(Hidden::Tag);
         }
-        let matches = |list: &[String]| list.iter().any(|g| path_matches(g, &h.path_template));
-        if (!self.include_paths.is_empty() && !matches(&self.include_paths))
-            || matches(&self.exclude_paths)
-        {
-            return Some(Hidden::Path);
+        // Path filters only concern HTTP tools.
+        if let Some(h) = http {
+            let matches = |list: &[String]| list.iter().any(|g| path_matches(g, &h.path_template));
+            if (!self.include_paths.is_empty() && !matches(&self.include_paths))
+                || matches(&self.exclude_paths)
+            {
+                return Some(Hidden::Path);
+            }
         }
         None
     }

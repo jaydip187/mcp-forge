@@ -53,3 +53,13 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: test
         run: cargo test --workspace
+
+  sql-containers:
+    name: SQL read-only layers (Postgres / MySQL in Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: testcontainers tests
+        run: cargo test -p forge-exec-sql --test containers -- --ignored
