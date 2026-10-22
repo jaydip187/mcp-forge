@@ -4,10 +4,10 @@
 > Legend: `[ ]` todo · `[~]` in progress / partial · `[x]` done · `[-]` dropped (say why)
 
 ## Next up
-Stage 11 review. All stages done; v0.1.0 released at github.com/jaydip187/mcp-forge
+Stage 12 review, then Stage 13 — authentication
 
 ## Current stage
-**Stage 11 — Packaging & docs** · status: done · review: requested
+**Stage 12 — Code structure refactor** · status: done · review: requested
 
 ---
 
@@ -115,9 +115,36 @@ Stage 11 review. All stages done; v0.1.0 released at github.com/jaydip187/mcp-fo
 - [x] Fresh-install test (Docker image + published v0.1.0 installer on a clean container)
 - [ ] Stage review approved
 
+### Stage 12 — Code structure refactor
+- [x] Inline test modules → per-crate src/tests/ folder
+- [x] Split exec_sql lib.rs and guard.rs
+- [x] Same test count before/after (180 names identical; 177 pass, 3 ignored)
+- [ ] Stage review approved
+
+### Stage 13 — Authentication
+- [ ] users + sessions migration, argon2id
+- [ ] First-run setup code + setup endpoint
+- [ ] Login/logout/me endpoints, session cookie, CSRF header
+- [ ] Guard: session or admin token on /api; /mcp unchanged
+- [ ] Login backoff
+- [ ] `mcp-forge user` CLI
+- [ ] Tests
+- [ ] Stage review approved
+
+### Stage 14 — UI redesign
+- [ ] App shell + user menu + theme toggle
+- [ ] Login / setup screens
+- [ ] Restyle every page (tables, forms, dialogs, empty states)
+- [ ] Responsive pass
+- [ ] Browser QA
+- [ ] Stage review approved
+
 ---
 
 ## Decisions
+- 2026-10-22 (user): Stages 12–14 added from an enhancement request. "Test enums" do not exist here; item 1 is read as moving inline test modules to tests.rs + splitting the two largest files.
+- 2026-10-22 (user): login always required for UI + /api (also on loopback); /mcp keeps loopback-open / admin-token rule so MCP clients keep working.
+- 2026-10-22 (user): first account is created with a one-time setup code printed by the server; `mcp-forge user` CLI for recovery.
 <!-- Append: YYYY-MM-DD · decision · reason · alternatives considered -->
 - 2026-10-21 · Package names are `forge-<crate>` (dirs stay `crates/core` etc.); the binary package is `mcp-forge` · a package named `core` would shadow Rust's `core` crate · `mcp-forge-core` (too long)
 - 2026-10-21 · Config precedence via clap `env` attrs: `MCP_FORGE_BIND`, `MCP_FORGE_DATA_DIR`, `MCP_FORGE_PROJECT`; no config file yet · simplest thing that meets CLI > env > defaults · `figment`/`config` crates (not in stack)
@@ -270,6 +297,14 @@ Stage 11 review. All stages done; v0.1.0 released at github.com/jaydip187/mcp-fo
 - **Gotchas:** 
 - **Next step:** 
 -->
+
+### Session 14 — 2026-10-22
+- **Stage/task:** Stage 12 — code structure refactor (planned Stages 12–14 from an enhancement request)
+- **Done:** 26 inline `#[cfg(test)] mod tests` blocks moved to per-crate `src/tests/<module>.rs` (wired with `#[path]`); `exec_sql/src/lib.rs` split into `error`, `outcome`, `policy`, `executor`, `pool`; `exec_sql/src/guard.rs` split into `guard/{placeholders,deny,classify,check,tables,masks}`; public API unchanged (explicit re-exports); cross-module helpers widened to `pub(crate)`/`pub(super)` only where needed
+- **Not done / partial:** none
+- **Tests:** `cargo test --workspace -- --list` identical before/after (180); 177 passed, 3 ignored; clippy -D warnings + fmt clean
+- **Gotchas:** unit tests can't live in the crate-level `tests/` folder (no private access), hence `src/tests/`; `cargo fix` won't drop unused trait imports shadowed by globs — removed by hand
+- **Next step:** Stage 12 review, then Stage 13 authentication
 
 ### Session 13 — 2026-10-22
 - **Stage/task:** Stage 11 follow-up: repository set to github.com/jaydip187/mcp-forge (user's choice), pushed `master`, tagged and pushed `v0.1.0`

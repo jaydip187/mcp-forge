@@ -235,6 +235,28 @@ Each stage = reviewable PR-sized chunk. Stop and request review after each.
 - README: install, quick start, connecting Claude/other MCP clients, security model, secret refs.
 - **Done when:** fresh machine install → working tool in under 5 minutes following README.
 
+### Stage 12 — Code structure refactor
+- Move every inline `#[cfg(test)] mod tests { ... }` into the crate's `src/tests/` folder (`src/foo.rs` → `src/tests/foo.rs`, `lib.rs` → `src/tests/lib.rs`), declared as `#[cfg(test)] #[path = "tests/foo.rs"] mod tests;` (unit tests need private access, so they stay inside `src/`; the crate-level `tests/` folder keeps the integration tests).
+- Split `exec_sql/src/lib.rs` (1.2k lines) and `exec_sql/src/guard.rs` (1k lines) into focused modules; public API unchanged (re-export from the old paths).
+- No behaviour change, no new dependencies.
+- **Done when:** the same test count passes before and after; fmt + clippy clean.
+
+### Stage 13 — Authentication (UI + `/api`)
+- `users` (username, argon2id hash) and `sessions` (SHA-256 of a random token, created, last seen, expiry) tables.
+- Login is always required for the UI and `/api`, including on loopback. `/mcp` keeps its current rule (open on loopback, `--admin-token` otherwise); `/api` still accepts the admin token as a bearer for scripts. `stdio`, `export`, `import` are unaffected.
+- First run: no users → the server logs a one-time setup code; the UI shows a "create admin account" screen that requires it.
+- Session cookie: `HttpOnly`, `SameSite=Strict`, `Path=/`; idle expiry 7 days, absolute 30 days; logout deletes the session; password change revokes other sessions.
+- CSRF: state-changing `/api` calls need a custom header (forces a CORS preflight, which is never granted) — `SameSite` alone does not cover other localhost ports.
+- Login: generic error, dummy hash for unknown users (no username probing), per-username + per-IP backoff.
+- CLI: `mcp-forge user add|passwd|list|remove` (works on the data dir directly; recovery path).
+- **Done when:** tests cover setup code, login/logout, expiry, CSRF header, lockout, admin-token bypass, protected routes 401 without a session.
+
+### Stage 14 — UI redesign
+- New app shell (sidebar, page headers, breadcrumbs, user menu with logout, light/dark toggle), login + setup screens to match.
+- Consistent spacing/typography scale, tables, forms, dialogs, empty states and loading states across every page; responsive down to phone width.
+- shadcn/ui only; keep fonts bundled (no network).
+- **Done when:** every existing screen restyled, `npm run build` + vitest green, browser pass at desktop and phone widths.
+
 ---
 
 ## 6. Non-negotiables
