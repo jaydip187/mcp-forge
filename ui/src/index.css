@@ -162,3 +162,12 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Faint grid behind the sign-in screen's brand panel. */
+.auth-grid {
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(ellipse at 30% 20%, black 20%, transparent 75%);
+}

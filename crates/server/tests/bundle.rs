@@ -6,7 +6,7 @@ use std::sync::Arc;
 use forge_core::{AuthConfigInput, ProjectInput, ToolInput};
 use forge_exec_http::MapSecretResolver;
 use forge_store::Store;
-use mcp_forge::AppState;
+use mcp_forge::{AppState, Security};
 use reqwest::{Client, StatusCode};
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
@@ -41,7 +41,10 @@ async fn api_round_trip() {
     let base = format!("http://{}/api", listener.local_addr().unwrap());
     tokio::spawn(mcp_forge::serve(
         listener,
-        AppState::new(store, Arc::new(MapSecretResolver::default())),
+        AppState::new(store, Arc::new(MapSecretResolver::default())).with_security(Security {
+            require_login: false,
+            ..Security::default()
+        }),
         std::future::pending(),
     ));
     let c = Client::new();

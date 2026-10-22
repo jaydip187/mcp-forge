@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use forge_exec_http::MapSecretResolver;
 use forge_store::Store;
-use mcp_forge::AppState;
+use mcp_forge::{AppState, Security};
 use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock};
 use rmcp::service::{NotificationContext, RoleClient, RunningService};
 use rmcp::transport::StreamableHttpClientTransport;
@@ -44,7 +44,10 @@ impl Harness {
         let base = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(mcp_forge::serve(
             listener,
-            AppState::new(store, Arc::new(secrets)),
+            AppState::new(store, Arc::new(secrets)).with_security(Security {
+                require_login: false,
+                ..Security::default()
+            }),
             std::future::pending(),
         ));
         let http = reqwest::Client::new();

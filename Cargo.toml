@@ -19,8 +19,10 @@ forge-exec-sql = { path = "crates/exec_sql" }
 forge-mcp = { path = "crates/mcp" }
 
 anyhow = "1"
+argon2 = "0.5"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 axum = { version = "0.8", features = ["macros"] }
+hex = "0.4"
 futures-util = { version = "0.3", default-features = false }
 clap = { version = "4", features = ["derive", "env"] }
 jaq-core = "3.1"
@@ -29,10 +31,12 @@ jaq-std = "3.0"
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "async-secret-service", "tokio", "crypto-rust"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
 rust-embed = { version = "8.7", features = ["mime-guess"] }
+rpassword = "7"
 rmcp = { version = "3.6", default-features = false, features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml_ng = "0.10"
+sha2 = "0.10"
 sqlparser = { version = "0.63", features = ["visitor"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros", "chrono"] }
 tempfile = "3"
@@ -58,3 +62,10 @@ debug = false
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+# Password hashing is far too slow unoptimised (tests and debug runs).
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3

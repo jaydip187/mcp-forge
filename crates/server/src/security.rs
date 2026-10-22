@@ -2,22 +2,27 @@
 //!
 //! - Loopback binds (the default) accept only loopback `Host` headers, which
 //!   blocks DNS-rebinding attacks from web pages in the user's browser.
-//! - Non-loopback binds require an admin token, sent as
-//!   `Authorization: Bearer <token>` on `/api` and `/mcp`.
+//! - `/api` needs a signed-in session (see [`crate::login`]) unless
+//!   `require_login` is off; state-changing calls made with the session cookie
+//!   must carry the [`CSRF_HEADER`].
+//! - With an admin token (mandatory on non-loopback binds), `/mcp` requires it
+//!   as `Authorization: Bearer <token>`, and `/api` accepts it in place of a
+//!   session, for scripts.
 //!
-//! The static UI shell holds no data and is served without a token; it asks
-//! for the token and sends it with every API call.
+//! The static UI shell holds no data and is served to anyone; it shows the
+//! sign-in screen and sends the session cookie with every API call.
 
 use std::sync::Arc;
 
 use axum::extract::{Request, State};
 use axum::http::header::{AUTHORIZATION, HOST, WWW_AUTHENTICATE};
-use axum::http::StatusCode;
+use axum::http::{Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::json;
 
+use crate::login::{self, CSRF_HEADER};
 use crate::AppState;
 
 /// Minimum admin token length, so a guessable token can't be used.
@@ -29,6 +34,8 @@ pub struct Security {
     pub admin_token: Option<Arc<str>>,
     /// Reject requests whose `Host` is not a loopback name.
     pub loopback_hosts_only: bool,
+    /// Require a signed-in session (or the admin token) on `/api`.
+    pub require_login: bool,
 }
 
 impl Default for Security {
@@ -36,11 +43,12 @@ impl Default for Security {
         Self {
             admin_token: None,
             loopback_hosts_only: true,
+            require_login: true,
         }
     }
 }
 
-pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
+pub async fn guard(State(state): State<AppState>, mut req: Request, next: Next) -> Response {
     let sec = &state.security;
     let path = req.uri().path();
     if path == "/healthz" {
@@ -56,28 +64,71 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
             );
         }
     }
-    let protected = path.starts_with("/api") || path.starts_with("/mcp");
-    if let (true, Some(expected)) = (protected, &sec.admin_token) {
-        let given = req
-            .headers()
+    let is_api = path.starts_with("/api");
+    let is_mcp = path.starts_with("/mcp");
+    if !is_api && !is_mcp {
+        return next.run(req).await;
+    }
+    let bearer_ok = sec.admin_token.as_ref().is_some_and(|expected| {
+        req.headers()
             .get(AUTHORIZATION)
             .and_then(|h| h.to_str().ok())
-            .and_then(|h| h.strip_prefix("Bearer "));
-        if !given.is_some_and(|g| constant_time_eq(g.as_bytes(), expected.as_bytes())) {
-            let mut resp = error(
-                StatusCode::UNAUTHORIZED,
-                "unauthorized",
-                "missing or wrong admin token (send `Authorization: Bearer <token>`)",
-            );
-            resp.headers_mut()
-                .insert(WWW_AUTHENTICATE, "Bearer".parse().expect("static header"));
-            return resp;
+            .and_then(|h| h.strip_prefix("Bearer "))
+            .is_some_and(|g| constant_time_eq(g.as_bytes(), expected.as_bytes()))
+    });
+    if bearer_ok {
+        return next.run(req).await;
+    }
+    if is_mcp || !sec.require_login {
+        if sec.admin_token.is_some() {
+            return unauthorized_token();
+        }
+        return next.run(req).await;
+    }
+    let safe = matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS);
+    if !safe && !req.headers().contains_key(CSRF_HEADER) {
+        return error(
+            StatusCode::FORBIDDEN,
+            "csrf",
+            "state-changing requests need the `X-Mcp-Forge` header",
+        );
+    }
+    if login::is_public(path) {
+        return next.run(req).await;
+    }
+    match login::authenticate(&state.store, req.headers()).await {
+        Ok(Some(user)) => {
+            req.extensions_mut().insert(user);
+            next.run(req).await
+        }
+        Ok(None) => error(
+            StatusCode::UNAUTHORIZED,
+            "sign_in_required",
+            "sign in first (or send the admin token as `Authorization: Bearer <token>`)",
+        ),
+        Err(e) => {
+            tracing::error!(error = %e, "session lookup failed");
+            error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                "internal error; see server logs",
+            )
         }
     }
-    next.run(req).await
 }
 
-fn error(status: StatusCode, code: &str, message: &str) -> Response {
+fn unauthorized_token() -> Response {
+    let mut resp = error(
+        StatusCode::UNAUTHORIZED,
+        "unauthorized",
+        "missing or wrong admin token (send `Authorization: Bearer <token>`)",
+    );
+    resp.headers_mut()
+        .insert(WWW_AUTHENTICATE, "Bearer".parse().expect("static header"));
+    resp
+}
+
+pub(crate) fn error(status: StatusCode, code: &str, message: &str) -> Response {
     (
         status,
         Json(json!({ "error": { "code": code, "message": message } })),
@@ -98,7 +149,7 @@ pub fn is_loopback_host(host: &str) -> bool {
             .is_ok_and(|ip| ip.is_loopback())
 }
 
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }

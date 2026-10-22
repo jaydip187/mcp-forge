@@ -1,6 +1,7 @@
 import type {
   AuditEntry,
   AuthConfig,
+  AuthStatus,
   AuthConfigInput,
   BundleReport,
   ConnectionReport,
@@ -19,30 +20,15 @@ import type {
   TestRun,
   Tool,
   ToolInput,
+  User,
 } from "./types";
 
-const TOKEN_KEY = "mcp-forge.admin-token";
-
-/** Admin token kept per browser tab; never persisted beyond the session. */
-export const token = {
-  get(): string | null {
-    try {
-      return sessionStorage.getItem(TOKEN_KEY);
-    } catch {
-      return memoryToken;
-    }
-  },
-  set(value: string | null) {
-    memoryToken = value;
-    try {
-      if (value) sessionStorage.setItem(TOKEN_KEY, value);
-      else sessionStorage.removeItem(TOKEN_KEY);
-    } catch {
-      /* storage unavailable: memory only */
-    }
-  },
-};
-let memoryToken: string | null = null;
+/**
+ * Sent on every call. The server rejects state-changing requests without it,
+ * so other sites can't forge them with the session cookie (custom headers
+ * need a CORS preflight, which the server never grants).
+ */
+const CSRF_HEADER = "X-Mcp-Forge";
 
 export class ApiError extends Error {
   constructor(
@@ -55,17 +41,15 @@ export class ApiError extends Error {
   }
 }
 
-/** Called when the server answers 401, so the app can ask for a token. */
+/** Called when the server answers 401, so the app can show the sign-in screen. */
 let onUnauthorized: () => void = () => {};
 export function setUnauthorizedHandler(fn: () => void) {
   onUnauthorized = fn;
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = { Accept: "application/json" };
+  const headers: Record<string, string> = { Accept: "application/json", [CSRF_HEADER]: "1" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  const t = token.get();
-  if (t) headers.Authorization = `Bearer ${t}`;
 
   let resp: Response;
   try {
@@ -87,7 +71,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   if (!resp.ok) {
     const err = (data as { error?: { code?: string; message?: string; fields?: FieldError[] } } | null)?.error;
-    if (resp.status === 401) onUnauthorized();
+    if (resp.status === 401 && !path.startsWith("/auth/")) onUnauthorized();
     throw new ApiError(
       resp.status,
       err?.code ?? "http_error",
@@ -100,16 +84,23 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 /** Like `request`, for endpoints that answer with plain text (YAML export). */
 async function requestText(method: string, path: string): Promise<string> {
-  const headers: Record<string, string> = {};
-  const t = token.get();
-  if (t) headers.Authorization = `Bearer ${t}`;
-  const resp = await fetch(`/api${path}`, { method, headers });
+  const resp = await fetch(`/api${path}`, { method, headers: { [CSRF_HEADER]: "1" } });
   if (resp.status === 401) onUnauthorized();
   if (!resp.ok) throw new ApiError(resp.status, "http_error", `The server answered ${resp.status}.`);
   return resp.text();
 }
 
 const p = (projectId: string) => `/projects/${encodeURIComponent(projectId)}`;
+
+export const auth = {
+  status: () => request<AuthStatus>("GET", "/auth/status"),
+  setup: (input: { code: string; username: string; password: string }) =>
+    request<{ user: User }>("POST", "/auth/setup", input),
+  login: (input: { username: string; password: string }) => request<{ user: User }>("POST", "/auth/login", input),
+  logout: () => request<void>("POST", "/auth/logout", {}),
+  changePassword: (input: { current_password: string; new_password: string }) =>
+    request<void>("POST", "/auth/password", input),
+};
 
 export const api = {
   info: () => request<ServerInfo>("GET", "/info"),

@@ -206,6 +206,18 @@ export interface SqlTestRun extends TestRunBase {
 
 export type TestRun = HttpTestRun | SqlTestRun;
 
+export interface User {
+  id: string;
+  username: string;
+  created_at: string;
+}
+
+export interface AuthStatus {
+  login_required: boolean;
+  setup_required: boolean;
+  user: User | null;
+}
+
 export interface ServerInfo {
   version: string;
   exe: string | null;

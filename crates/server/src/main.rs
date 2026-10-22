@@ -5,7 +5,9 @@ use anyhow::Context;
 use clap::Parser;
 use forge_exec_http::DefaultSecretResolver;
 use forge_store::Store;
-use mcp_forge::config::{Cli, Command, ExportArgs, ImportArgs, OnConflict, ServeArgs, StdioArgs};
+use mcp_forge::config::{
+    Cli, Command, ExportArgs, ImportArgs, OnConflict, ServeArgs, StdioArgs, UserAction, UserArgs,
+};
 use mcp_forge::AppState;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
@@ -18,6 +20,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Stdio(args) => stdio(args).await,
         Command::Export(args) => export(args).await,
         Command::Import(args) => import(args).await,
+        Command::User(args) => user(args).await,
     }
 }
 
@@ -46,11 +49,13 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         tracing::info!("open http://{addr}/ in your browser");
     }
     if security.admin_token.is_some() {
-        tracing::info!("admin token required on /api and /mcp");
+        tracing::info!("admin token required on /mcp (and accepted on /api)");
     }
     let state = AppState::new(store, Arc::new(DefaultSecretResolver))
         .with_security(security)
         .with_data_dir(data_dir);
+    // Logs the one-time setup code when there is no account yet.
+    state.login.setup_code(&state.store).await?;
     mcp_forge::serve(listener, state, shutdown_signal()).await?;
     tracing::info!("shut down");
     Ok(())
@@ -162,6 +167,79 @@ async fn import(args: ImportArgs) -> anyhow::Result<()> {
         r.connections_kept.len()
     );
     Ok(())
+}
+
+async fn user(args: UserArgs) -> anyhow::Result<()> {
+    use mcp_forge::login::{check_username, hash_password};
+    let store = open_store(&args.common).await?;
+    match args.action {
+        UserAction::Add {
+            username,
+            password_stdin,
+        } => {
+            check_username(&username).map_err(|m| anyhow::anyhow!("username {m}"))?;
+            let password = read_new_password(password_stdin)?;
+            let user = store
+                .create_user(&username, &hash_password(&password))
+                .await?;
+            eprintln!("Created account `{}`", user.username);
+        }
+        UserAction::Passwd {
+            username,
+            password_stdin,
+        } => {
+            let (user, _) = store
+                .find_user_credentials(&username)
+                .await?
+                .with_context(|| format!("no account named `{username}`"))?;
+            let password = read_new_password(password_stdin)?;
+            store
+                .set_password(user.id, &hash_password(&password), None)
+                .await?;
+            eprintln!(
+                "Password changed for `{}`; all its sessions ended",
+                user.username
+            );
+        }
+        UserAction::List => {
+            for u in store.list_users().await? {
+                println!(
+                    "{}\tcreated {}",
+                    u.username,
+                    u.created_at.format("%Y-%m-%d %H:%M UTC")
+                );
+            }
+        }
+        UserAction::Remove { username } => {
+            store
+                .delete_user(&username)
+                .await
+                .with_context(|| format!("removing `{username}`"))?;
+            eprintln!("Removed account `{username}`");
+        }
+    }
+    Ok(())
+}
+
+/// Prompts twice without echo, or reads one line from stdin.
+fn read_new_password(from_stdin: bool) -> anyhow::Result<String> {
+    let password = if from_stdin {
+        let mut line = String::new();
+        std::io::stdin()
+            .read_line(&mut line)
+            .context("reading stdin")?;
+        // Windows PowerShell pipes text to native programs with a BOM.
+        line.trim_start_matches('\u{feff}')
+            .trim_end_matches(['\r', '\n'])
+            .to_owned()
+    } else {
+        let first = rpassword::prompt_password("Password: ").context("reading password")?;
+        let again = rpassword::prompt_password("Repeat password: ").context("reading password")?;
+        anyhow::ensure!(first == again, "the passwords don't match");
+        first
+    };
+    mcp_forge::login::check_password(&password).map_err(|m| anyhow::anyhow!("password {m}"))?;
+    Ok(password)
 }
 
 /// How often stdio mode checks the store for tool edits made by other processes.

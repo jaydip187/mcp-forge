@@ -32,6 +32,39 @@ pub enum Command {
     Export(ExportArgs),
     /// Load auth configs and tools from a YAML file into a project.
     Import(ImportArgs),
+    /// Manage accounts for the web UI (works on the data directory directly,
+    /// so it also recovers a forgotten password).
+    User(UserArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct UserArgs {
+    #[command(subcommand)]
+    pub action: UserAction,
+    #[command(flatten)]
+    pub common: CommonArgs,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum UserAction {
+    /// Create an account.
+    Add {
+        username: String,
+        /// Read the password from the first line of stdin instead of prompting.
+        #[arg(long)]
+        password_stdin: bool,
+    },
+    /// Set a new password; signs the account out everywhere.
+    Passwd {
+        username: String,
+        /// Read the password from the first line of stdin instead of prompting.
+        #[arg(long)]
+        password_stdin: bool,
+    },
+    /// List accounts.
+    List,
+    /// Delete an account and end its sessions.
+    Remove { username: String },
 }
 
 #[derive(Debug, Args)]
@@ -111,6 +144,7 @@ impl ServeArgs {
         Ok(Security {
             admin_token: self.admin_token.as_deref().map(Into::into),
             loopback_hosts_only: loopback,
+            require_login: true,
         })
     }
 }

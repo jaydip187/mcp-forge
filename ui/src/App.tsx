@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { FolderIcon, PlusIcon } from "lucide-react";
 
-import { api, ApiError, setUnauthorizedHandler, token } from "@/api";
+import { api, ApiError, auth, setUnauthorizedHandler } from "@/api";
+import { Logo } from "@/components/Logo";
+import { UserMenu } from "@/components/UserMenu";
 import {
   Sidebar,
   SidebarContent,
@@ -29,34 +31,43 @@ import { ProjectPage } from "@/pages/ProjectPage";
 import { ReimportPage } from "@/pages/ReimportPage";
 import { SqlToolEditor } from "@/pages/SqlToolEditor";
 import { ToolEditor } from "@/pages/ToolEditor";
-import { Unlock } from "@/pages/Unlock";
-import type { ServerInfo } from "@/types";
+import { Login } from "@/pages/Login";
+import { Setup } from "@/pages/Setup";
+import type { ServerInfo, User } from "@/types";
 
-type Gate = { state: "checking" } | { state: "locked" } | { state: "ready"; info: ServerInfo } | { state: "down"; message: string };
+type Gate =
+  | { state: "checking" }
+  | { state: "setup" }
+  | { state: "login" }
+  | { state: "ready"; info: ServerInfo; user: User | null }
+  | { state: "down"; message: string };
 
 export default function App() {
   const [gate, setGate] = useState<Gate>({ state: "checking" });
 
   async function check() {
     try {
-      setGate({ state: "ready", info: await api.info() });
+      const status = await auth.status();
+      if (status.login_required && !status.user) {
+        setGate({ state: status.setup_required ? "setup" : "login" });
+        return;
+      }
+      setGate({ state: "ready", info: await api.info(), user: status.user });
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) setGate({ state: "locked" });
+      if (e instanceof ApiError && e.status === 401) setGate({ state: "login" });
       else setGate({ state: "down", message: e instanceof Error ? e.message : String(e) });
     }
   }
 
   useEffect(() => {
-    setUnauthorizedHandler(() => {
-      token.set(null);
-      setGate({ state: "locked" });
-    });
+    setUnauthorizedHandler(() => setGate({ state: "login" }));
     void check();
   }, []);
 
   return (
     <TooltipProvider>
-      {gate.state === "locked" && <Unlock onUnlocked={() => void check()} />}
+      {gate.state === "setup" && <Setup onSignedIn={() => void check()} />}
+      {gate.state === "login" && <Login onSignedIn={() => void check()} />}
       {gate.state === "down" && (
         <main className="grid min-h-svh place-items-center p-6 text-center">
           <div className="max-w-md space-y-2">
@@ -67,7 +78,7 @@ export default function App() {
       )}
       {gate.state === "ready" && (
         <ProjectsProvider>
-          <Shell info={gate.info} />
+          <Shell info={gate.info} user={gate.user} onSignedOut={() => setGate({ state: "login" })} />
         </ProjectsProvider>
       )}
       <Toaster position="bottom-right" />
@@ -75,13 +86,13 @@ export default function App() {
   );
 }
 
-function Shell({ info }: { info: ServerInfo }) {
+function Shell({ info, user, onSignedOut }: { info: ServerInfo; user: User | null; onSignedOut: () => void }) {
   const route = useRoute();
   const activeProject = route.name === "home" ? null : route.projectId;
 
   return (
     <SidebarProvider>
-      <AppSidebar activeProject={activeProject} version={info.version} />
+      <AppSidebar activeProject={activeProject} version={info.version} user={user} onSignedOut={onSignedOut} />
       <SidebarInset>
         <header className="flex h-12 items-center gap-2 border-b px-3 md:hidden">
           <SidebarTrigger />
@@ -112,7 +123,17 @@ function Page({ route, info }: { route: Route; info: ServerInfo }) {
   }
 }
 
-function AppSidebar({ activeProject, version }: { activeProject: string | null; version: string }) {
+function AppSidebar({
+  activeProject,
+  version,
+  user,
+  onSignedOut,
+}: {
+  activeProject: string | null;
+  version: string;
+  user: User | null;
+  onSignedOut: () => void;
+}) {
   const { projects } = useProjects();
   return (
     <Sidebar>
@@ -154,17 +175,12 @@ function AppSidebar({ activeProject, version }: { activeProject: string | null; 
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
-        <p className="px-2 text-xs text-muted-foreground">Version {version}</p>
+        {user ? (
+          <UserMenu user={user} version={version} onSignedOut={onSignedOut} />
+        ) : (
+          <p className="px-2 text-xs text-muted-foreground">Version {version}</p>
+        )}
       </SidebarFooter>
     </Sidebar>
-  );
-}
-
-function Logo() {
-  return (
-    <svg viewBox="0 0 32 32" className="size-6 shrink-0" aria-hidden="true">
-      <rect width="32" height="32" rx="7" className="fill-primary" />
-      <path d="M9 10h14M9 16h9M9 22h14" className="stroke-primary-foreground" strokeWidth="3" strokeLinecap="round" />
-    </svg>
   );
 }

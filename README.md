@@ -69,6 +69,10 @@ mcp-forge serve
 
 Open <http://127.0.0.1:7410/>. Data lives in `~/.mcp-forge` (change it with `--data-dir`).
 
+On first run there is no account yet. The server prints a one-time **setup code** in its log
+(`no accounts yet: … setup code ABCD-EFGH-JKLM`); enter it in the browser with a username and
+password to create the first account. After that the UI asks you to sign in.
+
 ### 2. Create a project
 
 Click **+** next to *Projects*, name it `github`. A project is one MCP server: agents connect to
@@ -234,9 +238,25 @@ mcp-forge gives AI agents real access to your APIs and data, so it is built to f
 - Listens on `127.0.0.1:7410` by default. Requests must carry a loopback `Host` header, which blocks
   DNS-rebinding attacks from web pages you visit.
 - Listening on any other address (`--bind 0.0.0.0:7410`) requires an admin token (16+ characters,
-  `MCP_FORGE_ADMIN_TOKEN` or `--admin-token`). It is checked on `/api` and `/mcp`. The UI asks for it
-  once per browser tab. `/healthz` stays open. Put TLS in front (a reverse proxy) if the server is
-  reachable from other machines.
+  `MCP_FORGE_ADMIN_TOKEN` or `--admin-token`). MCP clients must send it on `/mcp`; scripts may send
+  it on `/api` instead of signing in. `/healthz` stays open. Put TLS in front (a reverse proxy) if the
+  server is reachable from other machines.
+
+**Accounts** (web UI and `/api`)
+
+- Signing in is always required, on localhost too. The first account is created with the one-time
+  setup code from the server log, so nobody else on the network can claim it first. More accounts,
+  password resets and removal: `mcp-forge user …` on the server.
+- Passwords are hashed with argon2id (8–256 characters). A wrong username and a wrong password get
+  the same answer in the same time. After 5 failed attempts for a username (20 per client address)
+  sign-in backs off, from 30 seconds doubling to 15 minutes.
+- The session is a random 256-bit token in an `HttpOnly`, `SameSite=Strict` cookie (`Secure` behind
+  an HTTPS proxy that sets `X-Forwarded-Proto`); only its SHA-256 is stored. Sessions end after
+  7 days idle or 30 days in all, on sign-out, or when the password changes (other sessions only).
+- State-changing API calls with the cookie must carry an `X-Mcp-Forge` header, which other web
+  pages can't add without a CORS preflight that the server never grants.
+- `/mcp` and stdio are unchanged: MCP clients can't sign in, so `/mcp` stays open on loopback and
+  needs the admin token elsewhere.
 
 **Secrets**: references only (see [Secrets](#secrets)); raw values are refused, redacted in output,
 and never exported.
@@ -289,7 +309,9 @@ docker logs mcp-forge          # "mcp-forge listening …"
 
 - Runs as an unprivileged user (uid 10001). Data lives in the `/data` volume.
 - The container listens on `0.0.0.0` inside, so an admin token is required. Read it back with
-  `docker exec mcp-forge printenv MCP_FORGE_ADMIN_TOKEN` and paste it when the UI asks.
+  `docker exec mcp-forge printenv MCP_FORGE_ADMIN_TOKEN` for MCP clients and scripts.
+- On first start, `docker logs mcp-forge` shows the setup code for the first account. Manage
+  accounts with `docker exec -it mcp-forge mcp-forge user …`.
 - Pass secrets as environment variables (`-e GITHUB_TOKEN=…`) and reference them as `env:NAME`.
   There is no OS keychain inside a container.
 - Clients connect over HTTP with `Authorization: Bearer <token>`. stdio needs the binary on the
@@ -302,7 +324,14 @@ mcp-forge serve  [--bind 127.0.0.1:7410] [--admin-token T] [--data-dir DIR]
 mcp-forge stdio  --project SLUG [--data-dir DIR]
 mcp-forge export --project SLUG [-o tools.yaml]
 mcp-forge import --project SLUG [FILE|-] [--on-conflict fail|skip|replace] [--confirm-full-access]
+mcp-forge user add NAME [--password-stdin]      # create an account (prompts for the password)
+mcp-forge user passwd NAME [--password-stdin]   # new password; ends all its sessions
+mcp-forge user list
+mcp-forge user remove NAME
 ```
+
+`user` works on the data directory directly, while the server runs or not, so it also recovers a
+forgotten password. Removing the last account brings back the first-run setup code.
 
 | Variable                | Same as          |
 |-------------------------|------------------|
@@ -316,7 +345,8 @@ mcp-forge import --project SLUG [FILE|-] [--on-conflict fail|skip|replace] [--co
 configs and database connections, with secrets as references only. Import it into another project
 or machine with `import` or *Settings → Import tools.yaml*. Imported tools become manual tools.
 
-The server also exposes `GET /healthz` and a REST API under `/api` (the UI uses it).
+The server also exposes `GET /healthz` and a REST API under `/api` (the UI uses it). Scripts
+authenticate to `/api` with the admin token (`Authorization: Bearer <token>`).
 
 ## Troubleshooting
 
@@ -332,6 +362,10 @@ The server also exposes `GET /healthz` and a REST API under `/api` (the UI uses 
   Allow writes on the connection if this tool should write.
 - **"binding to non-loopback address … requires --admin-token"**: listening beyond localhost (as the
   Docker image does) needs `MCP_FORGE_ADMIN_TOKEN`. Set one, or bind to `127.0.0.1`.
+- **Lost the setup code**: it's printed again on every start until the first account exists. Or
+  create the account directly: `mcp-forge user add <name>`.
+- **Forgot a password**: on the server, `mcp-forge user passwd <name>`.
+- **"Too many failed attempts"**: wait for the time shown, or reset the password with the CLI.
 - **Port 7410 in use**: `mcp-forge serve --bind 127.0.0.1:7420`.
 
 ## Building from source

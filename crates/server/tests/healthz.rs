@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use forge_exec_http::MapSecretResolver;
 use forge_store::{Store, DB_FILE};
-use mcp_forge::AppState;
+use mcp_forge::{AppState, Security};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
@@ -18,7 +18,10 @@ async fn serve_creates_db_and_answers_healthz() {
     let (tx, rx) = oneshot::channel::<()>();
     let server = tokio::spawn(mcp_forge::serve(
         listener,
-        AppState::new(store, Arc::new(MapSecretResolver::default())),
+        AppState::new(store, Arc::new(MapSecretResolver::default())).with_security(Security {
+            require_login: false,
+            ..Security::default()
+        }),
         async {
             let _ = rx.await;
         },

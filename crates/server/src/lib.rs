@@ -5,10 +5,12 @@ mod assets;
 pub mod bundle;
 pub mod config;
 mod import;
+pub mod login;
 mod mcp_http;
 mod reimport;
 pub mod security;
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -37,6 +39,8 @@ pub struct AppState {
     pub security: Security,
     /// Shown in the UI's stdio config snippet.
     pub data_dir: Option<PathBuf>,
+    /// Setup code and sign-in backoff for UI accounts.
+    pub login: Arc<login::Login>,
     mcp: Arc<mcp_http::McpServices>,
 }
 
@@ -49,6 +53,7 @@ impl AppState {
             shutdown: CancellationToken::new(),
             security: Security::default(),
             data_dir: None,
+            login: Arc::default(),
             mcp: Arc::default(),
         }
     }
@@ -71,7 +76,8 @@ pub fn app(state: AppState) -> Router {
             "/api",
             api::router()
                 .merge(import::router())
-                .merge(reimport::router()),
+                .merge(reimport::router())
+                .merge(login::router()),
         )
         .route("/mcp/{slug}", any(mcp_http::handle))
         .fallback(assets::serve)
@@ -103,7 +109,8 @@ pub async fn serve(
     shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> std::io::Result<()> {
     let token = state.shutdown.clone();
-    axum::serve(listener, app(state))
+    let app = app(state).into_make_service_with_connect_info::<SocketAddr>();
+    axum::serve(listener, app)
         .with_graceful_shutdown(async move {
             shutdown.await;
             token.cancel();

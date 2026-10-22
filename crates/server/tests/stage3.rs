@@ -25,16 +25,25 @@ async fn start(security: Security) -> String {
     base
 }
 
+/// Login is covered in `login.rs`; these tests exercise the other layers.
+fn open() -> Security {
+    Security {
+        require_login: false,
+        ..Security::default()
+    }
+}
+
 fn token_security() -> Security {
     Security {
         admin_token: Some(TOKEN.into()),
         loopback_hosts_only: false,
+        require_login: false,
     }
 }
 
 #[tokio::test]
 async fn loopback_mode_rejects_foreign_host_headers() {
-    let base = start(Security::default()).await;
+    let base = start(open()).await;
     let c = Client::new();
     for p in ["/api/projects", "/", "/mcp/x"] {
         let r = c
@@ -107,7 +116,7 @@ async fn admin_token_guards_api_and_mcp_but_not_ui_shell() {
 
 #[tokio::test]
 async fn ui_shell_is_html_with_csp() {
-    let base = start(Security::default()).await;
+    let base = start(open()).await;
     let r = reqwest::get(format!("{base}/")).await.unwrap();
     assert_eq!(r.status(), StatusCode::OK);
     assert!(r.headers()["content-type"]
@@ -125,7 +134,7 @@ async fn ui_shell_is_html_with_csp() {
 
 #[tokio::test]
 async fn info_reports_snippet_inputs() {
-    let base = start(Security::default()).await;
+    let base = start(open()).await;
     let info: Value = reqwest::get(format!("{base}/api/info"))
         .await
         .unwrap()
@@ -155,7 +164,7 @@ async fn test_console_and_mcp_view() {
         .mount(&upstream)
         .await;
 
-    let base = start(Security::default()).await;
+    let base = start(open()).await;
     let c = Client::new();
     let p = post(
         &c,

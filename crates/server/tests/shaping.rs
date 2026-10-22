@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use forge_exec_http::MapSecretResolver;
 use forge_store::Store;
-use mcp_forge::AppState;
+use mcp_forge::{AppState, Security};
 use reqwest::{Client, StatusCode};
 use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock};
 use rmcp::service::RunningService;
@@ -30,7 +30,10 @@ impl H {
         let root = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(mcp_forge::serve(
             listener,
-            AppState::new(store, Arc::new(MapSecretResolver::default())),
+            AppState::new(store, Arc::new(MapSecretResolver::default())).with_security(Security {
+                require_login: false,
+                ..Security::default()
+            }),
             std::future::pending(),
         ));
         let c = Client::new();

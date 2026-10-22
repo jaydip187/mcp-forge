@@ -4,10 +4,10 @@
 > Legend: `[ ]` todo · `[~]` in progress / partial · `[x]` done · `[-]` dropped (say why)
 
 ## Next up
-Stage 12 review, then Stage 13 — authentication
+Stage 13 review, then Stage 14 — UI redesign
 
 ## Current stage
-**Stage 12 — Code structure refactor** · status: done · review: requested
+**Stage 13 — Authentication** · status: done · review: requested
 
 ---
 
@@ -119,16 +119,16 @@ Stage 12 review, then Stage 13 — authentication
 - [x] Inline test modules → per-crate src/tests/ folder
 - [x] Split exec_sql lib.rs and guard.rs
 - [x] Same test count before/after (180 names identical; 177 pass, 3 ignored)
-- [ ] Stage review approved
+- [x] Stage review approved
 
 ### Stage 13 — Authentication
-- [ ] users + sessions migration, argon2id
-- [ ] First-run setup code + setup endpoint
-- [ ] Login/logout/me endpoints, session cookie, CSRF header
-- [ ] Guard: session or admin token on /api; /mcp unchanged
-- [ ] Login backoff
-- [ ] `mcp-forge user` CLI
-- [ ] Tests
+- [x] users + sessions migration, argon2id
+- [x] First-run setup code + setup endpoint
+- [x] Login/logout/me endpoints, session cookie, CSRF header
+- [x] Guard: session or admin token on /api; /mcp unchanged
+- [x] Login backoff
+- [x] `mcp-forge user` CLI
+- [x] Tests
 - [ ] Stage review approved
 
 ### Stage 14 — UI redesign
@@ -142,6 +142,9 @@ Stage 12 review, then Stage 13 — authentication
 ---
 
 ## Decisions
+- 2026-10-22: new deps for Stage 13 — `argon2` 0.5 (password hashing; reuses rand_core 0.6 already in the tree), `sha2` + `hex` (session token hashing; both already in the lockfile), `rpassword` 7 (no-echo password prompt for `mcp-forge user`). Dev profile builds argon2/blake2 at opt-level 3 so tests stay fast.
+- 2026-10-22: `Security::default()` requires login; tests that cover other layers opt out with `require_login: false`. `/api` still accepts the admin token as a bearer (scripts, no CSRF header needed).
+- 2026-10-22: the UI no longer stores the admin token; it signs in with the session cookie. Setup code is in memory only and re-generated (and logged) on each start while no account exists.
 - 2026-10-22 (user): Stages 12–14 added from an enhancement request. "Test enums" do not exist here; item 1 is read as moving inline test modules to tests.rs + splitting the two largest files.
 - 2026-10-22 (user): login always required for UI + /api (also on loopback); /mcp keeps loopback-open / admin-token rule so MCP clients keep working.
 - 2026-10-22 (user): first account is created with a one-time setup code printed by the server; `mcp-forge user` CLI for recovery.
@@ -260,6 +263,9 @@ Stage 12 review, then Stage 13 — authentication
 - 2026-10-21 · Should tool `description` be required? · optional (empty allowed) for now; importers will fill from summary/description
 
 ## Known issues / tech debt
+- Session cookie name is fixed (`mcp_forge_session`); cookies aren't port-scoped, so two servers on different localhost ports sign each other out. (Stage 13)
+- Login backoff state is in memory: it resets on restart. (Stage 13)
+- Browser QA could not open the user menu a second time via browser-mcp (Radix trigger flake), so the change-password dialog was not exercised in the browser; the endpoint is covered by `tests/login.rs`. Enter-to-submit on the sign-in form did not fire through CDP; the button did. (Stage 13)
 <!-- Append: YYYY-MM-DD · issue · stage to fix -->
 - 2026-10-22 · The README quick start was walked through on a fresh container via the REST API the UI calls plus a raw MCP client, not by clicking through the UI (browser-mcp input problems this session). · try the UI flow at review
 - 2026-10-22 · The affected-rows cap counts what the database reports for the statement: rows changed by triggers or cascading foreign keys aren't counted, and MySQL reports *changed* (not matched) rows for UPDATE. · document in the Stage 11 security model
@@ -297,6 +303,14 @@ Stage 12 review, then Stage 13 — authentication
 - **Gotchas:** 
 - **Next step:** 
 -->
+
+### Session 15 — 2026-10-22
+- **Stage/task:** Stage 13 — authentication
+- **Done:** migration `0007` (users, sessions); store repo for users/sessions; `login` module (argon2id hashing, setup code, cookie sessions with 7-day idle / 30-day max, per-user + per-address backoff, `/api/auth/{status,setup,login,logout,password}`); guard: session or admin token on `/api`, CSRF header on unsafe cookie calls, `/mcp` unchanged; `mcp-forge user add|passwd|list|remove` (strips the BOM PowerShell adds to piped stdin); UI: Setup + Login screens (two-pane `AuthLayout`), user menu with sign-out and change-password dialog, admin-token prompt removed; README security model, Docker, CLI, troubleshooting
+- **Not done / partial:** none
+- **Tests:** 193 passed, 3 ignored (new: store ×3, login unit ×7, `tests/login.rs` ×6); vitest 25; clippy -D warnings + fmt clean. Browser (browser-mcp): setup with log code, project create (CSRF header), reload keeps session, sign out, wrong password message, sign in, cookie not readable from JS. CLI: add/list/passwd/remove against a live server's data dir
+- **Gotchas:** PowerShell 5.1 pipes a BOM into native stdin; argon2 is very slow unoptimised
+- **Next step:** Stage 13 review, then Stage 14 UI redesign
 
 ### Session 14 — 2026-10-22
 - **Stage/task:** Stage 12 — code structure refactor (planned Stages 12–14 from an enhancement request)

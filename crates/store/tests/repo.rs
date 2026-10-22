@@ -707,3 +707,74 @@ async fn audit_log_append_and_page() {
     assert_eq!(page[0].tool_name, "t1");
     s.delete_project(p.id).await.unwrap();
 }
+
+#[tokio::test]
+async fn users_unique_case_insensitively() {
+    let s = store().await;
+    assert_eq!(s.count_users().await.unwrap(), 0);
+    let u = s.create_user("Alice", "hash-1").await.unwrap();
+    assert_conflict(s.create_user("alice", "hash-2").await);
+    let (found, hash) = s.find_user_credentials("ALICE").await.unwrap().unwrap();
+    assert_eq!((found.id, hash.as_str()), (u.id, "hash-1"));
+    assert!(s.find_user_credentials("bob").await.unwrap().is_none());
+    assert_eq!(s.list_users().await.unwrap(), [u]);
+}
+
+#[tokio::test]
+async fn sessions_follow_their_user() {
+    let s = store().await;
+    let u = s.create_user("alice", "h").await.unwrap();
+    s.create_session("tok-a", u.id).await.unwrap();
+    s.create_session("tok-b", u.id).await.unwrap();
+    let sess = s.find_session("tok-a").await.unwrap().unwrap();
+    assert_eq!(sess.user.username, "alice");
+
+    let later = sess.last_seen_at + chrono::Duration::minutes(5);
+    s.touch_session("tok-a", later).await.unwrap();
+    assert_eq!(
+        s.find_session("tok-a").await.unwrap().unwrap().last_seen_at,
+        later
+    );
+
+    // A password change keeps only the session that made it.
+    s.set_password(u.id, "h2", Some("tok-a")).await.unwrap();
+    assert_eq!(s.password_hash(u.id).await.unwrap(), "h2");
+    assert!(s.find_session("tok-a").await.unwrap().is_some());
+    assert!(s.find_session("tok-b").await.unwrap().is_none());
+
+    s.delete_session("tok-a").await.unwrap();
+    assert!(s.find_session("tok-a").await.unwrap().is_none());
+
+    s.create_session("tok-c", u.id).await.unwrap();
+    s.delete_user("Alice").await.unwrap();
+    assert!(s.find_session("tok-c").await.unwrap().is_none());
+    assert!(matches!(
+        s.delete_user("alice").await,
+        Err(StoreError::NotFound(_))
+    ));
+}
+
+#[tokio::test]
+async fn purge_drops_old_and_idle_sessions() {
+    let s = store().await;
+    let u = s.create_user("alice", "h").await.unwrap();
+    s.create_session("idle", u.id).await.unwrap();
+    s.create_session("active", u.id).await.unwrap();
+    let created = s.find_session("idle").await.unwrap().unwrap().created_at;
+    let hour = chrono::Duration::hours(1);
+    s.touch_session("active", created + hour).await.unwrap();
+
+    // Idle cut-off between the two: only the idle session goes.
+    let removed = s
+        .purge_sessions(created - hour, created + hour / 2)
+        .await
+        .unwrap();
+    assert_eq!(removed, 1);
+    assert!(s.find_session("idle").await.unwrap().is_none());
+    assert!(s.find_session("active").await.unwrap().is_some());
+
+    // Absolute cut-off after creation: the active one goes too.
+    let removed = s.purge_sessions(created + hour, created).await.unwrap();
+    assert_eq!(removed, 1);
+    assert!(s.find_session("active").await.unwrap().is_none());
+}

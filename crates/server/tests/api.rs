@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use forge_exec_http::MapSecretResolver;
 use forge_store::Store;
-use mcp_forge::AppState;
+use mcp_forge::{AppState, Security};
 use reqwest::{Client, StatusCode};
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
@@ -19,7 +19,10 @@ impl Api {
         let base = format!("http://{}/api", listener.local_addr().unwrap());
         tokio::spawn(mcp_forge::serve(
             listener,
-            AppState::new(store, Arc::new(MapSecretResolver::default())),
+            AppState::new(store, Arc::new(MapSecretResolver::default())).with_security(Security {
+                require_login: false,
+                ..Security::default()
+            }),
             std::future::pending(),
         ));
         Self {
