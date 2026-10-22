@@ -36,18 +36,18 @@ and to spec URLs you import on purpose. No telemetry.
 **macOS / Linux**
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/jaydip-valens/mcp-forge/releases/latest/download/mcp-forge-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/jaydip187/mcp-forge/releases/latest/download/mcp-forge-installer.sh | sh
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/jaydip-valens/mcp-forge/releases/latest/download/mcp-forge-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/jaydip187/mcp-forge/releases/latest/download/mcp-forge-installer.ps1 | iex"
 ```
 
 The installers put `mcp-forge` in `~/.cargo/bin`; open a new terminal afterwards so it's on your
 `PATH`. Prefer a manual install? Download the archive for your platform from the
-[releases page](https://github.com/jaydip-valens/mcp-forge/releases), unpack it and put the binary
+[releases page](https://github.com/jaydip187/mcp-forge/releases), unpack it and put the binary
 anywhere on your `PATH`. Builds exist for macOS (Apple Silicon and Intel), Linux (x86_64 and arm64)
 and Windows (x86_64).
 

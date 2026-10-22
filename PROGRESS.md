@@ -4,7 +4,7 @@
 > Legend: `[ ]` todo · `[~]` in progress / partial · `[x]` done · `[-]` dropped (say why)
 
 ## Next up
-Stage 11 review. All stages done; next: set the real repository URL, push, tag v0.1.0 (see Open questions)
+Stage 11 review. All stages done; next: push to origin (github.com/jaydip187/mcp-forge), tag v0.1.0, test the installer one-liner
 
 ## Current stage
 **Stage 11 — Packaging & docs** · status: done · review: requested
@@ -229,7 +229,7 @@ Stage 11 review. All stages done; next: set the real repository URL, push, tag v
 - 2026-10-21 · PROMPT says bearer on "/api and UI". Static files can't carry a bearer from a browser navigation. · UI shell (no data) is public; all data goes through /api, which requires the token. Revisit if a cookie session is wanted
 - 2026-10-22 · PROMPT types `SqlMode::Query.params` as `Vec<ParamDef>`; HTTP locations/fixed values/wire names don't apply to SQL. · own `SqlParam` type
 - 2026-10-22 · PROMPT makes `dsn_ref` a secret ref for every driver, including SQLite file paths (not secret). · kept as refs (`env:SHOP_DB` holding the path) for one consistent rule; revisit if it's annoying
-- 2026-10-22 · No git remote is configured, but cargo-dist needs a repository URL (release hosting and installer URLs). · used `https://github.com/jaydip-valens/mcp-forge` (guessed from the git user name) in `[workspace.package] repository/homepage` and the README install commands; replace all occurrences before the first release
+- 2026-10-22 · No git remote was configured, but cargo-dist needs a repository URL. · resolved: the user chose `https://github.com/jaydip187/mcp-forge` (set as `origin`, used in `[workspace.package] repository/homepage` and the README install commands)
 - 2026-10-21 · Should tool `description` be required? · optional (empty allowed) for now; importers will fill from summary/description
 
 ## Known issues / tech debt
@@ -278,7 +278,7 @@ Stage 11 review. All stages done; next: set the real repository URL, push, tag v
 - **Not done / partial:** installer path untestable without a published release; UI click-through of the quick start
 - **Tests:** passing — workspace + clippy + fmt + UI; `dist plan` (5 targets, 2 installers) and `dist generate --check`; Docker image built locally and the README walkthrough run on a fresh container + empty volume: healthy 1 s after `docker run`, non-root uid 10001, 401 without token, project + `get_repo` tool created, test console and MCP initialize → tools/list → tools/call returned shaped GitHub data; ~4 s machine time, so the human part (reading, typing) is what fills the 5 minutes
 - **Gotchas:** cargo-dist skips `publish = false` packages unless `dist = true`; newest cargo-dist was a day old → pinned the previous release
-- **Next step:** set the repository URL, push to GitHub, tag `v0.1.0`, then install with the README one-liner on a clean machine
+- **Next step:** push to GitHub, tag `v0.1.0`, then install with the README one-liner on a clean machine (repository URL set to github.com/jaydip187/mcp-forge after review)
 
 ### Session 11 — 2026-10-22
 - **Stage/task:** Stage 10 — Writes (all tasks); Stage 9 approved ("continue")
