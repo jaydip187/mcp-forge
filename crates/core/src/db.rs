@@ -39,8 +39,13 @@ impl Driver {
     }
 }
 
-/// What agents may do through a connection. Only `ReadOnly` is accepted until
-/// write support lands (Stage 10).
+/// What agents may do through a connection:
+/// - `ReadOnly`: every tool only reads.
+/// - `CuratedWrite`: saved queries may also write (INSERT/UPDATE/DELETE, and
+///   DDL with `allow_ddl`); agent-written `run_sql` stays read-only.
+/// - `FullAccess`: `run_sql` may write too.
+///
+/// Admin statements (GRANT, SET, COPY, …) are never allowed.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AccessMode {
@@ -199,11 +204,8 @@ impl DbConnectionInput {
                 format!("must be 1–{MAX_NAME_LEN} characters of a-z, A-Z, 0-9, _ or -"),
             );
         }
-        if self.access_mode != AccessMode::ReadOnly {
-            errs.push("access_mode", "only read_only is supported in this version");
-        }
-        if self.allow_ddl {
-            errs.push("allow_ddl", "DDL is not supported in this version");
+        if self.allow_ddl && self.access_mode == AccessMode::ReadOnly {
+            errs.push("allow_ddl", "DDL needs curated_write or full_access access");
         }
         if !(1..=MAX_ROW_LIMIT).contains(&self.row_limit) {
             errs.push(
@@ -467,13 +469,13 @@ mod tests {
 
         let c = conn(json!({
             "name": "bad name", "driver": "mysql", "dsn_ref": "env:DB",
-            "access_mode": "full_access", "row_limit": 0, "timeout_ms": 5,
+            "allow_ddl": true, "row_limit": 0, "timeout_ms": 5,
             "table_allowlist": ["ok", "no spaces"]
         }));
         let e = c.validate().unwrap_err();
         for f in [
             "name",
-            "access_mode",
+            "allow_ddl",
             "row_limit",
             "timeout_ms",
             "table_allowlist[1]",
@@ -571,5 +573,14 @@ mod tests {
         let mut errs = ValidationErrors::default();
         s.validate_into(&mut errs);
         assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn write_modes_and_ddl() {
+        for mode in ["curated_write", "full_access"] {
+            conn(json!({ "name": "w", "driver": "sqlite", "dsn_ref": "env:DB", "access_mode": mode, "allow_ddl": true }))
+                .validate()
+                .unwrap();
+        }
     }
 }

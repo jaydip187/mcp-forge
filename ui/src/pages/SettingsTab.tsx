@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -107,6 +108,7 @@ type Policy = "fail" | "skip" | "replace";
 
 function BundleCard({ project, onImported }: { project: Project; onImported: () => Promise<void> }) {
   const [policy, setPolicy] = useState<Policy>("fail");
+  const [allowFull, setAllowFull] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function download() {
@@ -129,7 +131,7 @@ function BundleCard({ project, onImported }: { project: Project; onImported: () 
     if (!file) return;
     setBusy(true);
     try {
-      const r = await api.importBundle(project.id, await file.text(), policy);
+      const r = await api.importBundle(project.id, await file.text(), policy, allowFull);
       const parts = [
         `${r.tools_created.length} tools added`,
         r.tools_updated.length ? `${r.tools_updated.length} replaced` : "",
@@ -152,7 +154,8 @@ function BundleCard({ project, onImported }: { project: Project; onImported: () 
       <CardHeader>
         <CardTitle>Export and import</CardTitle>
         <CardDescription>
-          A YAML file with this project's tools and auth configs. Secrets stay as references, so the file is safe to share.
+          A YAML file with this project's tools, auth configs and database connections. Secrets stay as references, so the
+          file is safe to share.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap items-end gap-3">
@@ -173,6 +176,12 @@ function BundleCard({ project, onImported }: { project: Project; onImported: () 
               <SelectItem value="replace">Use the file's version</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div className="flex h-9 items-center gap-2">
+          <Checkbox id="b-full" checked={allowFull} onCheckedChange={(v) => setAllowFull(v === true)} />
+          <Label htmlFor="b-full" className="text-xs font-normal text-muted-foreground">
+            Allow databases with full access
+          </Label>
         </div>
         <Label htmlFor="b-file" className="flex h-9 cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm font-medium hover:bg-muted/60 has-focus-visible:ring-2 has-focus-visible:ring-ring">
           <UploadIcon className="size-4" /> {busy ? "Importing…" : "Import tools.yaml"}

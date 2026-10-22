@@ -86,6 +86,7 @@ describe("router", () => {
     expect(parseRoute("#/p/abc/tools/new-sql")).toEqual({ name: "tool", projectId: "abc", toolId: null, kind: "sql" });
     expect(parseRoute("#/p/abc/tools/t1")).toEqual({ name: "tool", projectId: "abc", toolId: "t1", kind: "http" });
     expect(parseRoute("#/p/abc/databases")).toEqual({ name: "project", projectId: "abc", tab: "databases" });
+    expect(parseRoute("#/p/abc/audit")).toEqual({ name: "project", projectId: "abc", tab: "audit" });
     expect(parseRoute("#/p/abc/import")).toEqual({ name: "import", projectId: "abc" });
     expect(parseRoute("#/p/abc/specs")).toEqual({ name: "project", projectId: "abc", tab: "specs" });
     expect(parseRoute("#/p/abc/specs/s1/reimport")).toEqual({ name: "reimport", projectId: "abc", specId: "s1" });
@@ -227,7 +228,17 @@ describe("visibility", () => {
   });
 });
 
-import { buildSqlInput, newSqlForm, splitList, sqlParamIndex, sqlPlaceholders, syncSqlParams } from "./sqlForm";
+import {
+  buildSqlInput,
+  enumText,
+  looksLikeWrite,
+  newSqlForm,
+  splitList,
+  sqlParamIndex,
+  sqlPlaceholders,
+  syncSqlParams,
+  withEnum,
+} from "./sqlForm";
 
 describe("sql form", () => {
   it("finds :name placeholders outside strings, comments and casts", () => {
@@ -261,6 +272,20 @@ describe("sql form", () => {
       connection_id: "c1",
       mode: { type: "query", sql: "SELECT :x", params: [{ name: "x", schema: { type: "string" }, required: true, description: null }] },
     });
+  });
+
+  it("guesses writes for labels, ignoring strings and comments", () => {
+    expect(looksLikeWrite("UPDATE orders SET status = :s WHERE id = :id")).toBe(true);
+    expect(looksLikeWrite("SELECT 'delete me', replace(name, 'a', 'b') FROM t -- drop\n")).toBe(false);
+    expect(looksLikeWrite("WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x")).toBe(true);
+  });
+
+  it("edits allowed values by type", () => {
+    const p = { name: "n", schema: { type: "integer" }, required: true, description: null };
+    const schema = withEnum(p.schema, "1, 2, x", "integer");
+    expect(schema).toEqual({ type: "integer", enum: [1, 2, "x"] });
+    expect(enumText({ ...p, schema })).toBe("1, 2, x");
+    expect(withEnum(schema, " ", "integer")).toEqual({ type: "integer" });
   });
 
   it("builds exploration tools without SQL or params", () => {

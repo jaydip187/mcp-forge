@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { href } from "@/lib/router";
+import { looksLikeWrite } from "@/lib/sqlForm";
 import { HIDDEN_LABEL, hiddenReason } from "@/lib/visibility";
 import type { ProjectSettings, Tool } from "@/types";
 
@@ -109,6 +110,9 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
               <a href={href.tool(projectId, t.id)} className="group min-w-0 flex-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <div className="flex items-center gap-2">
                   <span className="font-medium group-hover:underline">{t.name}</span>
+                  {t.kind.type === "sql" && t.kind.mode.type === "query" && looksLikeWrite(t.kind.mode.sql) && (
+                    <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">writes</span>
+                  )}
                   {t.kind.type === "http" && t.kind.auth_ref && (
                     <Tooltip>
                       <TooltipTrigger asChild>

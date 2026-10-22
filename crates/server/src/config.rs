@@ -56,6 +56,10 @@ pub struct ImportArgs {
     /// What to do when a tool or auth config with the same name exists.
     #[arg(long, value_enum, default_value_t = OnConflict::Fail)]
     pub on_conflict: OnConflict,
+    /// Allow importing database connections with `full_access` (agents may
+    /// change and delete data with SQL they write).
+    #[arg(long)]
+    pub confirm_full_access: bool,
     #[command(flatten)]
     pub common: CommonArgs,
 }

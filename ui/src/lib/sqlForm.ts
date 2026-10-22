@@ -1,5 +1,5 @@
 import { splitTags } from "./toolForm";
-import type { ExplorationMode, SqlParam, SqlParamType, Tool, ToolInput } from "../types";
+import type { ExplorationMode, Json, JsonObject, SqlParam, SqlParamType, Tool, ToolInput } from "../types";
 
 export interface SqlForm {
   name: string;
@@ -145,3 +145,32 @@ export const EXPLORATION_LABEL: Record<ExplorationMode, { title: string; blurb: 
     blurb: "Lets the agent write its own read-only SELECT against allowed tables. Most flexible, so most to review.",
   },
 };
+
+/**
+ * Rough guess whether SQL changes data, for labels only (the server
+ * classifies statements properly and enforces the rules).
+ */
+export function looksLikeWrite(sql: string): boolean {
+  const code = sql
+    .replace(/--[^\n]*/g, " ")
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/'(?:[^']|'')*'/g, "''");
+  return /\b(insert|update|delete|merge|create|alter|drop|truncate)\b/i.test(code);
+}
+
+/** A param's allowed values as typed text ("a, b"). */
+export function enumText(p: SqlParam): string {
+  const e = p.schema.enum;
+  return Array.isArray(e) ? e.map((v) => String(v)).join(", ") : "";
+}
+
+/** Sets (or clears) `enum` from comma-separated text, typed by the param type. */
+export function withEnum(schema: JsonObject, text: string, type: SqlParamType): JsonObject {
+  const { enum: _, ...rest } = schema;
+  const parts = text.split(",").map((x) => x.trim()).filter(Boolean);
+  if (parts.length === 0) return rest;
+  const values: Json[] = parts.map((v) =>
+    type === "integer" || type === "number" ? (Number.isFinite(Number(v)) ? Number(v) : v) : type === "boolean" ? v === "true" : v,
+  );
+  return { ...rest, enum: values };
+}

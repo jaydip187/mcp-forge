@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { href, navigate, type ProjectTab } from "@/lib/router";
+import { AuditTab } from "@/pages/AuditTab";
 import { AuthTab } from "@/pages/AuthTab";
 import { ConnectTab, mcpUrl } from "@/pages/ConnectTab";
 import { DatabasesTab } from "@/pages/DatabasesTab";
@@ -57,6 +58,7 @@ export function ProjectPage({ projectId, tab, info }: { projectId: string; tab: 
           <TabsTrigger value="specs">Specs</TabsTrigger>
           <TabsTrigger value="auth">Auth</TabsTrigger>
           <TabsTrigger value="databases">Databases</TabsTrigger>
+          <TabsTrigger value="audit">Audit</TabsTrigger>
           <TabsTrigger value="connect">Connect</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
@@ -71,6 +73,9 @@ export function ProjectPage({ projectId, tab, info }: { projectId: string; tab: 
         </TabsContent>
         <TabsContent value="databases" className="pt-4">
           <DatabasesTab projectId={project.id} />
+        </TabsContent>
+        <TabsContent value="audit" className="pt-4">
+          <AuditTab projectId={project.id} />
         </TabsContent>
         <TabsContent value="connect" className="pt-4">
           <ConnectTab project={project} info={info} />

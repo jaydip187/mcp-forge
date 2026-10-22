@@ -134,6 +134,8 @@ async fn import(args: ImportArgs) -> anyhow::Result<()> {
         OnConflict::Skip => forge_store::ConflictPolicy::Skip,
         OnConflict::Replace => forge_store::ConflictPolicy::Replace,
     };
+    mcp_forge::bundle::check_full_access(&bundle, args.confirm_full_access)
+        .map_err(|e| anyhow::anyhow!("{e} (pass --confirm-full-access to allow it)"))?;
     mcp_forge::bundle::check_sql_tools(&store, project.id, &bundle).await?;
     let r = store
         .import_bundle(

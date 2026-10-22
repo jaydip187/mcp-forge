@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { href, navigate } from "@/lib/router";
-import { buildSqlInput, EXPLORATION_LABEL, newSqlForm, paramType, sqlFormFromTool, sqlParamIndex, syncSqlParams, type SqlForm } from "@/lib/sqlForm";
+import { buildSqlInput, enumText, EXPLORATION_LABEL, looksLikeWrite, newSqlForm, withEnum, paramType, sqlFormFromTool, sqlParamIndex, syncSqlParams, type SqlForm } from "@/lib/sqlForm";
 import { TestConsole } from "@/pages/TestConsole";
 import { DRIVER_LABEL, SQL_PARAM_TYPES, type DbConnection, type SqlParam, type SqlParamType, type Tool } from "@/types";
 
@@ -231,10 +231,28 @@ export function SqlToolEditor({ projectId, tool }: { projectId: string; tool: To
                 aria-invalid={!!err("kind.mode.sql")}
               />
             </Field>
-            {conn && (
-              <p className="text-xs text-muted-foreground">
-                Returns at most {conn.row_limit} rows and stops after {conn.timeout_ms / 1000}s (set on the database).
-              </p>
+            {conn && looksLikeWrite(form.sql) ? (
+              conn.access_mode === "read_only" ? (
+                <Alert variant="destructive">
+                  <AlertDescription>
+                    This looks like a write, but {conn.name} is read-only. Allow saved writes on the Databases tab first.
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <Alert>
+                  <AlertDescription>
+                    This tool changes data. Agents can try it with <code>dry_run</code>; a change of more than{" "}
+                    {conn.max_affected_rows} rows is undone; UPDATE and DELETE need a WHERE clause; every run is listed on
+                    the Audit tab.
+                  </AlertDescription>
+                </Alert>
+              )
+            ) : (
+              conn && (
+                <p className="text-xs text-muted-foreground">
+                  Returns at most {conn.row_limit} rows and stops after {conn.timeout_ms / 1000}s (set on the database).
+                </p>
+              )
             )}
           </Section>
 
@@ -272,6 +290,13 @@ export function SqlToolEditor({ projectId, tool }: { projectId: string; tool: To
                       </Button>
                     </div>
                     <Input value={p.description ?? ""} onChange={(e) => setParam(i, { description: e.target.value })} placeholder="What the agent should pass (optional)" aria-label={`Description of ${p.name}`} />
+                    <Input
+                      value={enumText(p)}
+                      onChange={(e) => setParam(i, { schema: withEnum(p.schema, e.target.value, paramType(p)) })}
+                      placeholder="Allowed values, comma-separated (optional), e.g. pending, shipped"
+                      aria-label={`Allowed values of ${p.name}`}
+                      className="font-mono text-xs"
+                    />
                     {!p.required && <p className="text-xs text-muted-foreground">Left out by the agent, it's sent as NULL.</p>}
                     {paramErrors(i).map((m) => (
                       <p key={m} className="text-xs text-destructive">

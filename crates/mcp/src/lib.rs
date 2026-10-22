@@ -12,7 +12,8 @@ use std::time::Duration;
 use std::collections::HashMap;
 
 use forge_core::{
-    DbConnection, HttpMethod, ProjectSettings, SecretResolver, SqlMode, SqlSpec, ToolDef, ToolKind,
+    AuditEntry, DbConnection, HttpMethod, ProjectSettings, SecretResolver, SqlMode, SqlSpec,
+    ToolDef, ToolKind,
 };
 use forge_exec_http::shape::{shape_body, ShapeOptions};
 use forge_exec_http::{ExecError, HttpExecutor, HttpOutcome};
@@ -119,7 +120,11 @@ impl ForgeMcp {
             .list_tools(self.project_id)
             .await
             .map_err(internal)?;
-        Ok(tools.into_iter().filter(|t| settings.exposes(t)).collect())
+        let conns = self.connections().await?;
+        Ok(tools
+            .into_iter()
+            .filter(|t| exposed(settings, t, &conns))
+            .collect())
     }
 
     /// The project's DB connections by id (SQL tool descriptions use them).
@@ -140,8 +145,9 @@ impl ForgeMcp {
         args: &Map<String, Value>,
         settings: &ProjectSettings,
     ) -> Result<CallToolResult, ErrorData> {
+        let conns = self.connections().await?;
         let tool = match self.store.get_tool_by_name(self.project_id, name).await {
-            Ok(t) if settings.exposes(&t) => t,
+            Ok(t) if exposed(settings, &t, &conns) => t,
             Ok(_) | Err(StoreError::NotFound(_)) => {
                 return Err(ErrorData::invalid_params(
                     format!("unknown tool `{name}`"),
@@ -150,7 +156,7 @@ impl ForgeMcp {
             }
             Err(e) => return Err(internal(e)),
         };
-        let run = run_tool(&self.store, &self.exec, &tool, args, settings)
+        let run = run_tool(&self.store, &self.exec, &tool, args, settings, "mcp")
             .await
             .map_err(internal)?;
         tracing::info!(
@@ -325,31 +331,74 @@ pub struct ToolRun {
     pub shaped: Option<String>,
 }
 
+/// Whether agents can see a tool: the project's filters, plus read-only
+/// projects hide SQL tools that write.
+fn exposed(settings: &ProjectSettings, t: &ToolDef, conns: &HashMap<Uuid, DbConnection>) -> bool {
+    if !settings.exposes(t) {
+        return false;
+    }
+    match (&t.kind, connection_of(t, conns)) {
+        (ToolKind::Sql(spec), Some(c)) if settings.read_only => {
+            !forge_exec_sql::tool_writes(spec, c)
+        }
+        _ => true,
+    }
+}
+
 /// Runs a stored tool (enabled or not) and shapes its response with the
 /// project's settings. Shared by MCP `tools/call` and the UI test console so
-/// both report identical results.
+/// both report identical results. SQL writes are recorded in the audit log
+/// with `origin` (`mcp` or `console`).
 pub async fn run_tool(
     store: &Store,
     exec: &Executors,
     tool: &ToolDef,
     args: &Map<String, Value>,
     settings: &ProjectSettings,
+    origin: &str,
 ) -> Result<ToolRun, StoreError> {
     let spec = match &tool.kind {
         ToolKind::Http(spec) => spec,
         ToolKind::Sql(spec) => {
-            let outcome = match store
+            let conn = match store
                 .get_connection(tool.project_id, spec.connection_id)
                 .await
             {
-                Ok(conn) => exec.sql.run_query(&conn, spec, args).await,
-                Err(StoreError::NotFound(_)) => Err(SqlError::Config(format!(
-                    "tool `{}` references a missing connection",
-                    tool.name
-                ))),
+                Ok(c) => c,
+                Err(StoreError::NotFound(_)) => {
+                    let outcome = Err(SqlError::Config(format!(
+                        "tool `{}` references a missing connection",
+                        tool.name
+                    )));
+                    return Ok(ToolRun::from_sql(outcome, tool, settings));
+                }
                 Err(e) => return Err(e),
             };
-            return Ok(ToolRun::from_sql(outcome, tool, settings));
+            let run = exec.sql.run(&conn, spec, args).await;
+            if let Some(a) = run.audit {
+                let entry = AuditEntry {
+                    id: Uuid::new_v4(),
+                    project_id: tool.project_id,
+                    ts: chrono::Utc::now(),
+                    tool_id: Some(tool.id),
+                    tool_name: tool.name.clone(),
+                    connection_id: Some(conn.id),
+                    connection_name: conn.name.clone(),
+                    origin: origin.to_owned(),
+                    statement_class: a.class.as_str().to_owned(),
+                    sql: a.sql,
+                    params: a.params,
+                    rows_affected: a.rows_affected,
+                    outcome: a.outcome,
+                    error: a.error,
+                };
+                // The write already happened; a failed audit insert is logged,
+                // not turned into a tool error.
+                if let Err(e) = store.append_audit(&entry).await {
+                    tracing::error!(error = %e, tool = %tool.name, "could not write audit entry");
+                }
+            }
+            return Ok(ToolRun::from_sql(run.result, tool, settings));
         }
     };
     let auth = match spec.auth_ref {
@@ -424,6 +473,10 @@ impl ToolRun {
                 ),
             ),
             Err(SqlError::Database(m)) => (true, format!("Database error: {m}")),
+            Err(e @ SqlError::TooManyRows { .. }) => (
+                true,
+                format!("Not done: {e}. Narrow the WHERE clause, or check the count first with dry_run: true."),
+            ),
         };
         Self {
             outcome: RunOutcome::Sql(outcome),
@@ -514,8 +567,18 @@ pub fn sql_tool_description(t: &ToolDef, spec: &SqlSpec, conn: Option<&DbConnect
         || "the configured database".to_owned(),
         |c| format!("the `{}` database ({})", c.name, driver_label(c)),
     );
+    let writes = conn.is_some_and(|c| forge_exec_sql::tool_writes(spec, c));
+    let write_note = conn.map_or_else(String::new, |c| {
+        format!(
+            "Changes data. Returns {{affected_rows, committed, dry_run}} (and any RETURNING rows). At most {} rows may \
+             change per call; a larger change is undone. Pass dry_run: true to see the count without changing anything.",
+            c.max_affected_rows
+        )
+    });
     let generated = match &spec.mode {
+        SqlMode::Query { .. } if writes && !user.is_empty() => return format!("{user}\n\n{write_note}"),
         SqlMode::Query { .. } if !user.is_empty() => return user.to_owned(),
+        SqlMode::Query { .. } if writes => format!("Runs a fixed statement on {db}. {write_note}"),
         SqlMode::Query { .. } => {
             format!("Runs a fixed read-only query on {db}. Returns {{columns, rows, truncated}}.")
         }
@@ -527,6 +590,30 @@ pub fn sql_tool_description(t: &ToolDef, spec: &SqlSpec, conn: Option<&DbConnect
             "Shows the columns of one table in {db}: type, nullable, default, primary key, and whether its \
              values are masked."
         ),
+        SqlMode::RunSql if writes => {
+            let ddl = conn.is_some_and(|c| c.allow_ddl);
+            let mut d = format!(
+                "Runs one SQL statement on {db}: SELECT, INSERT, UPDATE or DELETE{}. UPDATE and DELETE need a WHERE \
+                 clause; multiple statements, admin statements and system catalogs are refused. SELECT returns \
+                 {{columns, rows, truncated}}. {write_note}",
+                if ddl { ", or a schema change (CREATE, ALTER, DROP)" } else { "" }
+            );
+            if let Some(c) = conn {
+                if c.table_allowlist.is_empty() {
+                    d.push_str(" All non-system tables are available.");
+                } else {
+                    d.push_str(&format!(" Tables you may use: {}.", c.table_allowlist.join(", ")));
+                }
+                if !c.column_masks.is_empty() {
+                    let masks: Vec<String> = c.column_masks.iter().map(|m| m.to_string()).collect();
+                    d.push_str(&format!(
+                        " Masked columns ({}) can't be used in statements.",
+                        masks.join(", ")
+                    ));
+                }
+            }
+            d
+        }
         SqlMode::RunSql => {
             let mut d = format!(
                 "Runs one read-only SQL query on {db}. Only SELECT (or WITH … SELECT) is allowed; writes, \
@@ -577,13 +664,17 @@ pub fn to_mcp_tool(t: &ToolDef, conn: Option<&DbConnection>) -> Tool {
         ToolKind::Http(spec) => spec,
         ToolKind::Sql(spec) => {
             let description = sql_tool_description(t, spec, conn);
-            // Curated queries only read, and only from the configured database.
+            let writes = conn.is_some_and(|c| forge_exec_sql::tool_writes(spec, c));
+            let schema = match conn {
+                Some(c) => forge_exec_sql::tool_input(spec, c).schema,
+                None => spec.derive_input().schema,
+            };
+            // Only the configured database is touched; writers are destructive.
             let annotations = ToolAnnotations::new()
-                .read_only(true)
-                .destructive(false)
+                .read_only(!writes)
+                .destructive(writes)
                 .open_world(false);
-            return Tool::new(t.name.clone(), description, spec.derive_input().schema)
-                .with_annotations(annotations);
+            return Tool::new(t.name.clone(), description, schema).with_annotations(annotations);
         }
     };
     let description = if t.description.trim().is_empty() {

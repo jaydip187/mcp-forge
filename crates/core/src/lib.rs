@@ -4,6 +4,7 @@
 //! read only these. MCP input schemas are derived from them, never stored.
 
 mod args;
+mod audit;
 mod auth;
 mod db;
 mod overrides;
@@ -15,6 +16,7 @@ mod tool;
 mod validate;
 
 pub use args::check_args;
+pub use audit::{AuditEntry, AuditOutcome};
 pub use auth::{ApiKeyLocation, AuthConfig, AuthConfigInput, AuthKind};
 pub use db::{
     is_valid_sql_param_name, AccessMode, ColumnMask, DbConnection, DbConnectionInput, Driver,

@@ -8,8 +8,8 @@ export type Route =
   | { name: "import"; projectId: string }
   | { name: "reimport"; projectId: string; specId: string };
 
-export type ProjectTab = "tools" | "specs" | "auth" | "databases" | "connect" | "settings";
-const TABS: ProjectTab[] = ["tools", "specs", "auth", "databases", "connect", "settings"];
+export type ProjectTab = "tools" | "specs" | "auth" | "databases" | "audit" | "connect" | "settings";
+const TABS: ProjectTab[] = ["tools", "specs", "auth", "databases", "audit", "connect", "settings"];
 
 export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);

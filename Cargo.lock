@@ -1259,6 +1259,7 @@ dependencies = [
 name = "forge-mcp"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "forge-core",
  "forge-exec-http",
  "forge-exec-sql",
@@ -2212,6 +2213,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "chrono",
  "clap",
  "forge-core",
  "forge-exec-http",

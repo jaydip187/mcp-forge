@@ -17,6 +17,7 @@ forge-importers.workspace = true
 forge-mcp.workspace = true
 forge-store.workspace = true
 anyhow.workspace = true
+chrono.workspace = true
 axum.workspace = true
 clap.workspace = true
 reqwest.workspace = true

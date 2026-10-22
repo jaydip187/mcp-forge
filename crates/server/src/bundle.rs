@@ -242,6 +242,23 @@ pub fn parse_bundle(text: &str) -> Result<Bundle, ValidationErrors> {
     })
 }
 
+/// Connections with `full_access` only import with explicit confirmation.
+pub fn check_full_access(bundle: &Bundle, confirmed: bool) -> Result<(), StoreError> {
+    if confirmed {
+        return Ok(());
+    }
+    let mut errs = ValidationErrors::default();
+    for (i, c) in bundle.db_connections.iter().enumerate() {
+        if c.access_mode == forge_core::AccessMode::FullAccess {
+            errs.push(
+                format!("db_connections[{i}].access_mode"),
+                "full_access lets agents change and delete data; confirm the import to allow it",
+            );
+        }
+    }
+    errs.into_result().map_err(StoreError::from)
+}
+
 /// Checks each SQL tool's statement against its connection's dialect (from
 /// the bundle, else already in the project).
 pub async fn check_sql_tools(
@@ -249,14 +266,14 @@ pub async fn check_sql_tools(
     project_id: Uuid,
     bundle: &Bundle,
 ) -> Result<(), StoreError> {
-    let mut drivers: HashMap<String, forge_core::Driver> = store
+    let mut drivers: HashMap<String, DbConnectionInput> = store
         .list_connections(project_id)
         .await?
         .into_iter()
-        .map(|c| (c.name, c.driver))
+        .map(|c| (c.name.clone(), c.input()))
         .collect();
     for c in &bundle.db_connections {
-        drivers.insert(c.name.clone(), c.driver);
+        drivers.insert(c.name.clone(), c.clone());
     }
     let mut errs = ValidationErrors::default();
     for (i, t) in bundle.tools.iter().enumerate() {
@@ -264,10 +281,10 @@ pub async fn check_sql_tools(
             continue;
         };
         // Unknown connection names are reported by the store import.
-        let Some(driver) = t.connection.as_ref().and_then(|n| drivers.get(n)) else {
+        let Some(conn) = t.connection.as_ref().and_then(|n| drivers.get(n)) else {
             continue;
         };
-        if let Err(e) = forge_exec_sql::check_query_tool(spec, *driver) {
+        if let Err(e) = forge_exec_sql::check_query_tool(spec, conn) {
             for f in e.errors {
                 errs.push(format!("tools[{i}].{}", f.field), f.message);
             }

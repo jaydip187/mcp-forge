@@ -124,6 +124,7 @@ const SQL_ERROR_LABEL: Record<NonNullable<SqlTestRun["error"]>["kind"], string> 
   connect: "Couldn't connect",
   timeout: "Timed out",
   database: "Database error",
+  too_many_rows: "Too many rows: undone",
 };
 
 function RunResult({ run }: { run: TestRun }) {
@@ -185,7 +186,14 @@ function SqlRunResult({ run }: { run: SqlTestRun }) {
   return (
     <section aria-label="Test result" className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        {r ? (
+        {r?.write ? (
+          <Badge variant={r.write.committed ? "destructive" : "secondary"} className="font-mono">
+            {r.write.dry_run
+              ? `dry run: would change ${r.write.affected_rows} ${r.write.affected_rows === 1 ? "row" : "rows"}`
+              : `${r.write.affected_rows} ${r.write.affected_rows === 1 ? "row" : "rows"} changed`}{" "}
+            · {r.elapsed_ms} ms
+          </Badge>
+        ) : r ? (
           <Badge variant="secondary" className="font-mono">
             {r.row_count} {r.row_count === 1 ? "row" : "rows"}
             {r.truncated && " (limit reached)"} · {r.elapsed_ms} ms

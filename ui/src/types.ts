@@ -120,12 +120,14 @@ export type Driver = "sqlite" | "postgres" | "mysql";
 export const DRIVERS: Driver[] = ["postgres", "mysql", "sqlite"];
 export const DRIVER_LABEL: Record<Driver, string> = { postgres: "PostgreSQL", mysql: "MySQL", sqlite: "SQLite" };
 
+export type AccessMode = "read_only" | "curated_write" | "full_access";
+
 export interface DbConnectionInput {
   name: string;
   driver: Driver;
   /** env:NAME or keyring:NAME holding the connection string. */
   dsn_ref: string;
-  access_mode: "read_only" | "curated_write" | "full_access";
+  access_mode: AccessMode;
   row_limit: number;
   timeout_ms: number;
   max_affected_rows: number;
@@ -193,9 +195,10 @@ export interface SqlTestRun extends TestRunBase {
     truncated: boolean;
     masked_columns: string[];
     elapsed_ms: number;
+    write: { class: "write" | "ddl"; affected_rows: number; committed: boolean; dry_run: boolean } | null;
   } | null;
   error: {
-    kind: "invalid_args" | "rejected" | "config" | "connect" | "timeout" | "database";
+    kind: "invalid_args" | "rejected" | "config" | "connect" | "timeout" | "database" | "too_many_rows";
     message: string;
     fields?: FieldError[];
   } | null;
@@ -280,4 +283,21 @@ export interface BundleReport {
   tools_created: string[];
   tools_updated: string[];
   tools_skipped: string[];
+}
+
+export interface AuditEntry {
+  id: string;
+  project_id: string;
+  ts: string;
+  tool_id: string | null;
+  tool_name: string;
+  connection_id: string | null;
+  connection_name: string;
+  origin: "mcp" | "console";
+  statement_class: "write" | "ddl";
+  sql: string;
+  params: Json[];
+  rows_affected: number | null;
+  outcome: "committed" | "rolled_back" | "dry_run" | "failed";
+  error: string | null;
 }

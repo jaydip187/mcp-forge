@@ -85,6 +85,7 @@ pub fn router() -> Router<AppState> {
             "/projects/{project_id}/db-connections/{conn_id}/test",
             axum::routing::post(test_connection),
         )
+        .route("/projects/{project_id}/audit", get(list_audit))
         .route(
             "/projects/{project_id}/db-connections/{conn_id}/exploration-tools",
             axum::routing::post(add_exploration_tools),
@@ -308,14 +309,44 @@ async fn list_connections(
     Ok(Json(s.store.list_connections(project_id).await?))
 }
 
+/// Connection payload plus the explicit opt-in that `full_access` needs.
+#[derive(Deserialize)]
+struct ConnectionRequest {
+    #[serde(flatten)]
+    input: DbConnectionInput,
+    #[serde(default)]
+    confirm_full_access: bool,
+}
+
+/// Switching a connection to `full_access` (agents may run their own
+/// writes) must be confirmed explicitly; the UI asks with a warning.
+fn check_full_access(
+    req: &ConnectionRequest,
+    before: Option<forge_core::AccessMode>,
+) -> ApiResult<()> {
+    use forge_core::AccessMode::FullAccess;
+    if req.input.access_mode == FullAccess && before != Some(FullAccess) && !req.confirm_full_access
+    {
+        return Err(ApiError::Store(
+            forge_core::ValidationErrors::single(
+                "access_mode",
+                "full_access lets agents change and delete data with SQL they write; confirm it with confirm_full_access: true",
+            )
+            .into(),
+        ));
+    }
+    Ok(())
+}
+
 async fn create_connection(
     State(s): State<AppState>,
     ApiPath(project_id): ApiPath<Uuid>,
-    ApiJson(input): ApiJson<DbConnectionInput>,
+    ApiJson(req): ApiJson<ConnectionRequest>,
 ) -> ApiResult<(StatusCode, Json<DbConnection>)> {
+    check_full_access(&req, None)?;
     Ok((
         StatusCode::CREATED,
-        Json(s.store.create_connection(project_id, &input).await?),
+        Json(s.store.create_connection(project_id, &req.input).await?),
     ))
 }
 
@@ -329,9 +360,16 @@ async fn get_connection(
 async fn update_connection(
     State(s): State<AppState>,
     ApiPath((project_id, id)): ApiPath<(Uuid, Uuid)>,
-    ApiJson(input): ApiJson<DbConnectionInput>,
+    ApiJson(req): ApiJson<ConnectionRequest>,
 ) -> ApiResult<Json<DbConnection>> {
-    let conn = s.store.update_connection(project_id, id, &input).await?;
+    let before = s.store.get_connection(project_id, id).await?.access_mode;
+    check_full_access(&req, Some(before))?;
+    let conn = s
+        .store
+        .update_connection(project_id, id, &req.input)
+        .await?;
+    // Tool descriptions, schemas (dry_run) and annotations depend on it.
+    s.changes.notify(project_id);
     s.exec.sql.forget(id).await;
     Ok(Json(conn))
 }
@@ -353,6 +391,28 @@ async fn test_connection(
 ) -> ApiResult<Json<forge_exec_sql::ConnectionReport>> {
     let conn = s.store.get_connection(project_id, id).await?;
     Ok(Json(s.exec.sql.test_connection(&conn).await))
+}
+
+#[derive(Deserialize)]
+struct AuditQuery {
+    #[serde(default)]
+    limit: Option<u32>,
+    /// Only entries older than this (paging).
+    #[serde(default)]
+    before: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// SQL write attempts, newest first.
+async fn list_audit(
+    State(s): State<AppState>,
+    ApiPath(project_id): ApiPath<Uuid>,
+    axum::extract::Query(q): axum::extract::Query<AuditQuery>,
+) -> ApiResult<Json<Vec<forge_core::AuditEntry>>> {
+    Ok(Json(
+        s.store
+            .list_audit(project_id, q.limit.unwrap_or(100), q.before)
+            .await?,
+    ))
 }
 
 #[derive(Deserialize)]
@@ -446,7 +506,7 @@ pub(crate) async fn check_sql(s: &AppState, project_id: Uuid, input: &ToolInput)
     let Ok(conn) = s.store.get_connection(project_id, spec.connection_id).await else {
         return Ok(());
     };
-    forge_exec_sql::check_query_tool(spec, conn.driver)
+    forge_exec_sql::check_query_tool(spec, &conn.input())
         .map_err(|e| ApiError::Store(StoreError::Validation(e)))
 }
 
@@ -493,7 +553,15 @@ async fn test_tool(
 ) -> ApiResult<Json<Value>> {
     let tool = s.store.get_tool(project_id, id).await?;
     let settings = s.store.get_project(project_id).await?.settings;
-    let run = forge_mcp::run_tool(&s.store, &s.exec, &tool, &req.arguments, &settings).await?;
+    let run = forge_mcp::run_tool(
+        &s.store,
+        &s.exec,
+        &tool,
+        &req.arguments,
+        &settings,
+        "console",
+    )
+    .await?;
     let (request, response, error) = match &run.outcome {
         RunOutcome::Sql(Ok(o)) => (
             json!({ "sql": o.sql, "params": o.params }),
@@ -504,6 +572,7 @@ async fn test_tool(
                 "truncated": o.truncated,
                 "masked_columns": o.masked_columns,
                 "elapsed_ms": o.elapsed_ms,
+                "write": o.write,
             }),
             Value::Null,
         ),
@@ -517,6 +586,9 @@ async fn test_tool(
                 SqlError::Connect(m) => json!({ "kind": "connect", "message": m }),
                 SqlError::Timeout(_) => json!({ "kind": "timeout", "message": e.to_string() }),
                 SqlError::Database(m) => json!({ "kind": "database", "message": m }),
+                SqlError::TooManyRows { affected, max, .. } => json!({
+                    "kind": "too_many_rows", "message": e.to_string(), "affected_rows": affected, "max": max,
+                }),
             };
             (Value::Null, Value::Null, err)
         }
@@ -599,6 +671,8 @@ struct BundleImportRequest {
     content: String,
     #[serde(default)]
     on_conflict: forge_store::ConflictPolicy,
+    #[serde(default)]
+    confirm_full_access: bool,
 }
 
 async fn import_bundle(
@@ -619,6 +693,7 @@ async fn import_bundle(
             other => other,
         })?;
     }
+    crate::bundle::check_full_access(&bundle, req.confirm_full_access)?;
     crate::bundle::check_sql_tools(&s.store, project_id, &bundle).await?;
     let report = s
         .store

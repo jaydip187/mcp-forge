@@ -1,5 +1,6 @@
 //! SQLite-backed store for projects, tools, auth configs and DB connections.
 
+mod audit;
 mod auth;
 mod bundle;
 mod connections;
@@ -7,6 +8,7 @@ mod projects;
 mod specs;
 mod tools;
 
+pub use audit::MAX_AUDIT_PAGE;
 pub use bundle::{BundleReport, BundleTool, ConflictPolicy};
 pub use specs::{NewSpec, ReimportResult, SpecRecord};
 

@@ -8,7 +8,7 @@ use forge_core::{ColumnMask, Driver};
 use sqlparser::ast::{
     Expr, FunctionArg, FunctionArgExpr, FunctionArguments, Ident, ObjectName, ObjectNamePart,
     Query, Select, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, Statement, TableFactor,
-    Visit, Visitor,
+    TableObject, Visit, Visitor,
 };
 use sqlparser::dialect::{Dialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
 use sqlparser::parser::Parser;
@@ -185,9 +185,76 @@ fn full_name(name: &ObjectName) -> String {
         .join(".")
 }
 
+/// What a statement does, from least to most privileged.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum StatementClass {
+    #[default]
+    Read,
+    /// INSERT, UPDATE, DELETE, MERGE (and locking reads).
+    Write,
+    /// CREATE, ALTER, DROP, TRUNCATE, … (and SELECT … INTO).
+    Ddl,
+    /// Everything else: GRANT, SET, COPY, VACUUM, PRAGMA, CALL, … Never allowed.
+    Admin,
+}
+
+impl StatementClass {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            StatementClass::Read => "read",
+            StatementClass::Write => "write",
+            StatementClass::Ddl => "ddl",
+            StatementClass::Admin => "admin",
+        }
+    }
+}
+
+fn classify_one(s: &Statement) -> StatementClass {
+    use StatementClass::*;
+    match s {
+        Statement::Query(_) => Read,
+        Statement::Insert { .. }
+        | Statement::Update { .. }
+        | Statement::Delete { .. }
+        | Statement::Merge { .. } => Write,
+        Statement::CreateTable { .. }
+        | Statement::CreateIndex { .. }
+        | Statement::CreateView { .. }
+        | Statement::CreateVirtualTable { .. }
+        | Statement::CreateSchema { .. }
+        | Statement::CreateSequence { .. }
+        | Statement::CreateType { .. }
+        | Statement::CreateDomain { .. }
+        | Statement::CreateTrigger { .. }
+        | Statement::CreateFunction { .. }
+        | Statement::CreateProcedure { .. }
+        | Statement::AlterTable { .. }
+        | Statement::AlterIndex { .. }
+        | Statement::AlterView { .. }
+        | Statement::AlterType { .. }
+        | Statement::AlterSchema { .. }
+        | Statement::Drop { .. }
+        | Statement::DropFunction { .. }
+        | Statement::DropProcedure { .. }
+        | Statement::DropTrigger { .. }
+        | Statement::DropDomain { .. }
+        | Statement::Truncate { .. }
+        | Statement::RenameTable { .. }
+        | Statement::Comment { .. } => Ddl,
+        _ => Admin,
+    }
+}
+
 /// Facts about a statement that passed the guard.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckedQuery {
+    pub class: StatementClass,
+    /// Why it isn't a plain read (for error messages), if it isn't.
+    pub reason: Option<String>,
+    /// A top-level write with `RETURNING`: its rows are the affected rows.
+    pub returning: bool,
+    /// UPDATE/DELETE without WHERE; refused by the gate once writes are allowed.
+    pub missing_where: Option<String>,
     /// Tables and views the query reads (as written, possibly qualified).
     /// References to the query's own CTEs are not included.
     pub tables: Vec<String>,
@@ -207,6 +274,11 @@ struct Scope {
 #[derive(Default)]
 struct Guard {
     problem: Option<String>,
+    class: StatementClass,
+    reason: Option<String>,
+    returning: bool,
+    missing_where: Option<String>,
+    depth: usize,
     tables: BTreeSet<String>,
     row_names: BTreeSet<String>,
     scopes: Vec<Scope>,
@@ -216,6 +288,15 @@ impl Guard {
     fn reject(&mut self, why: String) -> ControlFlow<()> {
         self.problem = Some(why);
         ControlFlow::Break(())
+    }
+
+    fn escalate(&mut self, class: StatementClass, reason: String) {
+        if class > self.class {
+            self.class = class;
+        }
+        if class != StatementClass::Read && self.reason.is_none() {
+            self.reason = Some(reason);
+        }
     }
 }
 
@@ -240,14 +321,53 @@ impl Visitor for Guard {
     type Break = ();
 
     fn pre_visit_statement(&mut self, s: &Statement) -> ControlFlow<()> {
-        match s {
-            Statement::Query(_) => ControlFlow::Continue(()),
-            // Also catches data-modifying CTEs: `WITH x AS (DELETE …) SELECT …`.
-            other => self.reject(format!(
-                "only SELECT queries are allowed; found {}",
-                keyword(other)
-            )),
+        let top = self.depth == 0;
+        self.depth += 1;
+        let class = classify_one(s);
+        if class == StatementClass::Read {
+            return ControlFlow::Continue(());
         }
+        // Data-modifying CTEs (`WITH x AS (DELETE …) SELECT …`) would hide
+        // their row count from the affected-rows cap.
+        if !top {
+            return self.reject(format!(
+                "only SELECT queries are allowed; found {} inside the query. Run a write as its own statement",
+                keyword(s)
+            ));
+        }
+        match s {
+            Statement::Update(u) if u.selection.is_none() => {
+                self.missing_where = Some(
+                    "UPDATE needs a WHERE clause; to change every row, say so with WHERE true"
+                        .into(),
+                );
+            }
+            Statement::Delete(d) if d.selection.is_none() => {
+                self.missing_where = Some(
+                    "DELETE needs a WHERE clause; to delete every row, say so with WHERE true"
+                        .into(),
+                );
+            }
+            Statement::Insert(i) => {
+                if let TableObject::TableName(n) = &i.table {
+                    self.tables.insert(full_name(n));
+                }
+                self.returning = i.returning.is_some();
+            }
+            Statement::Update(u) => self.returning = u.returning.is_some(),
+            Statement::Delete(d) => self.returning = d.returning.is_some(),
+            _ => {}
+        }
+        self.escalate(
+            class,
+            format!("only SELECT queries are allowed; found {}", keyword(s)),
+        );
+        ControlFlow::Continue(())
+    }
+
+    fn post_visit_statement(&mut self, _s: &Statement) -> ControlFlow<()> {
+        self.depth -= 1;
+        ControlFlow::Continue(())
     }
 
     fn pre_visit_query(&mut self, q: &Query) -> ControlFlow<()> {
@@ -287,20 +407,15 @@ impl Visitor for Guard {
         self.scopes.push(scope);
         collect_table_exprs(&q.body, &mut self.tables);
         if !q.locks.is_empty() {
-            return self.reject("locking clauses (FOR UPDATE/SHARE) are not allowed".into());
+            self.escalate(
+                StatementClass::Write,
+                "locking clauses (FOR UPDATE/SHARE) are not allowed".into(),
+            );
         }
         if select_into(&q.body) {
-            return self.reject("SELECT … INTO is not allowed".into());
+            self.escalate(StatementClass::Ddl, "SELECT … INTO is not allowed".into());
         }
-        match q.body.as_ref() {
-            SetExpr::Insert(s) | SetExpr::Update(s) | SetExpr::Delete(s) | SetExpr::Merge(s) => {
-                self.reject(format!(
-                    "only SELECT queries are allowed; found {}",
-                    keyword(s)
-                ))
-            }
-            _ => ControlFlow::Continue(()),
-        }
+        ControlFlow::Continue(())
     }
 
     fn post_visit_query(&mut self, _q: &Query) -> ControlFlow<()> {
@@ -362,6 +477,19 @@ impl Visitor for Guard {
 /// statement with no data-modifying part anywhere in its tree, no locking
 /// or `INTO` clause, and no denied function.
 pub fn check_read_only(sql: &str, driver: Driver) -> Result<CheckedQuery, String> {
+    let q = check_statement(sql, driver)?;
+    if q.class != StatementClass::Read {
+        return Err(q
+            .reason
+            .unwrap_or_else(|| "only SELECT queries are allowed".into()));
+    }
+    Ok(q)
+}
+
+/// Parses and checks one statement of any class: single statement, no
+/// denied function, no writes nested inside queries. Returns its class (and
+/// a missing WHERE on UPDATE/DELETE) for the caller to gate.
+pub fn check_statement(sql: &str, driver: Driver) -> Result<CheckedQuery, String> {
     let d = dialect(driver);
     let statements =
         Parser::parse_sql(d.as_ref(), sql).map_err(|e| format!("could not parse the SQL: {e}"))?;
@@ -375,6 +503,10 @@ pub fn check_read_only(sql: &str, driver: Driver) -> Result<CheckedQuery, String
     match guard.problem {
         Some(p) => Err(p),
         None => Ok(CheckedQuery {
+            class: guard.class,
+            reason: guard.reason,
+            returning: guard.returning,
+            missing_where: guard.missing_where,
             tables: guard.tables.into_iter().collect(),
             row_names: guard.row_names.into_iter().collect(),
             statement: stmt.clone(),
@@ -680,6 +812,59 @@ mod tests {
         )
         .unwrap_err();
         assert!(e.contains("DELETE"), "{e}");
+    }
+
+    #[test]
+    fn classifies_statements() {
+        use StatementClass::*;
+        let c = |sql: &str, d| check_statement(sql, d).map(|q| q.class);
+        for d in ALL {
+            assert_eq!(c("SELECT 1", d), Ok(Read));
+            assert_eq!(c("INSERT INTO t (a) VALUES (1)", d), Ok(Write));
+            assert_eq!(c("UPDATE t SET a = 1 WHERE id = 2", d), Ok(Write));
+            assert_eq!(c("DELETE FROM t WHERE id = 2", d), Ok(Write));
+            assert_eq!(c("CREATE TABLE x (a int)", d), Ok(Ddl));
+            assert_eq!(c("DROP TABLE x", d), Ok(Ddl));
+            assert_eq!(c("ALTER TABLE x ADD COLUMN b int", d), Ok(Ddl));
+        }
+        assert_eq!(c("TRUNCATE t", Driver::Postgres), Ok(Ddl));
+        assert_eq!(c("GRANT SELECT ON t TO bob", Driver::Postgres), Ok(Admin));
+        assert_eq!(c("SET search_path = evil", Driver::Postgres), Ok(Admin));
+        assert_eq!(c("COPY t TO '/tmp/x'", Driver::Postgres), Ok(Admin));
+        assert_eq!(c("PRAGMA writable_schema = 1", Driver::Sqlite), Ok(Admin));
+        assert_eq!(c("SELECT * FROM t FOR UPDATE", Driver::Postgres), Ok(Write));
+        assert_eq!(c("SELECT * INTO y FROM t", Driver::Postgres), Ok(Ddl));
+        let q = check_statement(
+            "UPDATE t SET a = 1 WHERE id = 2 RETURNING id",
+            Driver::Postgres,
+        )
+        .unwrap();
+        assert!(q.returning);
+        assert_eq!(q.tables, ["t"]);
+        let q = check_statement("INSERT INTO s.t (a) SELECT a FROM u", Driver::Postgres).unwrap();
+        assert_eq!(q.tables, ["s.t", "u"]);
+        assert!(!q.returning);
+    }
+
+    #[test]
+    fn writes_need_where_and_cant_hide_in_queries() {
+        for d in ALL {
+            for sql in ["UPDATE t SET a = 1", "DELETE FROM t"] {
+                let e = check_statement(sql, d).unwrap().missing_where.unwrap();
+                assert!(e.contains("WHERE"), "{d:?} {sql}: {e}");
+            }
+            assert!(check_statement("DELETE FROM t WHERE true", d)
+                .unwrap()
+                .missing_where
+                .is_none());
+        }
+        for sql in [
+            "WITH gone AS (DELETE FROM t WHERE true RETURNING *) SELECT count(*) FROM gone",
+            "WITH x AS (UPDATE t SET a = 1 WHERE true RETURNING id) INSERT INTO log SELECT id FROM x",
+        ] {
+            let e = check_statement(sql, Driver::Postgres).unwrap_err();
+            assert!(e.contains("inside the query"), "{sql}: {e}");
+        }
     }
 
     #[test]

@@ -44,3 +44,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2"
 wiremock = "0.6"
 uuid = { version = "1", features = ["v4", "serde"] }
+
+# Full debug info made target/ grow past 30 GB; line tables keep backtraces useful.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

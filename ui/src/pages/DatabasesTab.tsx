@@ -21,6 +21,7 @@ import {
   EXPLORATION_MODES,
   type ConnectionReport,
   type DbConnection,
+  type AccessMode,
   type DbConnectionInput,
   type Driver,
   type ExplorationMode,
@@ -31,6 +32,24 @@ const DSN_EXAMPLE: Record<Driver, string> = {
   postgres: "postgres://readonly:PASSWORD@db.example.com:5432/shop",
   mysql: "mysql://readonly:PASSWORD@db.example.com:3306/shop",
   sqlite: "/path/to/shop.db",
+};
+
+export const MODE_LABEL: Record<AccessMode, { short: string; title: string; blurb: string }> = {
+  read_only: {
+    short: "read-only",
+    title: "Read only",
+    blurb: "Every tool only reads. Recommended.",
+  },
+  curated_write: {
+    short: "saved writes",
+    title: "Saved writes",
+    blurb: "SQL tools you write may also INSERT, UPDATE or DELETE. Agent-written run_sql stays read-only.",
+  },
+  full_access: {
+    short: "full access",
+    title: "Full access",
+    blurb: "run_sql may also change data with SQL the agent writes itself.",
+  },
 };
 
 const EMPTY: DbConnectionInput = {
@@ -122,7 +141,9 @@ export function DatabasesTab({ projectId }: { projectId: string }) {
                     <div className="min-w-0 flex-1">
                       <p className="font-medium">{c.name}</p>
                       <p className="text-sm text-muted-foreground">
-                        {DRIVER_LABEL[c.driver]} · read-only · up to {c.row_limit} rows · {c.timeout_ms / 1000}s limit
+                        {DRIVER_LABEL[c.driver]} · {MODE_LABEL[c.access_mode].short}
+                        {c.access_mode !== "read_only" && ` (≤${c.max_affected_rows} rows per write${c.allow_ddl ? ", DDL on" : ""})`} · up to{" "}
+                        {c.row_limit} rows · {c.timeout_ms / 1000}s limit
                         {c.column_masks.length > 0 && ` · ${c.column_masks.length} masked column${c.column_masks.length > 1 ? "s" : ""}`}
                         {` · ${c.table_allowlist.length ? `${c.table_allowlist.length} allowed table${c.table_allowlist.length > 1 ? "s" : ""}` : "all tables allowed"}`}
                       </p>
@@ -334,7 +355,11 @@ function ConnectionForm({
   const [allowText, setAllowText] = useState((existing?.table_allowlist ?? []).join("\n"));
   const [rowLimit, setRowLimit] = useState(String(draft.row_limit));
   const [timeout, setTimeoutText] = useState(String(draft.timeout_ms));
+  const [maxRows, setMaxRows] = useState(String(draft.max_affected_rows));
+  const [confirmFull, setConfirmFull] = useState(false);
   const [err, setErr] = useState<unknown>(null);
+  // Confirmation is needed when this save turns full access on.
+  const needsConfirm = draft.access_mode === "full_access" && existing?.access_mode !== "full_access";
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -346,10 +371,18 @@ function ConnectionForm({
       timeout_ms: Number(timeout),
       column_masks: splitList(masksText),
       table_allowlist: splitList(allowText),
+      max_affected_rows: Number(maxRows),
+      allow_ddl: draft.access_mode !== "read_only" && draft.allow_ddl,
     };
+    if (needsConfirm && !confirmFull) {
+      setErr(new ApiError(422, "validation", "Confirm full access first.", [
+        { field: "access_mode", message: "Tick the box to confirm that agents may change and delete data." },
+      ]));
+      return;
+    }
     try {
-      if (existing) await api.updateConnection(projectId, existing.id, input);
-      else await api.createConnection(projectId, input);
+      if (existing) await api.updateConnection(projectId, existing.id, input, confirmFull);
+      else await api.createConnection(projectId, input, confirmFull);
       toast.success(existing ? `Saved ${input.name}` : `Added ${input.name}`);
       if (!existing) {
         setDraft(EMPTY);
@@ -357,6 +390,8 @@ function ConnectionForm({
         setAllowText("");
         setRowLimit(String(EMPTY.row_limit));
         setTimeoutText(String(EMPTY.timeout_ms));
+        setMaxRows(String(EMPTY.max_affected_rows));
+        setConfirmFull(false);
       }
       setErr(null);
       await onDone();
@@ -440,12 +475,72 @@ function ConnectionForm({
               </p>
             )}
           </div>
-          <Alert>
-            <AlertDescription>
-              Agents can only read through this connection. For a second layer of safety, connect with a database
-              login that has SELECT rights only; <strong>Test</strong> tells you if it can write.
-            </AlertDescription>
-          </Alert>
+          <div className="grid gap-1.5">
+            <Label htmlFor="d-mode">What agents may do</Label>
+            <Select value={draft.access_mode} onValueChange={(v) => setDraft({ ...draft, access_mode: v as AccessMode })}>
+              <SelectTrigger id="d-mode" className="w-full" aria-invalid={!!fe("access_mode")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(MODE_LABEL) as AccessMode[]).map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {MODE_LABEL[m].title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{MODE_LABEL[draft.access_mode].blurb}</p>
+          </div>
+          {draft.access_mode === "read_only" ? (
+            <Alert>
+              <AlertDescription>
+                Agents can only read through this connection. For a second layer of safety, connect with a database
+                login that has SELECT rights only; <strong>Test</strong> tells you if it can write.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <>
+              <div className="grid gap-1.5">
+                <Label htmlFor="d-maxrows">Most rows one write may change</Label>
+                <Input id="d-maxrows" inputMode="numeric" className="font-mono" value={maxRows} onChange={(e) => setMaxRows(e.target.value)} aria-invalid={!!fe("max_affected_rows")} />
+                {fe("max_affected_rows") && <p className="text-xs text-destructive">{fe("max_affected_rows")}</p>}
+                <p className="text-xs text-muted-foreground">
+                  A statement that changes more rows is undone. UPDATE and DELETE always need a WHERE clause, every write
+                  can be tried first with <code>dry_run</code>, and all writes are listed on the Audit tab.
+                </p>
+              </div>
+              <div className="flex items-start gap-2">
+                <Checkbox id="d-ddl" className="mt-0.5" checked={draft.allow_ddl} onCheckedChange={(v) => setDraft({ ...draft, allow_ddl: v === true })} />
+                <Label htmlFor="d-ddl" className="grid gap-0.5 font-normal">
+                  <span className="font-medium">Allow schema changes</span>
+                  <span className="text-xs text-muted-foreground">CREATE, ALTER, DROP and TRUNCATE. Off unless you need it.</span>
+                </Label>
+              </div>
+            </>
+          )}
+          {draft.access_mode === "full_access" && (
+            <Alert variant="destructive">
+              <TriangleAlertIcon />
+              <AlertTitle>Agents will be able to change and delete data</AlertTitle>
+              <AlertDescription>
+                <p>
+                  With full access, an agent can write its own INSERT, UPDATE and DELETE statements against{" "}
+                  {draft.table_allowlist.length || allowText.trim() ? "the allowed tables" : "every non-system table"}.
+                  A wrong or manipulated prompt can destroy data. Prefer saved write tools, keep the row cap low, and back
+                  up the database.
+                </p>
+                {needsConfirm && (
+                  <div className="mt-2 flex items-start gap-2">
+                    <Checkbox id="d-confirm" className="mt-0.5" checked={confirmFull} onCheckedChange={(v) => setConfirmFull(v === true)} />
+                    <Label htmlFor="d-confirm" className="font-normal">
+                      I understand agents may change and delete data in {draft.name.trim() || "this database"}.
+                    </Label>
+                  </div>
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+          {fe("access_mode") && <p className="text-xs text-destructive">{fe("access_mode")}</p>}
           {err instanceof ApiError && err.fields.length === 0 && (
             <Alert variant="destructive">
               <AlertDescription>

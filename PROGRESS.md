@@ -4,10 +4,10 @@
 > Legend: `[ ]` todo · `[~]` in progress / partial · `[x]` done · `[-]` dropped (say why)
 
 ## Next up
-Stage 9 review → then Stage 10: statement classifier (Read/Write/DDL/Admin)
+Stage 10 review → then Stage 11: cargo-dist releases
 
 ## Current stage
-**Stage 9 — Exploration + read-only run_sql** · status: done · review: requested
+**Stage 10 — Writes** · status: done · review: requested
 
 ---
 
@@ -94,18 +94,18 @@ Stage 9 review → then Stage 10: statement classifier (Read/Write/DDL/Admin)
 - [x] list_tables / describe_table / run_sql (opt-in)
 - [x] Table allowlist + masks
 - [x] Generated descriptions + readOnlyHint
-- [ ] Stage review approved
+- [x] Stage review approved
 
 ### Stage 10 — Writes
-- [ ] Statement classifier (Read/Write/DDL/Admin)
-- [ ] AccessMode gating + allow_ddl
-- [ ] Curated write tools
-- [ ] Transaction + affected-rows cap rollback
-- [ ] dry_run
-- [ ] WHERE required on UPDATE/DELETE
-- [ ] destructiveHint annotations
-- [ ] Audit log + UI
-- [ ] FullAccess confirmation UX
+- [x] Statement classifier (Read/Write/DDL/Admin)
+- [x] AccessMode gating + allow_ddl
+- [x] Curated write tools
+- [x] Transaction + affected-rows cap rollback
+- [x] dry_run
+- [x] WHERE required on UPDATE/DELETE
+- [x] destructiveHint annotations
+- [x] Audit log + UI
+- [x] FullAccess confirmation UX
 - [ ] Stage review approved
 
 ### Stage 11 — Packaging & docs
@@ -208,6 +208,15 @@ Stage 9 review → then Stage 10: statement classifier (Read/Write/DDL/Admin)
 - 2026-10-22 · run_sql masks are strict (curated queries keep result-name masking): when a mask applies to a table the query reads (or is `*.col`), the query is refused if any identifier names a masked column (aliases, functions, WHERE, ORDER BY), it uses a whole-row reference (`to_json(u)`), `t.*` inside expressions/function calls, `(expr).*`, or `*` anywhere but the outermost plain SELECT. The outermost `SELECT *` stays allowed and its masked columns come back as `[masked]` by name
 - 2026-10-22 · run_sql refuses placeholders ("write values inline"); denylist gained `table_to_xml*`, `schema_to_xml*`, `database_to_xml*`, `cursor_to_xmlschema`, `ts_stat` (read tables by name / run SQL from a string)
 - 2026-10-22 · list_tables/describe_table use information_schema (PG, MySQL `DATABASE()` only) or sqlite_master/`pragma_table_info`, run through the same read-only session (≤2 000 catalog rows), then filter by allowlist + system rules. describe_table output: `column, type, nullable, default, primary_key, masked`; a name matching several *visible* schemas asks for `schema.table`; schemas the connection can't read are ignored. Results use the `{columns, rows, truncated}` shape
+- 2026-10-22 · Statement classes from the AST: Read (queries), Write (INSERT/UPDATE/DELETE/MERGE, locking reads), Ddl (CREATE/ALTER/DROP/TRUNCATE/RENAME/COMMENT, SELECT INTO), Admin (everything else: GRANT, SET, COPY, PRAGMA, CALL, ATTACH, VACUUM, EXPLAIN, …). `check_statement` returns the class; `check_read_only` = class must be Read (old messages kept)
+- 2026-10-22 · Gating (`gate`): ReadOnly → reads only; CuratedWrite → saved queries may write, agent `run_sql` stays read-only; FullAccess → run_sql may write too; Ddl additionally needs `allow_ddl` (only valid with a write mode); Admin never. Checked at save time and at run time (a connection downgraded later makes its write tools fail cleanly)
+- 2026-10-22 · Write rules: one top-level statement; any write nested in a query/CTE is refused (it would hide its row count from the cap); UPDATE/DELETE need WHERE (`WHERE true` is the explicit escape), reported only once writes are otherwise allowed so read-only connections still say "only SELECT"
+- 2026-10-22 · Writes run in a read-write transaction (PG `BEGIN READ WRITE` overriding the pool's read-only default + `statement_timeout`; MySQL `START TRANSACTION READ WRITE` + `innodb_lock_wait_timeout`, since `max_execution_time` only covers SELECT; SQLite a separate writable pool without `mode=ro`/`query_only`, progress-handler timeout). Affected rows = `rows_affected`, or the count of RETURNING rows (streamed; stops at cap+1). Over `max_affected_rows` → rollback + `TooManyRows`; `dry_run` → always rollback; else commit. A timeout drops the transaction (never commits). MySQL DDL can't dry-run (implicit commit) → refused
+- 2026-10-22 · Write-capable tools (curated statements classified Write/Ddl; run_sql under FullAccess) get a `dry_run` boolean argument, `readOnlyHint: false`, `destructiveHint: true`, and a generated note (cap, dry_run). Read-only projects hide them. Result JSON adds `affected_rows`, `committed`, `dry_run` (rows = RETURNING output)
+- 2026-10-22 · Audit log (migration 0006, `audit_log`): every write attempt that reached the database — committed, rolled_back (cap), dry_run, failed (DB error/timeout) — with tool, connection, origin (`mcp`/`console`), class, SQL as sent, bound params, rows affected, error. Refused statements (guard/gate/args) aren't logged. Written by `forge_mcp::run_tool` after the run; an insert failure is logged, not surfaced. `GET /api/projects/{id}/audit?limit&before`; cascades with the project; tool ids aren't FKs so entries outlive tools
+- 2026-10-22 · FullAccess needs explicit confirmation: API `confirm_full_access: true` when a create/update turns it on (422 on `access_mode` otherwise); bundle import (API flag, CLI `--confirm-full-access`); UI shows a destructive warning with a required checkbox. Connection updates now notify MCP sessions (schemas/annotations depend on the mode)
+- 2026-10-22 · SQL params can carry `enum` (UI "Allowed values"); checked by `check_args` before anything runs
+- 2026-10-22 · `[profile.dev] debug = "line-tables-only"`, deps `debug = false` · target/ hit 33 GB twice on a small drive; now ~1.6 GB for a build
 - 2026-10-21 · `.gitattributes` forces LF (esp. `migrations/*.sql`) · sqlx checksums migrations; CRLF conversion on Windows checkouts would break existing DBs
 - 2026-10-21 · Timestamps truncated to ms so they round-trip through SQLite exactly
 
@@ -220,6 +229,11 @@ Stage 9 review → then Stage 10: statement classifier (Read/Write/DDL/Admin)
 
 ## Known issues / tech debt
 <!-- Append: YYYY-MM-DD · issue · stage to fix -->
+- 2026-10-22 · The affected-rows cap counts what the database reports for the statement: rows changed by triggers or cascading foreign keys aren't counted, and MySQL reports *changed* (not matched) rows for UPDATE. · document in the Stage 11 security model
+- 2026-10-22 · MySQL writes have no server-side statement timeout (max_execution_time is SELECT-only); lock waits are bounded and the client timer rolls back, but a long write keeps running server-side until it finishes or is rolled back. · document
+- 2026-10-22 · Audit rows are written after the transaction ends; if the internal DB write fails the change isn't recorded (error logged). · consider write-ahead audit if needed
+- 2026-10-22 · UI "writes" badge in the tool list is a keyword heuristic (labels only; the server classifies properly)
+- 2026-10-22 · Stage 10 browser pass incomplete: browser-mcp stopped delivering mouse events to the tab (keyboard worked); stopped after two attempts per the browser rules. The connection form's new "What agents may do" control was seen rendering; confirmation/gating/audit behaviour is covered by API tests. · eyeball at review
 - 2026-10-22 · Curated queries still mask by result column *name* (an alias escapes it); run_sql uses the strict check. · fine while curated SQL is admin-written
 - 2026-10-22 · The allowlist/mask checks are static: a user-defined function that reads other tables, or `ORDER BY 3` on a masked column (ordering side channel), isn't caught. Hard isolation needs a DB role limited to the allowed tables/columns (the Test button shows what the role can do). · document in Stage 11 security model
 - 2026-10-22 · Postgres binds are typed (`string` → TEXT), so comparing a string param to a date/uuid column needs a cast in the SQL (`:since::timestamptz`); the editor hint says so. · consider more param types (date, uuid) later
@@ -250,6 +264,14 @@ Stage 9 review → then Stage 10: statement classifier (Read/Write/DDL/Admin)
 - **Gotchas:** 
 - **Next step:** 
 -->
+
+### Session 11 — 2026-10-22
+- **Stage/task:** Stage 10 — Writes (all tasks); Stage 9 approved ("continue")
+- **Done:** core `AuditEntry`/`AuditOutcome`, write access modes + allow_ddl rule; guard `StatementClass` + `check_statement` (nested-write and missing-WHERE detection, insert targets, RETURNING); session `run_write` per driver (read-write txn, cap, dry run); executor `gate`, `tool_writes`, `tool_input` (dry_run), writable pools, `run` → `SqlRun` with `AuditDraft`; store audit table (migration 0006) + list; MCP destructive annotations, write descriptions, read-only project hiding, audit writes (origin mcp/console); API full-access confirmation, audit endpoint, bundle/CLI confirm flag; UI access-mode controls with full-access warning + confirm, allowed values for params, write badges/console view, Audit tab, import opt-in
+- **Not done / partial:** browser pass cut short (browser-mcp mouse input stopped reaching the tab)
+- **Tests:** passing — workspace + clippy + fmt; exec_sql lib 20 (classification, WHERE/nesting, gating matrix, save-time gating), sqlite_writes 4 (commit+audit, dry run, cap with/without RETURNING, WHERE + mode gating + DDL/admin), containers 2 (PG + MySQL now also commit / dry run / cap rollback; MySQL DDL dry-run refused), store audit paging, server `writes_are_gated_capped_and_audited` (the "done when": confirmation, save-time rules, annotations + dry_run in schema, cap error text, console vs mcp audit entries, read-only project hiding, upgrade to full access); UI 25
+- **Gotchas:** J: filled again (target 33 GB) → debug-info profile change + cargo clean; reporting "needs WHERE" on read-only connections was misleading → WHERE check moved into the gate
+- **Next step:** Stage 10 review, then Stage 11 packaging & docs
 
 ### Session 10 — 2026-10-22
 - **Stage/task:** Stage 9 — Exploration tools + read-only run_sql (all tasks); Stage 8 approved ("continue")

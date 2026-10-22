@@ -529,3 +529,244 @@ async fn exploration_tools_respect_allowlist_and_masks() {
         assert!(out.contains(why), "{tool} {args}: {out}");
     }
 }
+
+/// Stage 10 "done when": mode gating, WHERE enforcement, dry run, the
+/// affected-rows cap and audit entries, end to end.
+#[tokio::test]
+async fn writes_are_gated_capped_and_audited() {
+    let h = H::start().await;
+    let p = h.ok("POST", "/projects", json!({ "name": "Shop" })).await;
+    let base = format!("/projects/{}", p["id"].as_str().unwrap());
+
+    // full_access needs explicit confirmation, on create and on update.
+    let full = json!({ "name": "shop", "driver": "sqlite", "dsn_ref": "env:SHOP_DB",
+                       "access_mode": "full_access", "max_affected_rows": 1 });
+    let (st, e) = h
+        .send("POST", &format!("{base}/db-connections"), full.clone())
+        .await;
+    assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY, "{e}");
+    assert_eq!(e["error"]["fields"][0]["field"], "access_mode");
+    let conn = h
+        .ok(
+            "POST",
+            &format!("{base}/db-connections"),
+            json!({ "name": "shop", "driver": "sqlite", "dsn_ref": "env:SHOP_DB",
+                    "access_mode": "curated_write", "max_affected_rows": 1 }),
+        )
+        .await;
+    let cid = conn["id"].as_str().unwrap();
+
+    // Save-time: WHERE is required; DDL is off; admin statements never pass.
+    for (sql, why) in [
+        ("DELETE FROM orders", "WHERE"),
+        ("DROP TABLE orders", "schema changes"),
+        ("PRAGMA writable_schema = 1", "never allowed"),
+    ] {
+        let (st, e) = h
+            .send(
+                "POST",
+                &format!("{base}/tools"),
+                sql_tool("bad", cid, sql, json!([])),
+            )
+            .await;
+        assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY, "{sql}: {e}");
+        assert!(e.to_string().contains(why), "{sql}: {e}");
+    }
+    h.ok(
+        "POST",
+        &format!("{base}/tools"),
+        sql_tool(
+            "set_total",
+            cid,
+            "UPDATE orders SET total = :total WHERE id = :id",
+            json!([{ "name": "id", "schema": { "type": "integer" }, "required": true },
+                   { "name": "total", "schema": { "type": "number" }, "required": true }]),
+        ),
+    )
+    .await;
+    let bulk = h
+        .ok(
+            "POST",
+            &format!("{base}/tools"),
+            sql_tool(
+                "zero_user_orders",
+                cid,
+                "UPDATE orders SET total = 0 WHERE user_id = :user_id",
+                json!([{ "name": "user_id", "schema": { "type": "integer" }, "required": true }]),
+            ),
+        )
+        .await;
+    h.ok(
+        "POST",
+        &format!("{base}/db-connections/{cid}/exploration-tools"),
+        json!({ "modes": ["run_sql"] }),
+    )
+    .await;
+
+    let mcp = ()
+        .serve(rmcp::transport::StreamableHttpClientTransport::from_uri(
+            format!("{}/mcp/shop", h.root),
+        ))
+        .await
+        .unwrap();
+    let tools = mcp.list_all_tools().await.unwrap();
+    let tool = |n: &str| tools.iter().find(|t| t.name == n).unwrap().clone();
+    let set_total = tool("set_total");
+    let ann = set_total.annotations.as_ref().unwrap();
+    assert_eq!(
+        (ann.read_only_hint, ann.destructive_hint),
+        (Some(false), Some(true))
+    );
+    assert!(set_total.input_schema["properties"]["dry_run"].is_object());
+    assert!(set_total
+        .description
+        .as_deref()
+        .unwrap()
+        .contains("dry_run"));
+    // run_sql stays read-only under curated_write.
+    let run_sql = tool("shop_run_sql");
+    assert_eq!(
+        run_sql.annotations.as_ref().unwrap().read_only_hint,
+        Some(true)
+    );
+    assert!(run_sql.input_schema["properties"].get("dry_run").is_none());
+
+    let call = |name: &'static str, args: Value| {
+        let mcp = &mcp;
+        async move {
+            let r = mcp
+                .call_tool(
+                    CallToolRequestParams::new(name)
+                        .with_arguments(args.as_object().unwrap().clone()),
+                )
+                .await
+                .unwrap();
+            (r.is_error == Some(true), text(&r))
+        }
+    };
+    let (err, out) = call(
+        "set_total",
+        json!({ "id": 10, "total": 1.5, "dry_run": true }),
+    )
+    .await;
+    assert!(!err, "{out}");
+    let v: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(
+        (v["affected_rows"].clone(), v["committed"].clone()),
+        (json!(1), json!(false))
+    );
+    let (err, out) = call("set_total", json!({ "id": 10, "total": 1.5 })).await;
+    assert!(!err, "{out}");
+    // user 1 has two orders; the cap is 1.
+    let (err, out) = call("zero_user_orders", json!({ "user_id": 1 })).await;
+    assert!(
+        err && out.contains("Not done") && out.contains("nothing was changed"),
+        "{out}"
+    );
+    let (err, out) = call(
+        "shop_run_sql",
+        json!({ "sql": "DELETE FROM orders WHERE id = 12" }),
+    )
+    .await;
+    assert!(err && out.contains("saved tools"), "{out}");
+
+    // The console runs the same path and is audited as "console".
+    let run = h
+        .ok(
+            "POST",
+            &format!("{base}/tools/{}/test", bulk["id"].as_str().unwrap()),
+            json!({ "arguments": { "user_id": 2 } }),
+        )
+        .await;
+    assert_eq!(run["response"]["write"]["affected_rows"], 1, "{run}");
+
+    let check = h
+        .ok(
+            "POST",
+            &format!("{base}/tools/{}/test", bulk["id"].as_str().unwrap()),
+            json!({ "arguments": {} }),
+        )
+        .await;
+    assert_eq!(check["error"]["kind"], "invalid_args");
+
+    let audit = h.ok("GET", &format!("{base}/audit"), Value::Null).await;
+    let rows: Vec<(String, String, String, Value)> = audit
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            (
+                e["tool_name"].as_str().unwrap().to_owned(),
+                e["origin"].as_str().unwrap().to_owned(),
+                e["outcome"].as_str().unwrap().to_owned(),
+                e["rows_affected"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (
+                "zero_user_orders".into(),
+                "console".into(),
+                "committed".into(),
+                json!(1)
+            ),
+            (
+                "zero_user_orders".into(),
+                "mcp".into(),
+                "rolled_back".into(),
+                json!(2)
+            ),
+            (
+                "set_total".into(),
+                "mcp".into(),
+                "committed".into(),
+                json!(1)
+            ),
+            ("set_total".into(), "mcp".into(), "dry_run".into(), json!(1)),
+        ],
+        "rejected and invalid calls aren't audited; newest first"
+    );
+    assert_eq!(audit[2]["params"], json!([1.5, 10]));
+    assert_eq!(audit[2]["sql"], "UPDATE orders SET total = ? WHERE id = ?");
+
+    // A read-only project hides tools that write.
+    h.ok(
+        "PUT",
+        &format!("{base}/settings"),
+        json!({ "read_only": true }),
+    )
+    .await;
+    let names: Vec<String> = mcp
+        .list_all_tools()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|t| t.name.to_string())
+        .collect();
+    assert_eq!(names, ["shop_run_sql"]);
+
+    // Upgrading to full_access: confirmed, then run_sql writes (and gets dry_run).
+    let (st, _) = h
+        .send("PUT", &format!("{base}/db-connections/{cid}"), full.clone())
+        .await;
+    assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY);
+    let mut confirmed = full;
+    confirmed["confirm_full_access"] = json!(true);
+    h.ok("PUT", &format!("{base}/db-connections/{cid}"), confirmed)
+        .await;
+    h.ok(
+        "PUT",
+        &format!("{base}/settings"),
+        json!({ "read_only": false }),
+    )
+    .await;
+    let (err, out) = call(
+        "shop_run_sql",
+        json!({ "sql": "DELETE FROM orders WHERE id = 12", "dry_run": true }),
+    )
+    .await;
+    assert!(!err, "{out}");
+    assert!(out.contains("\"dry_run\":true"), "{out}");
+}

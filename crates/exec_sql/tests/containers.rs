@@ -221,6 +221,59 @@ async fn postgres_layers() {
         assert!(matches!(e, SqlError::Rejected(_)), "{sql}: {e:?}");
     }
 
+    // Writes (curated_write, cap 1): commit, dry run, cap rollback.
+    let (wx, wconn) = setup(
+        "postgres",
+        &admin_dsn,
+        json!({ "access_mode": "curated_write", "max_affected_rows": 1 }),
+    );
+    let rename = query(
+        "UPDATE users SET name = :name WHERE id = :id RETURNING id, name",
+        json!([{ "name": "id", "schema": { "type": "integer" }, "required": true },
+               { "name": "name", "required": true }]),
+    );
+    let out = wx
+        .run_query(
+            &wconn,
+            &rename,
+            &args(json!({ "id": 2, "name": "bobby", "dry_run": true })),
+        )
+        .await
+        .unwrap();
+    assert_eq!(out.rows, [[json!(2), json!("bobby")]]);
+    assert!(!out.write.as_ref().unwrap().committed);
+    let name: String = sqlx::query_scalar("SELECT name FROM users WHERE id = 2")
+        .fetch_one(&mut admin)
+        .await
+        .unwrap();
+    assert_eq!(name, "bob", "dry run rolled back");
+    let out = wx
+        .run_query(&wconn, &rename, &args(json!({ "id": 2, "name": "bobby" })))
+        .await
+        .unwrap();
+    assert!(out.write.unwrap().committed);
+    let everyone = query("UPDATE users SET name = 'x' WHERE id > 0", json!([]));
+    let e = wx
+        .run_query(&wconn, &everyone, &args(json!({})))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(
+            e,
+            SqlError::TooManyRows {
+                affected: 2,
+                max: 1,
+                ..
+            }
+        ),
+        "{e:?}"
+    );
+    let names: Vec<String> = sqlx::query_scalar("SELECT name FROM users ORDER BY id")
+        .fetch_all(&mut admin)
+        .await
+        .unwrap();
+    assert_eq!(names, ["ada", "bobby"], "the capped update was rolled back");
+
     // Wrong password: the error never contains the DSN or password.
     let bad = format!("postgres://ro:wrong_secret_pw@127.0.0.1:{port}/postgres");
     let (bad_exec, bad_conn) = setup("postgres", &bad, json!({}));
@@ -389,4 +442,71 @@ async fn mysql_layers() {
             .unwrap_err();
         assert!(matches!(e, SqlError::Rejected(_)), "{sql}: {e:?}");
     }
+
+    // Writes on MySQL: commit, dry run, cap rollback; DDL can't dry-run.
+    let (wx, wconn) = setup(
+        "mysql",
+        &admin_dsn,
+        json!({ "access_mode": "full_access", "allow_ddl": true, "max_affected_rows": 1 }),
+    );
+    let run_sql = mode("run_sql");
+    let out = wx
+        .run_query(
+            &wconn,
+            &run_sql,
+            &args(
+                json!({ "sql": "UPDATE users SET name = 'bobby' WHERE id = 2", "dry_run": true }),
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(out.write.as_ref().unwrap().affected_rows, 1);
+    assert!(!out.write.unwrap().committed);
+    let e = wx
+        .run_query(
+            &wconn,
+            &run_sql,
+            &args(json!({ "sql": "UPDATE users SET name = 'x' WHERE id > 0" })),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(
+            e,
+            SqlError::TooManyRows {
+                affected: 2,
+                max: 1,
+                ..
+            }
+        ),
+        "{e:?}"
+    );
+    let names: Vec<String> = sqlx::query_scalar("SELECT name FROM users ORDER BY id")
+        .fetch_all(&mut admin)
+        .await
+        .unwrap();
+    assert_eq!(
+        names,
+        ["ada", "bob"],
+        "dry run and capped update changed nothing"
+    );
+    wx.run_query(
+        &wconn,
+        &run_sql,
+        &args(json!({ "sql": "UPDATE users SET name = 'bobby' WHERE id = 2" })),
+    )
+    .await
+    .unwrap();
+    let e = wx
+        .run_query(
+            &wconn,
+            &run_sql,
+            &args(json!({ "sql": "CREATE TABLE t2 (a INT)", "dry_run": true })),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&e, SqlError::Rejected(m) if m.contains("dry_run")),
+        "{e:?}"
+    );
 }

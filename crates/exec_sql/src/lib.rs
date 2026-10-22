@@ -22,8 +22,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use forge_core::{
-    check_args, ColumnMask, DbConnection, Driver, SecretResolver, SqlMode, SqlSpec,
-    ValidationErrors, PATTERN_ARG, SQL_ARG, TABLE_ARG,
+    check_args, AccessMode, ArgBinding, ArgTarget, AuditOutcome, ColumnMask, DbConnection,
+    DbConnectionInput, DerivedInput, Driver, SecretResolver, SqlMode, SqlSpec, ValidationErrors,
+    PATTERN_ARG, SQL_ARG, TABLE_ARG,
 };
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -33,7 +34,10 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Connection, Executor, Row};
 use uuid::Uuid;
 
-pub use session::{run_read_only, Bind, DbPool, Limits, RawResult};
+pub use guard::StatementClass;
+pub use session::{
+    run_read_only, run_write, Bind, DbPool, Limits, RawResult, WriteOptions, WriteResult,
+};
 
 /// Replacement value for masked columns.
 pub const MASKED: &str = "[masked]";
@@ -54,6 +58,16 @@ pub enum SqlError {
     Timeout(u32),
     #[error("database error: {0}")]
     Database(String),
+    /// A write changed more rows than the connection allows; rolled back.
+    #[error(
+        "the statement would change {}{affected} rows, more than this connection allows ({max}); nothing was changed",
+        if *at_least { "at least " } else { "" }
+    )]
+    TooManyRows {
+        affected: u64,
+        max: u32,
+        at_least: bool,
+    },
 }
 
 impl SqlError {
@@ -157,13 +171,141 @@ pub struct SqlOutcome {
     /// Columns whose values were replaced by [`MASKED`].
     pub masked_columns: Vec<String>,
     pub elapsed_ms: u64,
+    /// Set for statements that change data.
+    pub write: Option<WriteInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct WriteInfo {
+    /// `write` or `ddl`.
+    pub class: String,
+    pub affected_rows: u64,
+    pub committed: bool,
+    pub dry_run: bool,
 }
 
 impl SqlOutcome {
-    /// The agent-facing result: `{columns, rows, truncated}`.
+    /// The agent-facing result: `{columns, rows, truncated}`, plus
+    /// `{affected_rows, committed, dry_run}` for writes (`rows` then holds
+    /// any `RETURNING` output).
     pub fn result_json(&self) -> Value {
-        json!({ "columns": self.columns, "rows": self.rows, "truncated": self.truncated })
+        let mut v =
+            json!({ "columns": self.columns, "rows": self.rows, "truncated": self.truncated });
+        if let Some(w) = &self.write {
+            v["affected_rows"] = json!(w.affected_rows);
+            v["committed"] = json!(w.committed);
+            v["dry_run"] = json!(w.dry_run);
+        }
+        v
     }
+}
+
+/// Argument added to write-capable tools.
+pub const DRY_RUN_ARG: &str = "dry_run";
+
+/// A write attempt to record in the audit log (it reached the database).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AuditDraft {
+    pub sql: String,
+    pub params: Vec<Value>,
+    pub class: StatementClass,
+    pub rows_affected: Option<u64>,
+    pub outcome: AuditOutcome,
+    pub error: Option<String>,
+}
+
+/// A tool run's result plus, for writes, what to audit.
+#[derive(Debug)]
+pub struct SqlRun {
+    pub result: Result<SqlOutcome, SqlError>,
+    pub audit: Option<AuditDraft>,
+}
+
+/// Whether the access mode lets this statement class run. Agent-written SQL
+/// (`run_sql`) may only write under `FullAccess`; saved queries may under
+/// `CuratedWrite` too. DDL also needs `allow_ddl`; admin statements never run.
+pub fn gate(
+    q: &guard::CheckedQuery,
+    mode: AccessMode,
+    allow_ddl: bool,
+    agent_sql: bool,
+) -> Result<(), String> {
+    let reason = || {
+        q.reason
+            .clone()
+            .unwrap_or_else(|| "only SELECT queries are allowed".into())
+    };
+    match q.class {
+        StatementClass::Read => Ok(()),
+        StatementClass::Admin => Err(format!(
+            "{}. Admin statements (GRANT, SET, COPY, PRAGMA, CALL, …) are never allowed",
+            reason()
+        )),
+        StatementClass::Write | StatementClass::Ddl => {
+            match (mode, agent_sql) {
+                (AccessMode::ReadOnly, _) => {
+                    return Err(format!("{} (this connection is read-only)", reason()))
+                }
+                (AccessMode::CuratedWrite, true) => {
+                    return Err(format!(
+                        "{} (this connection only allows writes through saved tools)",
+                        reason()
+                    ))
+                }
+                _ => {}
+            }
+            if q.class == StatementClass::Ddl && !allow_ddl {
+                return Err(
+                    "schema changes (CREATE, ALTER, DROP, TRUNCATE) are turned off for this connection"
+                        .into(),
+                );
+            }
+            match &q.missing_where {
+                Some(m) => Err(m.clone()),
+                None => Ok(()),
+            }
+        }
+    }
+}
+
+/// Whether a tool can change data on this connection (and so gets
+/// `dry_run`, a destructive annotation and an audit trail).
+pub fn tool_writes(spec: &SqlSpec, conn: &DbConnection) -> bool {
+    match &spec.mode {
+        SqlMode::Query { sql, .. } => guard::bind_placeholders(sql, conn.driver)
+            .and_then(|b| guard::check_statement(&b.sql, conn.driver))
+            .is_ok_and(|q| matches!(q.class, StatementClass::Write | StatementClass::Ddl)),
+        SqlMode::RunSql => conn.access_mode == AccessMode::FullAccess,
+        SqlMode::ListTables | SqlMode::DescribeTable => false,
+    }
+}
+
+/// The tool's MCP input: its own arguments, plus `dry_run` when it writes.
+pub fn tool_input(spec: &SqlSpec, conn: &DbConnection) -> DerivedInput {
+    let mut d = spec.derive_input();
+    if tool_writes(spec, conn) {
+        if let Some(props) = d
+            .schema
+            .get_mut("properties")
+            .and_then(Value::as_object_mut)
+        {
+            props.insert(
+                DRY_RUN_ARG.into(),
+                json!({
+                    "type": "boolean",
+                    "description": "If true, run the statement, report how many rows it would change, then undo it."
+                }),
+            );
+        }
+        d.bindings.push(ArgBinding {
+            arg: DRY_RUN_ARG.into(),
+            target: ArgTarget::SqlParam {
+                name: DRY_RUN_ARG.into(),
+            },
+            required: false,
+        });
+    }
+    d
 }
 
 /// Result of "Test connection".
@@ -182,8 +324,9 @@ pub struct ConnectionReport {
 }
 
 /// Save-time checks for a query tool: every `:name` has a param and vice
-/// versa, and the statement passes the read-only guard.
-pub fn check_query_tool(spec: &SqlSpec, driver: Driver) -> Result<(), ValidationErrors> {
+/// versa, and the statement passes the guard and the connection's access mode.
+pub fn check_query_tool(spec: &SqlSpec, conn: &DbConnectionInput) -> Result<(), ValidationErrors> {
+    let driver = conn.driver;
     let SqlMode::Query { sql, params } = &spec.mode else {
         // Exploration tools carry no SQL of their own.
         return Ok(());
@@ -212,8 +355,13 @@ pub fn check_query_tool(spec: &SqlSpec, driver: Driver) -> Result<(), Validation
             );
         }
     }
-    if let Err(e) = guard::check_read_only(&bound.sql, driver) {
-        errs.push("kind.mode.sql", e);
+    match guard::check_statement(&bound.sql, driver) {
+        Err(e) => errs.push("kind.mode.sql", e),
+        Ok(q) => {
+            if let Err(e) = gate(&q, conn.access_mode, conn.allow_ddl, false) {
+                errs.push("kind.mode.sql", e);
+            }
+        }
     }
     errs.into_result()
 }
@@ -273,6 +421,7 @@ fn finish(
         truncated: raw.truncated,
         masked_columns,
         elapsed_ms: 0,
+        write: None,
     }
 }
 
@@ -300,8 +449,8 @@ fn check_table_access(conn: &DbConnection, table: &str) -> Result<(), SqlError> 
     Ok(())
 }
 
-/// The checks agent-written SQL gets on top of the read-only guard: no
-/// placeholders, only allowed tables, no way around column masks.
+/// The checks agent-written SQL gets on top of the guard: allowed by the
+/// access mode, no placeholders, only allowed tables, no way around masks.
 pub fn check_agent_sql(conn: &DbConnection, sql: &str) -> Result<guard::CheckedQuery, SqlError> {
     match guard::bind_placeholders(sql, conn.driver) {
         Ok(b) if b.names.is_empty() => {}
@@ -311,7 +460,8 @@ pub fn check_agent_sql(conn: &DbConnection, sql: &str) -> Result<guard::CheckedQ
             ))
         }
     }
-    let checked = guard::check_read_only(sql, conn.driver).map_err(SqlError::Rejected)?;
+    let checked = guard::check_statement(sql, conn.driver).map_err(SqlError::Rejected)?;
+    gate(&checked, conn.access_mode, conn.allow_ddl, true).map_err(SqlError::Rejected)?;
     for t in &checked.tables {
         check_table_access(conn, t)?;
     }
@@ -344,12 +494,17 @@ fn apply_masks(
     hit.iter().map(|&i| columns[i].clone()).collect()
 }
 
+/// Cached pools: (connection, writable) → (settings fingerprint, pool).
+type PoolMap = HashMap<(Uuid, bool), (u64, DbPool)>;
+
 /// Runs SQL tools. Keeps one small pool per connection, rebuilt when the
 /// connection's settings or DSN change.
 #[derive(Clone)]
 pub struct SqlExecutor {
     secrets: Arc<dyn SecretResolver>,
-    pools: Arc<Mutex<HashMap<Uuid, (u64, DbPool)>>>,
+    /// Keyed by connection and whether the pool may write (SQLite opens the
+    /// file differently for writes).
+    pools: Arc<Mutex<PoolMap>>,
 }
 
 impl SqlExecutor {
@@ -369,13 +524,18 @@ impl SqlExecutor {
             .map_err(|e| SqlError::Config(format!("connection string unavailable: {e}")))
     }
 
-    async fn pool(&self, conn: &DbConnection, dsn: &str) -> Result<DbPool, SqlError> {
+    async fn pool(
+        &self,
+        conn: &DbConnection,
+        dsn: &str,
+        writable: bool,
+    ) -> Result<DbPool, SqlError> {
         let mut h = DefaultHasher::new();
         (conn.driver, dsn, conn.timeout_ms).hash(&mut h);
         let key = h.finish();
         let stale = {
             let pools = self.pools.lock().expect("pool map poisoned");
-            match pools.get(&conn.id) {
+            match pools.get(&(conn.id, writable)) {
                 Some((k, p)) if *k == key => return Ok(p.clone()),
                 Some((_, p)) => Some(p.clone()),
                 None => None,
@@ -384,11 +544,11 @@ impl SqlExecutor {
         if let Some(old) = stale {
             old.close().await;
         }
-        let pool = build_pool(conn, dsn)?;
+        let pool = build_pool(conn, dsn, writable)?;
         self.pools
             .lock()
             .expect("pool map poisoned")
-            .insert(conn.id, (key, pool.clone()));
+            .insert((conn.id, writable), (key, pool.clone()));
         Ok(pool)
     }
 
@@ -397,19 +557,22 @@ impl SqlExecutor {
     /// [`run_read_only`]; tests use it to exercise that layer alone.
     pub async fn pool_for(&self, conn: &DbConnection) -> Result<DbPool, SqlError> {
         let dsn = self.resolve_dsn(conn).await?;
-        self.pool(conn, &dsn)
+        self.pool(conn, &dsn, false)
             .await
             .map_err(|e| e.redact(&Redactor::new(&dsn)))
     }
 
     /// Drops the cached pool of a deleted or edited connection.
     pub async fn forget(&self, connection_id: Uuid) {
-        let old = self
-            .pools
-            .lock()
-            .expect("pool map poisoned")
-            .remove(&connection_id);
-        if let Some((_, p)) = old {
+        let old: Vec<DbPool> = {
+            let mut pools = self.pools.lock().expect("pool map poisoned");
+            [false, true]
+                .iter()
+                .filter_map(|w| pools.remove(&(connection_id, *w)))
+                .map(|(_, p)| p)
+                .collect()
+        };
+        for p in old {
             p.close().await;
         }
     }
@@ -430,7 +593,7 @@ impl SqlExecutor {
             timeout_ms: conn.timeout_ms,
         };
         async {
-            let pool = self.pool(conn, &dsn).await?;
+            let pool = self.pool(conn, &dsn, false).await?;
             run_read_only(&pool, sql, binds, limits).await
         }
         .await
@@ -440,47 +603,187 @@ impl SqlExecutor {
         })
     }
 
-    /// Runs a SQL tool with the agent's arguments: a curated query or one of
-    /// the exploration tools.
+    /// Runs a write in a read-write transaction and builds its audit record.
+    async fn write(
+        &self,
+        conn: &DbConnection,
+        sql: String,
+        binds: Vec<Bind>,
+        checked: &guard::CheckedQuery,
+        dry_run: bool,
+    ) -> SqlRun {
+        if dry_run && conn.driver == Driver::Mysql && checked.class == StatementClass::Ddl {
+            return SqlRun {
+                result: Err(SqlError::Rejected(
+                    "MySQL commits schema changes immediately, so dry_run isn't possible for them"
+                        .into(),
+                )),
+                audit: None,
+            };
+        }
+        let params: Vec<Value> = binds.iter().map(Bind::to_json).collect();
+        let limits = Limits {
+            row_limit: conn.row_limit,
+            timeout_ms: conn.timeout_ms,
+        };
+        let opts = WriteOptions {
+            max_affected: conn.max_affected_rows,
+            dry_run,
+            returning: checked.returning,
+        };
+        let result = async {
+            let dsn = self.resolve_dsn(conn).await?;
+            let redactor = Redactor::new(&dsn);
+            async {
+                let pool = self.pool(conn, &dsn, true).await?;
+                session::run_write(&pool, &sql, &binds, limits, opts).await
+            }
+            .await
+            .map_err(|e| match e {
+                SqlError::Timeout(_) => SqlError::Timeout(conn.timeout_ms),
+                other => other.redact(&redactor),
+            })
+        }
+        .await;
+        let mut audit = AuditDraft {
+            sql: sql.clone(),
+            params: params.clone(),
+            class: checked.class,
+            rows_affected: None,
+            outcome: AuditOutcome::Failed,
+            error: None,
+        };
+        let result = match result {
+            Ok(w) => {
+                audit.rows_affected = Some(w.affected);
+                audit.outcome = if w.committed {
+                    AuditOutcome::Committed
+                } else {
+                    AuditOutcome::DryRun
+                };
+                let mut rows = w.rows;
+                let masked_columns =
+                    apply_masks(&conn.column_masks, &checked.tables, &w.columns, &mut rows);
+                Ok(SqlOutcome {
+                    sql,
+                    params,
+                    columns: w.columns,
+                    rows,
+                    truncated: w.truncated,
+                    masked_columns,
+                    elapsed_ms: 0,
+                    write: Some(WriteInfo {
+                        class: checked.class.as_str().into(),
+                        affected_rows: w.affected,
+                        committed: w.committed,
+                        dry_run,
+                    }),
+                })
+            }
+            Err(e) => {
+                if let SqlError::TooManyRows { affected, .. } = &e {
+                    audit.rows_affected = Some(*affected);
+                    audit.outcome = AuditOutcome::RolledBack;
+                }
+                audit.error = Some(e.to_string());
+                Err(e)
+            }
+        };
+        SqlRun {
+            result,
+            audit: Some(audit),
+        }
+    }
+
+    /// Runs a SQL tool with the agent's arguments and returns only the
+    /// result (see [`SqlExecutor::run`] for the audit record).
     pub async fn run_query(
         &self,
         conn: &DbConnection,
         spec: &SqlSpec,
         args: &Map<String, Value>,
     ) -> Result<SqlOutcome, SqlError> {
-        let derived = spec.derive_input();
-        check_args(&derived.bindings, &derived.schema, args).map_err(SqlError::InvalidArgs)?;
+        self.run(conn, spec, args).await.result
+    }
+
+    /// Runs a SQL tool: a saved query (read or write) or an exploration
+    /// tool. Writes come back with an audit record, even when they fail.
+    pub async fn run(
+        &self,
+        conn: &DbConnection,
+        spec: &SqlSpec,
+        args: &Map<String, Value>,
+    ) -> SqlRun {
         let started = Instant::now();
+        let mut run = match self.dispatch(conn, spec, args).await {
+            Ok(r) => r,
+            Err(e) => SqlRun {
+                result: Err(e),
+                audit: None,
+            },
+        };
+        if let Ok(o) = &mut run.result {
+            o.elapsed_ms = started.elapsed().as_millis() as u64;
+        }
+        run
+    }
+
+    async fn dispatch(
+        &self,
+        conn: &DbConnection,
+        spec: &SqlSpec,
+        args: &Map<String, Value>,
+    ) -> Result<SqlRun, SqlError> {
+        let derived = tool_input(spec, conn);
+        check_args(&derived.bindings, &derived.schema, args).map_err(SqlError::InvalidArgs)?;
+        let dry_run = args
+            .get(DRY_RUN_ARG)
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let text = |k: &str| {
             args.get(k)
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
         };
-        let mut out = match &spec.mode {
+        let read = |o: SqlOutcome| SqlRun {
+            result: Ok(o),
+            audit: None,
+        };
+        Ok(match &spec.mode {
             SqlMode::Query { sql, .. } => {
                 let bound =
                     guard::bind_placeholders(sql, conn.driver).map_err(SqlError::Rejected)?;
                 let checked =
-                    guard::check_read_only(&bound.sql, conn.driver).map_err(SqlError::Rejected)?;
+                    guard::check_statement(&bound.sql, conn.driver).map_err(SqlError::Rejected)?;
+                gate(&checked, conn.access_mode, conn.allow_ddl, false)
+                    .map_err(SqlError::Rejected)?;
                 let binds = binds_for(spec, &bound.binds, args)?;
+                if checked.class != StatementClass::Read {
+                    return Ok(self.write(conn, bound.sql, binds, &checked, dry_run).await);
+                }
                 let raw = self
                     .execute(conn, &bound.sql, &binds, conn.row_limit)
                     .await?;
-                finish(conn, bound.sql, &binds, &checked.tables, raw)
+                read(finish(conn, bound.sql, &binds, &checked.tables, raw))
             }
             SqlMode::RunSql => {
                 let sql = text(SQL_ARG).ok_or_else(|| {
                     SqlError::InvalidArgs(ValidationErrors::single(SQL_ARG, "must not be empty"))
                 })?;
                 let checked = check_agent_sql(conn, sql)?;
+                if checked.class != StatementClass::Read {
+                    return Ok(self
+                        .write(conn, sql.to_owned(), Vec::new(), &checked, dry_run)
+                        .await);
+                }
                 let raw = self.execute(conn, sql, &[], conn.row_limit).await?;
-                finish(conn, sql.to_owned(), &[], &checked.tables, raw)
+                read(finish(conn, sql.to_owned(), &[], &checked.tables, raw))
             }
             SqlMode::ListTables => {
                 let sql = explore::list_tables_sql(conn.driver);
                 let raw = self.execute(conn, sql, &[], explore::MAX_ROWS).await?;
-                explore::list_tables(conn, sql, raw, text(PATTERN_ARG))
+                read(explore::list_tables(conn, sql, raw, text(PATTERN_ARG)))
             }
             SqlMode::DescribeTable => {
                 let table = text(TABLE_ARG).ok_or_else(|| {
@@ -489,11 +792,9 @@ impl SqlExecutor {
                 check_table_access(conn, table)?;
                 let (sql, binds) = explore::describe_table_sql(conn.driver, table);
                 let raw = self.execute(conn, &sql, &binds, explore::MAX_ROWS).await?;
-                explore::describe_table(conn, table, sql, &binds, raw)?
+                read(explore::describe_table(conn, table, sql, &binds, raw)?)
             }
-        };
-        out.elapsed_ms = started.elapsed().as_millis() as u64;
-        Ok(out)
+        })
     }
 
     /// Connects, reads the server version and checks whether the role can
@@ -508,7 +809,7 @@ impl SqlExecutor {
             Ok(dsn) => {
                 let redactor = Redactor::new(&dsn);
                 let probe = async {
-                    let pool = self.pool(conn, &dsn).await?;
+                    let pool = self.pool(conn, &dsn, false).await?;
                     let budget = Duration::from_millis(u64::from(conn.timeout_ms));
                     match tokio::time::timeout(budget + Duration::from_secs(2), probe(&pool, &dsn))
                         .await
@@ -540,7 +841,9 @@ impl SqlExecutor {
     }
 }
 
-fn build_pool(conn: &DbConnection, dsn: &str) -> Result<DbPool, SqlError> {
+/// Postgres and MySQL share one set of options (writes open a read-write
+/// transaction explicitly); SQLite opens the file read-only unless `writable`.
+fn build_pool(conn: &DbConnection, dsn: &str, writable: bool) -> Result<DbPool, SqlError> {
     let bad = |e: sqlx::Error| SqlError::Config(format!("invalid connection string: {e}"));
     let acquire = Duration::from_millis(u64::from(conn.timeout_ms)).max(Duration::from_secs(5));
     let idle = Duration::from_secs(300);
@@ -551,12 +854,14 @@ fn build_pool(conn: &DbConnection, dsn: &str) -> Result<DbPool, SqlError> {
             } else {
                 format!("sqlite://{dsn}")
             };
-            let opts = SqliteConnectOptions::from_str(&s)
+            let mut opts = SqliteConnectOptions::from_str(&s)
                 .map_err(bad)?
-                .read_only(true)
+                .read_only(!writable)
                 .create_if_missing(false)
-                .pragma("query_only", "ON")
                 .busy_timeout(Duration::from_millis(u64::from(conn.timeout_ms)));
+            if !writable {
+                opts = opts.pragma("query_only", "ON");
+            }
             DbPool::Sqlite(
                 SqlitePoolOptions::new()
                     .max_connections(4)
@@ -765,27 +1070,77 @@ mod tests {
         .unwrap()
     }
 
+    fn conn_input(driver: &str, mode: &str, ddl: bool) -> DbConnectionInput {
+        serde_json::from_value(json!({
+            "name": "db", "driver": driver, "dsn_ref": "env:DB",
+            "access_mode": mode, "allow_ddl": ddl
+        }))
+        .unwrap()
+    }
+
     #[test]
     fn save_time_check() {
         let s = spec(
             "SELECT * FROM users WHERE id = :id",
             json!([{ "name": "id", "schema": { "type": "integer" } }]),
         );
-        check_query_tool(&s, Driver::Postgres).unwrap();
+        check_query_tool(&s, &conn_input("postgres", "read_only", false)).unwrap();
 
         let s = spec(
             "SELECT * FROM users WHERE id = :id",
             json!([{ "name": "other" }]),
         );
-        let e = check_query_tool(&s, Driver::Sqlite).unwrap_err();
+        let e = check_query_tool(&s, &conn_input("sqlite", "read_only", false)).unwrap_err();
         assert!(
             e.has("kind.mode.params") && e.has("kind.mode.params[0].name"),
             "{e}"
         );
 
+        let s = spec("DELETE FROM users WHERE id = 1", json!([]));
+        let e = check_query_tool(&s, &conn_input("mysql", "read_only", false)).unwrap_err();
+        assert!(e.to_string().contains("read-only"), "{e}");
+        check_query_tool(&s, &conn_input("mysql", "curated_write", false)).unwrap();
+
         let s = spec("DELETE FROM users", json!([]));
-        let e = check_query_tool(&s, Driver::Mysql).unwrap_err();
-        assert!(e.has("kind.mode.sql"), "{e}");
+        let e = check_query_tool(&s, &conn_input("mysql", "full_access", false)).unwrap_err();
+        assert!(e.to_string().contains("WHERE"), "{e}");
+
+        let ddl = spec("CREATE INDEX i ON users (email)", json!([]));
+        let e = check_query_tool(&ddl, &conn_input("sqlite", "curated_write", false)).unwrap_err();
+        assert!(e.to_string().contains("schema changes"), "{e}");
+        check_query_tool(&ddl, &conn_input("sqlite", "curated_write", true)).unwrap();
+
+        let admin = spec("GRANT SELECT ON users TO bob", json!([]));
+        let e = check_query_tool(&admin, &conn_input("postgres", "full_access", true)).unwrap_err();
+        assert!(e.to_string().contains("never allowed"), "{e}");
+    }
+
+    #[test]
+    fn gating_matrix() {
+        let q = |sql| guard::check_statement(sql, Driver::Postgres).unwrap();
+        let (read, write, ddl) = (
+            q("SELECT 1"),
+            q("UPDATE t SET a = 1 WHERE id = 1"),
+            q("DROP TABLE t"),
+        );
+        use AccessMode::*;
+        for (mode, agent, w_ok) in [
+            (ReadOnly, false, false),
+            (ReadOnly, true, false),
+            (CuratedWrite, false, true),
+            (CuratedWrite, true, false),
+            (FullAccess, false, true),
+            (FullAccess, true, true),
+        ] {
+            assert!(gate(&read, mode, false, agent).is_ok());
+            assert_eq!(
+                gate(&write, mode, false, agent).is_ok(),
+                w_ok,
+                "{mode:?} agent={agent}"
+            );
+            assert!(gate(&ddl, mode, false, agent).is_err());
+            assert_eq!(gate(&ddl, mode, true, agent).is_ok(), w_ok);
+        }
     }
 
     #[test]
@@ -858,7 +1213,7 @@ mod tests {
             "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
-        let e = build_pool(&conn, r"C:\data\shop.db").unwrap_err();
+        let e = build_pool(&conn, r"C:\data\shop.db", false).unwrap_err();
         assert!(e.to_string().contains("postgres://"), "{e}");
     }
 

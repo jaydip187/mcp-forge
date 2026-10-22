@@ -667,3 +667,43 @@ async fn bundle_imports_connections_and_sql_tools() {
         .await;
     assert!(matches!(r, Err(StoreError::Validation(e)) if e.has("tools[0].connection")));
 }
+
+#[tokio::test]
+async fn audit_log_append_and_page() {
+    use forge_core::{AuditEntry, AuditOutcome};
+    let s = store().await;
+    let p = s.create_project(&project("A")).await.unwrap();
+    let base = chrono::Utc::now();
+    for i in 0..3 {
+        s.append_audit(&AuditEntry {
+            id: Uuid::new_v4(),
+            project_id: p.id,
+            ts: base + chrono::Duration::seconds(i),
+            tool_id: None,
+            tool_name: format!("t{i}"),
+            connection_id: None,
+            connection_name: "shop".into(),
+            origin: "mcp".into(),
+            statement_class: "write".into(),
+            sql: "UPDATE t SET a = ? WHERE id = ?".into(),
+            params: vec![json!(i), json!("x")],
+            rows_affected: Some(i as u64),
+            outcome: if i == 2 {
+                AuditOutcome::RolledBack
+            } else {
+                AuditOutcome::Committed
+            },
+            error: None,
+        })
+        .await
+        .unwrap();
+    }
+    let all = s.list_audit(p.id, 100, None).await.unwrap();
+    let names: Vec<_> = all.iter().map(|e| e.tool_name.as_str()).collect();
+    assert_eq!(names, ["t2", "t1", "t0"], "newest first");
+    assert_eq!(all[0].outcome, AuditOutcome::RolledBack);
+    assert_eq!(all[0].params, [json!(2), json!("x")]);
+    let page = s.list_audit(p.id, 1, Some(all[0].ts)).await.unwrap();
+    assert_eq!(page[0].tool_name, "t1");
+    s.delete_project(p.id).await.unwrap();
+}

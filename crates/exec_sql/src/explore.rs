@@ -89,6 +89,7 @@ pub fn list_tables(
         truncated: raw.truncated,
         masked_columns: Vec::new(),
         elapsed_ms: 0,
+        write: None,
     }
 }
 
@@ -220,6 +221,7 @@ pub fn describe_table(
         truncated: raw.truncated,
         masked_columns: Vec::new(),
         elapsed_ms: 0,
+        write: None,
     })
 }
 

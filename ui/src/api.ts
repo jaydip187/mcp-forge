@@ -1,4 +1,5 @@
 import type {
+  AuditEntry,
   AuthConfig,
   AuthConfigInput,
   BundleReport,
@@ -169,8 +170,12 @@ export const api = {
   resetOverrides: (pid: string, tid: string, fields?: string[]) =>
     request<Tool>("POST", `${p(pid)}/tools/${tid}/overrides/reset`, fields ? { fields } : {}),
   exportBundle: (pid: string) => requestText("GET", `${p(pid)}/export`),
-  importBundle: (pid: string, content: string, onConflict: "fail" | "skip" | "replace") =>
-    request<BundleReport>("POST", `${p(pid)}/import/bundle`, { content, on_conflict: onConflict }),
+  importBundle: (pid: string, content: string, onConflict: "fail" | "skip" | "replace", confirmFullAccess = false) =>
+    request<BundleReport>("POST", `${p(pid)}/import/bundle`, {
+      content,
+      on_conflict: onConflict,
+      confirm_full_access: confirmFullAccess,
+    }),
 
   listAuth: (pid: string) => request<AuthConfig[]>("GET", `${p(pid)}/auth-configs`),
   createAuth: (pid: string, input: AuthConfigInput) => request<AuthConfig>("POST", `${p(pid)}/auth-configs`, input),
@@ -179,10 +184,12 @@ export const api = {
   deleteAuth: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/auth-configs/${id}`),
 
   listConnections: (pid: string) => request<DbConnection[]>("GET", `${p(pid)}/db-connections`),
-  createConnection: (pid: string, input: DbConnectionInput) =>
-    request<DbConnection>("POST", `${p(pid)}/db-connections`, input),
-  updateConnection: (pid: string, id: string, input: DbConnectionInput) =>
-    request<DbConnection>("PUT", `${p(pid)}/db-connections/${id}`, input),
+  createConnection: (pid: string, input: DbConnectionInput, confirmFullAccess = false) =>
+    request<DbConnection>("POST", `${p(pid)}/db-connections`, { ...input, confirm_full_access: confirmFullAccess }),
+  updateConnection: (pid: string, id: string, input: DbConnectionInput, confirmFullAccess = false) =>
+    request<DbConnection>("PUT", `${p(pid)}/db-connections/${id}`, { ...input, confirm_full_access: confirmFullAccess }),
+  listAudit: (pid: string, before?: string) =>
+    request<AuditEntry[]>("GET", `${p(pid)}/audit?limit=100${before ? `&before=${encodeURIComponent(before)}` : ""}`),
   deleteConnection: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/db-connections/${id}`),
   testConnection: (pid: string, id: string) =>
     request<ConnectionReport>("POST", `${p(pid)}/db-connections/${id}/test`, {}),
