@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { ChevronRightIcon, ServerIcon } from "lucide-react";
 
 import { api, ApiError } from "@/api";
+import { EmptyState } from "@/components/EmptyState";
+import { PageHeader } from "@/components/PageHeader";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Skeleton } from "@/components/ui/skeleton";
 import { fieldError, useProjects } from "@/lib/projects";
 import { href, navigate } from "@/lib/router";
 import { slugify } from "@/lib/template";
@@ -21,12 +24,10 @@ export function Home() {
 
   return (
     <div className="space-y-8">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
-        <p className="max-w-prose text-sm text-muted-foreground">
-          A project is one MCP server: a set of tools that agents connect to at a single URL.
-        </p>
-      </div>
+      <PageHeader
+        title="Projects"
+        description="A project is one MCP server: a set of tools that agents reach at a single URL."
+      />
 
       {error && (
         <Alert variant="destructive">
@@ -34,47 +35,45 @@ export function Home() {
         </Alert>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <section aria-labelledby="list-heading" className="min-w-0">
           <h2 id="list-heading" className="sr-only">
             All projects
           </h2>
-          {projects && projects.length > 0 ? (
-            <div className="rounded-lg border bg-card">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>MCP path</TableHead>
-                    <TableHead className="hidden sm:table-cell">Created</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {projects.map((p) => (
-                    <TableRow key={p.id} className="cursor-pointer" onClick={() => navigate(href.project(p.id))}>
-                      <TableCell className="font-medium">
-                        <a href={href.project(p.id)} className="hover:underline" onClick={(e) => e.stopPropagation()}>
-                          {p.name}
-                        </a>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">/mcp/{p.slug}</TableCell>
-                      <TableCell className="hidden text-muted-foreground sm:table-cell">
-                        {new Date(p.created_at).toLocaleDateString()}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+          {projects === null ? (
+            <Skeleton className="h-40 w-full rounded-xl" />
+          ) : projects.length > 0 ? (
+            <ul className="divide-y overflow-hidden rounded-xl border bg-card">
+              {projects.map((p) => (
+                <li key={p.id}>
+                  <a
+                    href={href.project(p.id)}
+                    className="group flex items-center gap-4 px-4 py-3.5 outline-none hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="grid size-9 shrink-0 place-items-center rounded-lg border bg-background text-sm font-semibold text-primary uppercase"
+                    >
+                      {p.name.slice(0, 1)}
+                    </span>
+                    <span className="grid min-w-0 flex-1 gap-0.5">
+                      <span className="truncate font-medium">{p.name}</span>
+                      <span className="truncate font-mono text-xs text-muted-foreground">/mcp/{p.slug}</span>
+                    </span>
+                    <span className="hidden shrink-0 text-xs text-muted-foreground sm:block">
+                      Created {new Date(p.created_at).toLocaleDateString()}
+                    </span>
+                    <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                  </a>
+                </li>
+              ))}
+            </ul>
           ) : (
-            projects && (
-              <div className="rounded-lg border border-dashed p-8 text-center">
-                <p className="font-medium">No projects yet</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Create one to start turning an API into tools an agent can call.
-                </p>
-              </div>
-            )
+            <EmptyState
+              icon={ServerIcon}
+              title="Create your first project"
+              description="Each project gets its own MCP URL. Add HTTP or SQL tools to it, test them here, then connect an agent."
+            />
           )}
         </section>
 

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { ArrowLeftIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { PlusIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
+import { PageHeader } from "@/components/PageHeader";
 import { Field, Section } from "@/components/FormSection";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -91,22 +92,20 @@ export function SqlToolEditor({ projectId, tool }: { projectId: string; tool: To
 
   return (
     <div className="space-y-6">
-      <a href={href.project(projectId)} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeftIcon className="size-4" /> Tools
-      </a>
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{saved ? saved.name : "New SQL tool"}</h1>
-        <p className="text-sm text-muted-foreground">
-          {form.mode !== "query" ? (
+      <PageHeader
+        back={{ href: href.project(projectId), label: "Tools" }}
+        title={saved ? <span className="font-mono">{saved.name}</span> : "New SQL tool"}
+        description={
+          form.mode !== "query" ? (
             "A database exploration tool. Everything it runs is read-only and limited to the allowed tables."
           ) : (
             <>
           A fixed, read-only query. Agents fill in the <code>:name</code> parameters; values are always sent separately from
           the SQL, never pasted into it.
             </>
-          )}
-        </p>
-      </header>
+          )
+        }
+      />
 
       {conns && conns.length === 0 && (
         <Alert>
@@ -347,7 +346,7 @@ export function SqlToolEditor({ projectId, tool }: { projectId: string; tool: To
           </div>
         </form>
 
-        <aside className="lg:sticky lg:top-6">
+        <aside className="lg:sticky lg:top-20">
           <TestConsole projectId={projectId} toolId={saved?.id ?? null} version={saved?.updated_at ?? ""} dirty={dirty} />
         </aside>
       </div>

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
-import { AlertTriangleIcon, ArrowLeftIcon, KeyRoundIcon, UploadIcon } from "lucide-react";
+import { AlertTriangleIcon, KeyRoundIcon, UploadIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
+import { PageHeader } from "@/components/PageHeader";
 import { MethodLabel } from "@/components/RequestLine";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -176,15 +177,11 @@ export function ImportPage({ projectId }: { projectId: string }) {
 
   return (
     <div className="space-y-6">
-      <a href={href.project(projectId)} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeftIcon className="size-4" /> Tools
-      </a>
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Import from an API spec</h1>
-        <p className="max-w-prose text-sm text-muted-foreground">
-          Turn the operations in an OpenAPI 3.0, 3.1 or Swagger 2.0 spec into tools. You pick which ones; nothing is created until you import.
-        </p>
-      </div>
+      <PageHeader
+        back={{ href: href.project(projectId), label: "Tools" }}
+        title="Import from an API spec"
+        description="Turn the operations in an OpenAPI 3.0, 3.1 or Swagger 2.0 spec into tools. You pick which ones; nothing is created until you import."
+      />
 
       <Card>
         <CardHeader>

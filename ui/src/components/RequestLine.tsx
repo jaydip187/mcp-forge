@@ -3,18 +3,26 @@ import { splitTemplate } from "@/lib/template";
 import type { HttpMethod } from "@/types";
 
 const METHOD_COLOR: Record<HttpMethod, string> = {
-  GET: "text-m-get",
-  POST: "text-m-post",
-  PUT: "text-m-put",
-  PATCH: "text-m-patch",
-  DELETE: "text-m-delete",
-  HEAD: "text-m-other",
-  OPTIONS: "text-m-other",
+  GET: "bg-m-get/12 text-m-get",
+  POST: "bg-m-post/12 text-m-post",
+  PUT: "bg-m-put/12 text-m-put",
+  PATCH: "bg-m-patch/12 text-m-patch",
+  DELETE: "bg-m-delete/12 text-m-delete",
+  HEAD: "bg-m-other/12 text-m-other",
+  OPTIONS: "bg-m-other/12 text-m-other",
 };
 
 export function MethodLabel({ method, className }: { method: HttpMethod; className?: string }) {
   return (
-    <span className={cn("font-mono font-semibold tracking-tight", METHOD_COLOR[method], className)}>{method}</span>
+    <span
+      className={cn(
+        "inline-block rounded-[4px] px-1.5 py-px text-center font-mono text-[0.85em] leading-snug font-semibold tracking-tight",
+        METHOD_COLOR[method],
+        className,
+      )}
+    >
+      {method}
+    </span>
   );
 }
 

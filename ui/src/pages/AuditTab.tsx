@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCwIcon } from "lucide-react";
+import { RefreshCwIcon, ScrollTextIcon } from "lucide-react";
 
 import { api, ApiError } from "@/api";
+import { EmptyState } from "@/components/EmptyState";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -55,7 +56,7 @@ export function AuditTab({ projectId }: { projectId: string }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <p className="max-w-prose text-sm text-muted-foreground">
           Every statement that changed, or tried to change, data through a SQL tool: from agents and from the test
           console. Statements refused before reaching the database aren't listed.
@@ -65,11 +66,13 @@ export function AuditTab({ projectId }: { projectId: string }) {
         </Button>
       </div>
       {entries.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-          No writes yet. They appear here once a database allows writes and a tool changes data.
-        </div>
+        <EmptyState
+          icon={ScrollTextIcon}
+          title="No writes yet"
+          description="Writes appear here once a database allows them and a tool changes data."
+        />
       ) : (
-        <div className="overflow-x-auto rounded-lg border bg-card">
+        <div className="overflow-hidden rounded-xl border bg-card">
           <Table>
             <TableHeader>
               <TableRow>

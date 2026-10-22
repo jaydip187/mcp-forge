@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { RefreshCwIcon } from "lucide-react";
+import { FileJsonIcon, RefreshCwIcon } from "lucide-react";
 
 import { api, ApiError } from "@/api";
+import { EmptyState } from "@/components/EmptyState";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -37,15 +38,17 @@ export function SpecsTab({ projectId }: { projectId: string }) {
         Specs you imported tools from. Re-import a newer version to update those tools. Anything you edited by hand is kept.
       </p>
       {specs.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-          No imported specs yet.{" "}
-          <a className="underline" href={href.import(projectId)}>
-            Import one
-          </a>
-          .
-        </div>
+        <EmptyState
+          icon={FileJsonIcon}
+          title="No imported specs yet"
+          description="Import an OpenAPI or Swagger spec to create tools from its operations, and re-import it later to pick up changes."
+        >
+          <Button asChild>
+            <a href={href.import(projectId)}>Import a spec</a>
+          </Button>
+        </EmptyState>
       ) : (
-        <ul className="divide-y rounded-lg border bg-card">
+        <ul className="divide-y overflow-hidden rounded-xl border bg-card">
           {specs.map((s) => {
             const count = tools.filter((t) => t.source.type !== "manual" && t.source.spec_id === s.id).length;
             return (

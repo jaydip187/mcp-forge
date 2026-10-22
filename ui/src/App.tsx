@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { FolderIcon, PlusIcon } from "lucide-react";
+import { ChevronRightIcon, LayoutGridIcon, PlusIcon } from "lucide-react";
 
 import { api, ApiError, auth, setUnauthorizedHandler } from "@/api";
 import { Logo } from "@/components/Logo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserMenu } from "@/components/UserMenu";
+import { Separator } from "@/components/ui/separator";
 import {
   Sidebar,
   SidebarContent,
@@ -20,11 +22,13 @@ import {
   SidebarMenuSkeleton,
   SidebarProvider,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ProjectsProvider, useProjects } from "@/lib/projects";
-import { href, useRoute, type Route } from "@/lib/router";
+import { href, useRoute, type ProjectTab, type Route } from "@/lib/router";
+import { cn } from "@/lib/utils";
 import { Home } from "@/pages/Home";
 import { ImportPage } from "@/pages/ImportPage";
 import { ProjectPage } from "@/pages/ProjectPage";
@@ -86,6 +90,16 @@ export default function App() {
   );
 }
 
+const SECTION: Record<ProjectTab, string> = {
+  tools: "Tools",
+  specs: "Specs",
+  auth: "Auth",
+  databases: "Databases",
+  audit: "Audit log",
+  connect: "Connect",
+  settings: "Settings",
+};
+
 function Shell({ info, user, onSignedOut }: { info: ServerInfo; user: User | null; onSignedOut: () => void }) {
   const route = useRoute();
   const activeProject = route.name === "home" ? null : route.projectId;
@@ -93,16 +107,71 @@ function Shell({ info, user, onSignedOut }: { info: ServerInfo; user: User | nul
   return (
     <SidebarProvider>
       <AppSidebar activeProject={activeProject} version={info.version} user={user} onSignedOut={onSignedOut} />
-      <SidebarInset>
-        <header className="flex h-12 items-center gap-2 border-b px-3 md:hidden">
-          <SidebarTrigger />
-          <span className="font-semibold">mcp-forge</span>
+      <SidebarInset className="min-w-0">
+        <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b bg-background/85 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/70 sm:px-4">
+          <SidebarTrigger className="-ml-1" />
+          <Separator orientation="vertical" className="mr-1 self-center data-[orientation=vertical]:h-5" />
+          <Breadcrumbs route={route} />
+          <div className="ml-auto">
+            <ThemeToggle />
+          </div>
         </header>
-        <div className="mx-auto w-full max-w-6xl p-4 sm:p-6 lg:p-8">
+        <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
           <Page route={route} info={info} />
-        </div>
+        </main>
       </SidebarInset>
     </SidebarProvider>
+  );
+}
+
+/** Where you are: Projects › project › section. */
+function Breadcrumbs({ route }: { route: Route }) {
+  const { projects } = useProjects();
+  const crumbs: { label: string; href?: string }[] = [{ label: "Projects", href: href.home() }];
+  if (route.name !== "home") {
+    const project = projects?.find((p) => p.id === route.projectId);
+    crumbs.push({ label: project?.name ?? "Project", href: href.project(route.projectId) });
+    switch (route.name) {
+      case "project":
+        crumbs.push({ label: SECTION[route.tab] });
+        break;
+      case "tool":
+        crumbs.push({ label: "Tools", href: href.project(route.projectId) });
+        crumbs.push({ label: route.toolId ? "Edit tool" : route.kind === "sql" ? "New SQL tool" : "New HTTP tool" });
+        break;
+      case "import":
+        crumbs.push({ label: "Import spec" });
+        break;
+      case "reimport":
+        crumbs.push({ label: "Specs", href: href.project(route.projectId, "specs") });
+        crumbs.push({ label: "Re-import" });
+        break;
+    }
+  }
+  const last = crumbs.length - 1;
+  return (
+    <nav aria-label="Breadcrumb" className="min-w-0">
+      <ol className="flex min-w-0 items-center gap-1 text-sm">
+        {crumbs.map((c, i) => (
+          // On phones only the last two crumbs fit.
+          <li key={i} className={cn("flex min-w-0 items-center gap-1", i < last - 1 && "hidden sm:flex")}>
+            {i > 0 && <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden="true" />}
+            {i === last || !c.href ? (
+              <span aria-current={i === last ? "page" : undefined} className="truncate font-medium">
+                {c.label}
+              </span>
+            ) : (
+              <a
+                href={c.href}
+                className="truncate rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {c.label}
+              </a>
+            )}
+          </li>
+        ))}
+      </ol>
+    </nav>
   );
 }
 
@@ -135,19 +204,38 @@ function AppSidebar({
   onSignedOut: () => void;
 }) {
   const { projects } = useProjects();
+  const { setOpenMobile } = useSidebar();
+  // On phones the sidebar is a sheet; close it once a link is followed.
+  const close = () => setOpenMobile(false);
   return (
     <Sidebar>
-      <SidebarHeader>
-        <a href={href.home()} className="flex items-center gap-2 rounded-md px-2 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <Logo />
+      <SidebarHeader className="h-14 justify-center border-b border-sidebar-border px-3">
+        <a
+          href={href.home()}
+          onClick={close}
+          className="flex items-center gap-2.5 rounded-md px-1 py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Logo className="size-7" />
           <span className="font-semibold tracking-tight">mcp-forge</span>
         </a>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild isActive={activeProject === null}>
+                <a href={href.home()} onClick={close}>
+                  <LayoutGridIcon />
+                  <span>All projects</span>
+                </a>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
+        <SidebarGroup>
           <SidebarGroupLabel>Projects</SidebarGroupLabel>
           <SidebarGroupAction asChild title="New project">
-            <a href={`${href.home()}?new`} aria-label="New project">
+            <a href={`${href.home()}?new`} onClick={close} aria-label="New project">
               <PlusIcon />
             </a>
           </SidebarGroupAction>
@@ -161,20 +249,30 @@ function AppSidebar({
                 ))}
               {projects?.map((p) => (
                 <SidebarMenuItem key={p.id}>
-                  <SidebarMenuButton asChild isActive={p.id === activeProject}>
-                    <a href={href.project(p.id)}>
-                      <FolderIcon />
-                      <span>{p.name}</span>
+                  <SidebarMenuButton asChild isActive={p.id === activeProject} size="lg" className="h-auto py-1.5">
+                    <a href={href.project(p.id)} onClick={close}>
+                      <span
+                        aria-hidden="true"
+                        className="grid size-7 shrink-0 place-items-center rounded-md border bg-background text-xs font-semibold text-primary uppercase"
+                      >
+                        {p.name.slice(0, 1)}
+                      </span>
+                      <span className="grid min-w-0 leading-tight">
+                        <span className="truncate">{p.name}</span>
+                        <span className="truncate font-mono text-[11px] text-muted-foreground">/mcp/{p.slug}</span>
+                      </span>
                     </a>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
-              {projects?.length === 0 && <p className="px-2 py-1 text-xs text-muted-foreground">No projects yet.</p>}
+              {projects?.length === 0 && (
+                <p className="px-2 py-1 text-xs leading-relaxed text-muted-foreground">No projects yet. Use + to create one.</p>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter>
+      <SidebarFooter className="border-t border-sidebar-border">
         {user ? (
           <UserMenu user={user} version={version} onSignedOut={onSignedOut} />
         ) : (

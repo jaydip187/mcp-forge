@@ -4,10 +4,10 @@
 > Legend: `[ ]` todo · `[~]` in progress / partial · `[x]` done · `[-]` dropped (say why)
 
 ## Next up
-Stage 13 review, then Stage 14 — UI redesign
+Stage 14 review. All planned stages (0–14) done.
 
 ## Current stage
-**Stage 13 — Authentication** · status: done · review: requested
+**Stage 14 — UI redesign** · status: done · review: requested
 
 ---
 
@@ -129,19 +129,21 @@ Stage 13 review, then Stage 14 — UI redesign
 - [x] Login backoff
 - [x] `mcp-forge user` CLI
 - [x] Tests
-- [ ] Stage review approved
+- [x] Stage review approved
 
 ### Stage 14 — UI redesign
-- [ ] App shell + user menu + theme toggle
-- [ ] Login / setup screens
-- [ ] Restyle every page (tables, forms, dialogs, empty states)
-- [ ] Responsive pass
-- [ ] Browser QA
+- [x] App shell + user menu + theme toggle
+- [x] Login / setup screens
+- [x] Restyle every page (tables, forms, dialogs, empty states)
+- [~] Responsive pass (layouts use responsive breakpoints; not checked at phone width in a browser)
+- [x] Browser QA (desktop, light + dark)
 - [ ] Stage review approved
 
 ---
 
 ## Decisions
+- 2026-10-22: Stage 14 keeps the steel/patina-teal brand and Geist, tightened rather than replaced; amber `--warning` added for hidden/attention states. Signature element: the request line (method chip + mono path) and the project's MCP address strip in the same style. Project sections are link tabs (each has a URL) instead of Radix tabs.
+- 2026-10-22: theme preference (system/light/dark) is stored in localStorage per browser (`mcp-forge.theme`); default follows the OS.
 - 2026-10-22: new deps for Stage 13 — `argon2` 0.5 (password hashing; reuses rand_core 0.6 already in the tree), `sha2` + `hex` (session token hashing; both already in the lockfile), `rpassword` 7 (no-echo password prompt for `mcp-forge user`). Dev profile builds argon2/blake2 at opt-level 3 so tests stay fast.
 - 2026-10-22: `Security::default()` requires login; tests that cover other layers opt out with `require_login: false`. `/api` still accepts the admin token as a bearer (scripts, no CSRF header needed).
 - 2026-10-22: the UI no longer stores the admin token; it signs in with the session cookie. Setup code is in memory only and re-generated (and logged) on each start while no account exists.
@@ -263,6 +265,8 @@ Stage 13 review, then Stage 14 — UI redesign
 - 2026-10-21 · Should tool `description` be required? · optional (empty allowed) for now; importers will fill from summary/description
 
 ## Known issues / tech debt
+- Stage 14 was not checked at phone width in a browser: browser-mcp ignored the requested window size. Layouts use `sm:`/`lg:` breakpoints, the sidebar becomes a sheet, section tabs scroll sideways, but this is unverified on a real narrow viewport.
+- Breadcrumb shows "Project" for a moment until the project list loads. (Stage 14)
 - Session cookie name is fixed (`mcp_forge_session`); cookies aren't port-scoped, so two servers on different localhost ports sign each other out. (Stage 13)
 - Login backoff state is in memory: it resets on restart. (Stage 13)
 - Browser QA could not open the user menu a second time via browser-mcp (Radix trigger flake), so the change-password dialog was not exercised in the browser; the endpoint is covered by `tests/login.rs`. Enter-to-submit on the sign-in form did not fire through CDP; the button did. (Stage 13)
@@ -303,6 +307,14 @@ Stage 13 review, then Stage 14 — UI redesign
 - **Gotchas:** 
 - **Next step:** 
 -->
+
+### Session 16 — 2026-10-22
+- **Stage/task:** Stage 14 — UI redesign
+- **Done:** app shell with sticky top bar (breadcrumbs, appearance menu: system/light/dark), sidebar with "All projects", project list showing MCP paths, user menu in the footer; shared `PageHeader`, `EmptyState`, `McpAddress`; method chips in `RequestLine`; refined tokens (radius, sidebar, `--warning`, dark background), card spacing/weight, table header styling, form `Section` header rule; Home as a project list panel; project page with MCP address strip and link tabs; empty states for tools/specs/auth/databases/audit; editor and import pages on `PageHeader`; sticky test console offset under the top bar
+- **Not done / partial:** phone-width check in a browser (see Known issues)
+- **Tests:** `npm run build` (tsc) + vitest 25 green; cargo build embeds the UI. Browser (browser-mcp, desktop): projects, project tools (empty), new HTTP tool editor, databases (light), settings (light), sign-in in both themes
+- **Gotchas:** `overflow-x-auto` on the tab bar needs `overflow-y-hidden` or the active underline adds a vertical scrollbar
+- **Next step:** Stage 14 review
 
 ### Session 15 — 2026-10-22
 - **Stage/task:** Stage 13 — authentication

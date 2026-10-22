@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, ApiError } from "@/api";
-import { CopyBlock } from "@/components/CopyBlock";
+import { McpAddress } from "@/components/McpAddress";
+import { PageHeader } from "@/components/PageHeader";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { href, navigate, type ProjectTab } from "@/lib/router";
+import { href, type ProjectTab } from "@/lib/router";
+import { cn } from "@/lib/utils";
 import { AuditTab } from "@/pages/AuditTab";
 import { AuthTab } from "@/pages/AuthTab";
 import { ConnectTab, mcpUrl } from "@/pages/ConnectTab";
@@ -14,6 +15,16 @@ import { SettingsTab } from "@/pages/SettingsTab";
 import { SpecsTab } from "@/pages/SpecsTab";
 import { ToolsTab } from "@/pages/ToolsTab";
 import type { Project, ServerInfo } from "@/types";
+
+const SECTIONS: { tab: ProjectTab; label: string }[] = [
+  { tab: "tools", label: "Tools" },
+  { tab: "specs", label: "Specs" },
+  { tab: "auth", label: "Auth" },
+  { tab: "databases", label: "Databases" },
+  { tab: "audit", label: "Audit log" },
+  { tab: "connect", label: "Connect" },
+  { tab: "settings", label: "Settings" },
+];
 
 export function ProjectPage({ projectId, tab, info }: { projectId: string; tab: ProjectTab; info: ServerInfo }) {
   const [project, setProject] = useState<Project | null>(null);
@@ -34,56 +45,63 @@ export function ProjectPage({ projectId, tab, info }: { projectId: string; tab: 
     return (
       <Alert variant="destructive">
         <AlertDescription>
-          {error} <a className="underline" href={href.home()}>Back to projects</a>
+          {error}{" "}
+          <a className="underline" href={href.home()}>
+            Back to projects
+          </a>
         </AlertDescription>
       </Alert>
     );
-  if (!project) return <Skeleton className="h-24 w-full" />;
+  if (!project)
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-56" />
+        <Skeleton className="h-12 w-full max-w-2xl rounded-xl" />
+        <Skeleton className="h-40 w-full rounded-xl" />
+      </div>
+    );
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div className="min-w-0 space-y-1">
-          <h1 className="truncate text-2xl font-semibold tracking-tight">{project.name}</h1>
-          <p className="text-sm text-muted-foreground">Agents connect to this project at one URL.</p>
+      <PageHeader title={project.name} description="Agents connect to every visible tool in this project at one URL.">
+        <div className="max-w-2xl">
+          <McpAddress url={mcpUrl(project.slug)} />
         </div>
-        <div className="w-full lg:max-w-md">
-          <CopyBlock code={mcpUrl(project.slug)} label="MCP URL" inline />
-        </div>
-      </div>
+      </PageHeader>
 
-      <Tabs value={tab} onValueChange={(v) => navigate(href.project(project.id, v as ProjectTab))}>
-        <TabsList>
-          <TabsTrigger value="tools">Tools</TabsTrigger>
-          <TabsTrigger value="specs">Specs</TabsTrigger>
-          <TabsTrigger value="auth">Auth</TabsTrigger>
-          <TabsTrigger value="databases">Databases</TabsTrigger>
-          <TabsTrigger value="audit">Audit</TabsTrigger>
-          <TabsTrigger value="connect">Connect</TabsTrigger>
-          <TabsTrigger value="settings">Settings</TabsTrigger>
-        </TabsList>
-        <TabsContent value="tools" className="pt-4">
-          <ToolsTab projectId={project.id} settings={project.settings} />
-        </TabsContent>
-        <TabsContent value="specs" className="pt-4">
-          <SpecsTab projectId={project.id} />
-        </TabsContent>
-        <TabsContent value="auth" className="pt-4">
-          <AuthTab projectId={project.id} />
-        </TabsContent>
-        <TabsContent value="databases" className="pt-4">
-          <DatabasesTab projectId={project.id} />
-        </TabsContent>
-        <TabsContent value="audit" className="pt-4">
-          <AuditTab projectId={project.id} />
-        </TabsContent>
-        <TabsContent value="connect" className="pt-4">
-          <ConnectTab project={project} info={info} />
-        </TabsContent>
-        <TabsContent value="settings" className="pt-4">
-          <SettingsTab project={project} onSaved={setProject} />
-        </TabsContent>
-      </Tabs>
+      <nav aria-label="Project sections" className="-mx-4 overflow-x-auto overflow-y-hidden border-b px-4 sm:mx-0 sm:px-0">
+        <ul className="flex gap-1">
+          {SECTIONS.map((s) => {
+            const active = s.tab === tab;
+            return (
+              <li key={s.tab}>
+                <a
+                  href={href.project(project.id, s.tab)}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "relative inline-flex h-10 items-center rounded-t-md px-3 text-sm font-medium whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                    active
+                      ? "text-foreground after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {s.label}
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+
+      <div>
+        {tab === "tools" && <ToolsTab projectId={project.id} settings={project.settings} />}
+        {tab === "specs" && <SpecsTab projectId={project.id} />}
+        {tab === "auth" && <AuthTab projectId={project.id} />}
+        {tab === "databases" && <DatabasesTab projectId={project.id} />}
+        {tab === "audit" && <AuditTab projectId={project.id} />}
+        {tab === "connect" && <ConnectTab project={project} info={info} />}
+        {tab === "settings" && <SettingsTab project={project} onSaved={setProject} />}
+      </div>
     </div>
   );
 }

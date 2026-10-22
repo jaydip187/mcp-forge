@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { BotIcon, CircleCheckIcon, PlugZapIcon, TriangleAlertIcon } from "lucide-react";
+import { BotIcon, CircleCheckIcon, DatabaseIcon, PlugZapIcon, TriangleAlertIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
+import { EmptyState } from "@/components/EmptyState";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -119,7 +120,7 @@ export function DatabasesTab({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_24rem]">
+    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
       <section className="min-w-0 space-y-3">
         <p className="max-w-prose text-sm text-muted-foreground">
           A connection lets SQL tools query a database. Queries are read-only: each one runs in a read-only
@@ -128,11 +129,13 @@ export function DatabasesTab({ projectId }: { projectId: string }) {
         {!conns ? (
           <Skeleton className="h-24 w-full" />
         ) : conns.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-            No databases yet. Add a connection, then create SQL tools on the Tools tab.
-          </div>
+          <EmptyState
+            icon={DatabaseIcon}
+            title="No databases yet"
+            description="Add a connection with the form, then create SQL tools for it on the Tools tab."
+          />
         ) : (
-          <ul className="divide-y rounded-lg border bg-card">
+          <ul className="divide-y overflow-hidden rounded-xl border bg-card">
             {conns.map((c) => {
               const report = reports[c.id];
               return (
@@ -159,7 +162,7 @@ export function DatabasesTab({ projectId }: { projectId: string }) {
                         </Button>
                       </div>
                     ) : (
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
                         <Button size="sm" variant="outline" onClick={() => void test(c)} disabled={report === "running"}>
                           <PlugZapIcon /> {report === "running" ? "Testing…" : "Test"}
                         </Button>

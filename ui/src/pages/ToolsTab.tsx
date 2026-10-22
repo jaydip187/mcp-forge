@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { DatabaseIcon, FileJsonIcon, KeyRoundIcon, PlusIcon } from "lucide-react";
+import { DatabaseIcon, FileJsonIcon, KeyRoundIcon, PlusIcon, WrenchIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
+import { EmptyState } from "@/components/EmptyState";
 import { RequestLine } from "@/components/RequestLine";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -60,13 +61,12 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
+      {tools.length > 0 && (
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-muted-foreground">
-          {tools.length === 0
-            ? "No tools yet."
-            : `${tools.filter((t) => hiddenReason(t, settings) === null).length} of ${tools.length} tools visible to agents.`}
+          {`${tools.filter((t) => hiddenReason(t, settings) === null).length} of ${tools.length} tools visible to agents.`}
         </p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button asChild variant="outline">
             <a href={href.import(projectId)}>
               <FileJsonIcon /> Import API spec
@@ -84,14 +84,14 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
           </Button>
         </div>
       </div>
+      )}
 
       {tools.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center">
-          <p className="font-medium">Describe an HTTP request or a SQL query, and agents can call it</p>
-          <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-            Say which parts the agent fills in, and test it right here before any agent sees it.
-          </p>
-          <div className="mt-4 flex justify-center gap-2">
+        <EmptyState
+          icon={WrenchIcon}
+          title="Describe an HTTP request or a SQL query, and agents can call it"
+          description="Say which parts the agent fills in, and test it right here before any agent sees it."
+        >
             <Button asChild>
               <a href={href.tool(projectId, null)}>Create the first tool</a>
             </Button>
@@ -101,12 +101,11 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
             <Button asChild variant="outline">
               <a href={href.tool(projectId, null, "sql")}>Add a SQL query</a>
             </Button>
-          </div>
-        </div>
+        </EmptyState>
       ) : (
-        <ul className="divide-y rounded-lg border bg-card">
+        <ul className="divide-y overflow-hidden rounded-xl border bg-card">
           {tools.map((t) => (
-            <li key={t.id} className="flex items-center gap-4 px-4 py-3">
+            <li key={t.id} className="flex items-center gap-4 px-4 py-3 hover:bg-muted/30">
               <a href={href.tool(projectId, t.id)} className="group min-w-0 flex-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <div className="flex items-center gap-2">
                   <span className="font-medium group-hover:underline">{t.name}</span>
@@ -134,7 +133,7 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
                 {(() => {
                   const why = hiddenReason(t, settings);
                   return why && why !== "disabled" ? (
-                    <p className="mt-1 text-xs text-m-put">{HIDDEN_LABEL[why]}</p>
+                    <p className="mt-1 text-xs text-warning">{HIDDEN_LABEL[why]}</p>
                   ) : null;
                 })()}
               </a>
@@ -156,7 +155,7 @@ function SqlLine({ sql, connection }: { sql: string; connection: string | undefi
   const oneLine = sql.replace(/\s+/g, " ").trim();
   return (
     <p className="mt-0.5 flex min-w-0 items-center gap-2 font-mono text-xs text-muted-foreground">
-      <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-semibold text-foreground">SQL</span>
+      <span className="shrink-0 rounded-[4px] bg-m-other/12 px-1.5 py-px text-[0.85em] font-semibold text-foreground">SQL</span>
       {connection && <span className="shrink-0">{connection}</span>}
       <span className="truncate">{oneLine}</span>
     </p>

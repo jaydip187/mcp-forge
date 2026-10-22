@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { ArrowLeftIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
+import { PageHeader } from "@/components/PageHeader";
 import { Field, Section } from "@/components/FormSection";
 import { RequestLine } from "@/components/RequestLine";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -116,13 +116,12 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
 
   return (
     <div className="space-y-6">
-      <a href={href.project(projectId)} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeftIcon className="size-4" /> Tools
-      </a>
-
-      <header className="space-y-3">
-        <h1 className="text-2xl font-semibold tracking-tight">{saved ? saved.name : "New tool"}</h1>
-        <div className="overflow-x-auto rounded-lg border bg-card px-4 py-3">
+      <PageHeader
+        back={{ href: href.project(projectId), label: "Tools" }}
+        title={saved ? <span className="font-mono">{saved.name}</span> : "New HTTP tool"}
+        description={saved ? undefined : "Describe one request. Agents fill in the parameters you leave open; everything else is fixed."}
+      >
+        <div className="overflow-x-auto rounded-xl border bg-card px-4 py-3 shadow-xs">
           <RequestLine method={form.method} baseUrl={form.base_url} path={form.path_template} size="lg" />
         </div>
         {saved && saved.source.type !== "manual" && (
@@ -139,7 +138,7 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
             }}
           />
         )}
-      </header>
+      </PageHeader>
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
         <form onSubmit={save} className="min-w-0 space-y-6" noValidate>
@@ -303,7 +302,7 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
           </div>
         </form>
 
-        <aside className="lg:sticky lg:top-6">
+        <aside className="lg:sticky lg:top-20">
           <TestConsole projectId={projectId} toolId={saved?.id ?? null} version={saved?.updated_at ?? ""} dirty={dirty} />
         </aside>
       </div>

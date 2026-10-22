@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { KeyRoundIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
+import { EmptyState } from "@/components/EmptyState";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,7 +52,7 @@ export function AuthTab({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
+    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <section className="min-w-0 space-y-3">
         <p className="max-w-prose text-sm text-muted-foreground">
           An auth config says how to sign requests and where the secret lives. mcp-forge stores only the
@@ -59,11 +61,13 @@ export function AuthTab({ projectId }: { projectId: string }) {
         {!configs ? (
           <Skeleton className="h-24 w-full" />
         ) : configs.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-            No auth configs yet. Add one if your API needs a key or token.
-          </div>
+          <EmptyState
+            icon={KeyRoundIcon}
+            title="No auth configs yet"
+            description="Add one with the form if your API needs a key or token. Tools then sign their requests with it."
+          />
         ) : (
-          <ul className="divide-y rounded-lg border bg-card">
+          <ul className="divide-y overflow-hidden rounded-xl border bg-card">
             {configs.map((c) => (
               <li key={c.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                 <div className="min-w-0 flex-1">

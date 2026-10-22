@@ -1,8 +1,9 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
-import { ArrowLeftIcon, UploadIcon } from "lucide-react";
+import { UploadIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
+import { PageHeader } from "@/components/PageHeader";
 import { MethodLabel } from "@/components/RequestLine";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -113,15 +114,11 @@ export function ReimportPage({ projectId, specId }: { projectId: string; specId:
 
   return (
     <div className="space-y-6">
-      <a href={href.project(projectId, "specs")} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeftIcon className="size-4" /> Specs
-      </a>
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Re-import {preview?.spec.title ?? "spec"}</h1>
-        <p className="max-w-prose text-sm text-muted-foreground">
-          Tools take the new spec's values, except for fields you edited by hand. Review the changes, then apply them.
-        </p>
-      </div>
+      <PageHeader
+        back={{ href: href.project(projectId, "specs"), label: "Specs" }}
+        title={`Re-import ${preview?.spec.title ?? "spec"}`}
+        description="Tools take the new spec's values, except for fields you edited by hand. Review the changes, then apply them."
+      />
 
       <Card>
         <CardHeader>
