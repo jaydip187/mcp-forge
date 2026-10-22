@@ -178,3 +178,43 @@ describe("fields", () => {
     expect(listLabels([])).toBe("");
   });
 });
+
+import { hiddenReason } from "./visibility";
+import { splitTags } from "./toolForm";
+import type { ProjectSettings, Tool } from "../types";
+
+describe("visibility", () => {
+  const settings = (s: Partial<ProjectSettings>): ProjectSettings => ({
+    read_only: false,
+    include_tags: [],
+    exclude_tags: [],
+    include_paths: [],
+    exclude_paths: [],
+    strip_nulls: false,
+    max_response_chars: 50000,
+    tool_search: false,
+    ...s,
+  });
+  const tool = (method: string, path: string, tags: string[], enabled = true) =>
+    ({ enabled, tags, kind: { method, path_template: path } }) as unknown as Tool;
+
+  it("matches the server's rules", () => {
+    expect(hiddenReason(tool("POST", "/a", []), settings({}))).toBeNull();
+    expect(hiddenReason(tool("GET", "/a", [], false), settings({}))).toBe("disabled");
+    expect(hiddenReason(tool("DELETE", "/a", []), settings({ read_only: true }))).toBe("read_only");
+    expect(hiddenReason(tool("GET", "/a", ["Admin"]), settings({ exclude_tags: ["admin"] }))).toBe("tag");
+    expect(hiddenReason(tool("GET", "/a", []), settings({ include_tags: ["pet"] }))).toBe("tag");
+    expect(
+      hiddenReason(
+        tool("GET", "/repos/{o}/{r}/hooks/{id}", []),
+        settings({ include_paths: ["/repos/**"], exclude_paths: ["/repos/*/*/hooks/**"] }),
+      ),
+    ).toBe("path");
+    expect(hiddenReason(tool("GET", "/repos/{o}/{r}/issues", []), settings({ include_paths: ["/repos/**"] }))).toBeNull();
+  });
+
+  it("splits tags", () => {
+    expect(splitTags(" a, b,,a , c ")).toEqual(["a", "b", "c"]);
+    expect(splitTags("")).toEqual([]);
+  });
+});

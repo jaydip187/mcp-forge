@@ -1,14 +1,15 @@
 use chrono::{DateTime, Utc};
-use forge_core::{Project, ProjectInput};
+use forge_core::{Project, ProjectInput, ProjectSettings};
 use uuid::Uuid;
 
-use crate::{now, on_unique, parse_id, Store, StoreError};
+use crate::{from_json, now, on_unique, parse_id, to_json, Store, StoreError};
 
 #[derive(sqlx::FromRow)]
 struct ProjectRow {
     id: String,
     name: String,
     slug: String,
+    settings: String,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -20,13 +21,14 @@ impl TryFrom<ProjectRow> for Project {
             id: parse_id(&r.id)?,
             name: r.name,
             slug: r.slug,
+            settings: from_json(&r.settings, "project settings")?,
             created_at: r.created_at,
             updated_at: r.updated_at,
         })
     }
 }
 
-const COLUMNS: &str = "id, name, slug, created_at, updated_at";
+const COLUMNS: &str = "id, name, slug, settings, created_at, updated_at";
 
 fn slug_taken(slug: &str) -> impl FnOnce() -> String + '_ {
     move || format!("a project with slug `{slug}` already exists")
@@ -40,15 +42,17 @@ impl Store {
             id: Uuid::new_v4(),
             name,
             slug,
+            settings: ProjectSettings::default(),
             created_at: ts,
             updated_at: ts,
         };
         sqlx::query(
-            "INSERT INTO projects (id, name, slug, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO projects (id, name, slug, settings, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(project.id.to_string())
         .bind(&project.name)
         .bind(&project.slug)
+        .bind(to_json(&project.settings))
         .bind(project.created_at)
         .bind(project.updated_at)
         .execute(&self.pool)
@@ -110,6 +114,25 @@ impl Store {
             .execute(&self.pool)
             .await
             .map_err(|e| on_unique(e, slug_taken(&project.slug)))?;
+        Ok(project)
+    }
+
+    /// Replaces the project's curation and shaping settings.
+    pub async fn update_project_settings(
+        &self,
+        id: Uuid,
+        settings: &ProjectSettings,
+    ) -> Result<Project, StoreError> {
+        settings.validate()?;
+        let mut project = self.get_project(id).await?;
+        project.settings = settings.clone();
+        project.updated_at = now();
+        sqlx::query("UPDATE projects SET settings = ?, updated_at = ? WHERE id = ?")
+            .bind(to_json(&project.settings))
+            .bind(project.updated_at)
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
         Ok(project)
     }
 

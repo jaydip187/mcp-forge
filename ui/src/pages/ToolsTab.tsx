@@ -10,9 +10,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { href } from "@/lib/router";
-import type { Tool } from "@/types";
+import { HIDDEN_LABEL, hiddenReason } from "@/lib/visibility";
+import type { ProjectSettings, Tool } from "@/types";
 
-export function ToolsTab({ projectId }: { projectId: string }) {
+export function ToolsTab({ projectId, settings }: { projectId: string; settings: ProjectSettings }) {
   const [tools, setTools] = useState<Tool[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,6 +36,7 @@ export function ToolsTab({ projectId }: { projectId: string }) {
         description: t.description,
         kind: t.kind,
         enabled,
+        tags: t.tags,
         response_shape: t.response_shape,
       });
       toast.success(enabled ? `${t.name} is now visible to agents` : `${t.name} is now hidden from agents`);
@@ -58,7 +60,7 @@ export function ToolsTab({ projectId }: { projectId: string }) {
         <p className="text-sm text-muted-foreground">
           {tools.length === 0
             ? "No tools yet."
-            : `${tools.filter((t) => t.enabled).length} of ${tools.length} tools visible to agents.`}
+            : `${tools.filter((t) => hiddenReason(t, settings) === null).length} of ${tools.length} tools visible to agents.`}
         </p>
         <div className="flex gap-2">
           <Button asChild variant="outline">
@@ -107,6 +109,12 @@ export function ToolsTab({ projectId }: { projectId: string }) {
                 </div>
                 <RequestLine method={t.kind.method} baseUrl={t.kind.base_url} path={t.kind.path_template} size="sm" showBase={false} className="mt-0.5" />
                 {t.description && <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">{t.description}</p>}
+                {(() => {
+                  const why = hiddenReason(t, settings);
+                  return why && why !== "disabled" ? (
+                    <p className="mt-1 text-xs text-m-put">{HIDDEN_LABEL[why]}</p>
+                  ) : null;
+                })()}
               </a>
               <Switch
                 checked={t.enabled}

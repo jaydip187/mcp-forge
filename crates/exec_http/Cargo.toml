@@ -7,6 +7,9 @@ publish = false
 
 [dependencies]
 forge-core.workspace = true
+jaq-core.workspace = true
+jaq-json.workspace = true
+jaq-std.workspace = true
 keyring.workspace = true
 reqwest.workspace = true
 serde_json.workspace = true

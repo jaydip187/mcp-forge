@@ -160,6 +160,9 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
             <Field id="t-desc" label="Description" error={err("description")}>
               <Textarea id="t-desc" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="Fetch one user by id. Returns name, email and created date." className="min-h-20" />
             </Field>
+            <Field id="t-tags" label="Tags" error={err("tags")} hint="Comma-separated. Project filters and tool search use them.">
+              <Input id="t-tags" value={form.tagsText} onChange={(e) => set({ tagsText: e.target.value })} placeholder="users, admin" />
+            </Field>
             <div className="flex items-center gap-2">
               <Switch id="t-enabled" checked={form.enabled} onCheckedChange={(v) => set({ enabled: v })} />
               <Label htmlFor="t-enabled">Visible to agents</Label>
@@ -248,6 +251,25 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
                 <Textarea id="t-bodyschema" value={form.bodySchemaText} onChange={(e) => set({ bodySchemaText: e.target.value })} className="min-h-40 font-mono text-xs" spellCheck={false} aria-invalid={!!err("kind.body_schema")} />
               </Field>
             )}
+          </Section>
+
+          <Section title="Response" description="Trim what the agent gets back, so it spends fewer tokens on fields it doesn't need.">
+            <Field
+              id="t-shape"
+              label="Response shape (jq)"
+              error={err("response_shape")}
+              hint="Applied to successful JSON responses. Leave empty to return the body as is. Null stripping and the size limit are set per project in Settings."
+            >
+              <Textarea
+                id="t-shape"
+                value={form.responseShape}
+                onChange={(e) => set({ responseShape: e.target.value })}
+                placeholder={'map({id, name, status})   or   .items[] | {id, title}'}
+                className="min-h-16 font-mono text-xs"
+                spellCheck={false}
+                aria-invalid={!!err("response_shape")}
+              />
+            </Field>
           </Section>
 
           <div className="sticky bottom-0 -mx-1 flex flex-wrap items-center gap-3 border-t bg-background/95 px-1 py-3 backdrop-blur">

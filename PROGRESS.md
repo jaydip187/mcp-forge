@@ -4,10 +4,10 @@
 > Legend: `[ ]` todo · `[~]` in progress / partial · `[x]` done · `[-]` dropped (say why)
 
 ## Next up
-Stage 6 review → then Stage 7: jaq response shaping
+Stage 7 review → then Stage 8: DbConnection CRUD + UI
 
 ## Current stage
-**Stage 6 — Re-import, overrides, export/import** · status: done · review: requested
+**Stage 7 — Curation & shaping** · status: done · review: requested
 
 ---
 
@@ -69,13 +69,13 @@ Stage 6 review → then Stage 7: jaq response shaping
 - [x] Override tracking
 - [x] Re-import with diff preview
 - [x] YAML export/import (CLI + UI), secrets as refs only
-- [ ] Stage review approved
+- [x] Stage review approved
 
 ### Stage 7 — Curation & shaping
-- [ ] jaq response shaping
-- [ ] Null stripping + size truncation
-- [ ] Project filters (GET-only, tag/path)
-- [ ] `search_tools` meta-tool
+- [x] jaq response shaping
+- [x] Null stripping + size truncation
+- [x] Project filters (GET-only, tag/path)
+- [x] `search_tools` meta-tool
 - [ ] Stage review approved
 
 ### Stage 8 — DB connections + curated read-only queries
@@ -156,6 +156,13 @@ Stage 6 review → then Stage 7: jaq response shaping
 - 2026-10-21 · New endpoints: `GET /api/info` (version, exe, data_dir, auth_required for snippets), `GET /api/projects/{pid}/tools/{tid}/mcp` (tool exactly as MCP clients see it), `POST …/tools/{tid}/test {arguments}` → `{request, response, error, agent_view, shaped:null}`. Test console and MCP `tools/call` share `forge_mcp::run_tool`, so results are identical. Console runs disabled tools too
 - 2026-10-21 · Snippets: Claude Code CLI (`claude mcp add --transport http …` / `-- <exe> stdio …`) + `mcpServers` JSON for HTTP and stdio; single-quoted shell args (literal in bash and PowerShell); token shown only as `<your-admin-token>`
 - 2026-10-21 · vitest 5 (vitest 3 pulled tinypool with critical advisories); `npm audit` clean
+- 2026-10-22 · Shaping uses jaq 3.1 (`jaq-core`/`jaq-std`/`jaq-json` 2.0); values cross the boundary as JSON text. Expression output: none → `null`, one → value, many → array; >10 000 outputs is an error (runaway guard). jaq differs from jq in places (e.g. `.[0]` on an object is `null`, not an error)
+- 2026-10-22 · Pipeline for successful, non-empty responses: parse JSON (if the body looks like JSON and shaping is wanted) → strip nulls (project setting; object members only, array items keep positions) → jq (`response_shape`) → compact JSON → cap at `max_response_chars` with a notice saying how much was cut and how to get less. A failing expression returns the unshaped body prefixed with a note (not an error). Error responses keep the fixed 4 000-char body excerpt. Shared by MCP and the test console (`ToolRun.shaped`)
+- 2026-10-22 · `response_shape` must compile at save time (API create/update and tools.yaml import → 422 on `response_shape`)
+- 2026-10-22 · `ProjectSettings` (projects.settings JSON, migration 0004): read_only, include/exclude tags, include/exclude path globs, strip_nulls (default off), max_response_chars (default 50 000, 500–2 000 000), tool_search (default off). Changed only via `PUT /api/projects/{id}/settings` (keeps `ProjectInput` unchanged); a change notifies MCP sessions
+- 2026-10-22 · Exposure = enabled AND (read-only → GET/HEAD/OPTIONS) AND tag include/exclude (case-insensitive) AND path include/exclude (same glob rules as the UI: `*`/`?` within a segment, `**` across, no wildcard → substring). Hidden tools are neither listed nor callable (unknown tool). UI mirrors the rules (`lib/visibility.ts`) to label hidden tools
+- 2026-10-22 · Tools gained `tags` (tools.tags JSON column; ≤20, 1–64 chars; overridable field `tags`); importers fill them from operation tags
+- 2026-10-22 · Tool search: when on, `tools/list` returns only `search_tools {query, limit≤25}` (ranks name 5 > tag 3 > path 2 > description 1 per term; empty query lists tools) and `call_tool {name, arguments}` (proxies to any exposed tool; can't call the meta-tools). Results carry name, description and input schema as JSON. Search respects filters
 - 2026-10-22 · Overrides: 11 tracked fields (`name`, `description`, `enabled`, `response_shape`, `kind.method|base_url|path_template|params|body_schema|auth_ref|timeout_ms`); params tracked as one unit. `update_tool` on an imported tool adds every changed field; manual tools never track. Overrides are only removed explicitly (`POST …/tools/{id}/overrides/reset`, all or listed fields), which keeps current values but lets the next re-import overwrite them
 - 2026-10-22 · Re-import merge (`forge_core::merge_overrides`): start from the fresh spec tool, copy back overridden fields; `kind.path_template` and `kind.params` travel together (path params must match the template)
 - 2026-10-22 · Re-import matching by `Source.op_id` (operationId, else `"METHOD /path"`); an operationId rename shows up as removed + added. Results: changed (with changed fields and kept overrides), unchanged, added (selectable; supported ones pre-selected), removed (kept unless ticked for deletion), blocked (op now unsupported → tool left as is). Renamed-by-spec tools are deduped against other tools
@@ -190,6 +197,8 @@ Stage 6 review → then Stage 7: jaq response shaping
 - 2026-10-21 · Tested with the rmcp client + raw JSON-RPC (protocol 2025-06-18), not the MCP Inspector UI itself (needs npx/network). · manual check at review
 - 2026-10-22 · Large-spec test (`large_real_spec`) is `#[ignore]` and reads `MCP_FORGE_LARGE_SPEC`; GitHub's 13 MB spec isn't vendored. Result on 2026-10-22: GitHub REST 3.0.3 and 3.1.0 → 1242/1242 ops supported, unique names, all valid, largest tool 25 KB, ~95 ms (release). · consider a CI job that downloads it
 - 2026-10-22 · Executor can't send comma/space/pipe-joined array query values (2.0 default `csv`, 3.x `explode: false`); such params import with a warning and are sent as repeated keys. · add a per-param array style to the IR when a real API needs it
+- 2026-10-22 · A runaway jq expression (e.g. `repeat(.)` that never yields) can spin a request thread; only output count is capped, not CPU time. · consider running shaping under a time budget
+- 2026-10-22 · Stage 7 UI (Response section, tags field, Curation card, hidden-tool notes, Shaped badge) not checked in a browser: browser-mcp disconnected. · eyeball at review
 - 2026-10-22 · CLI `import` (and any other out-of-process write) doesn't notify MCP sessions of a running `serve`; only stdio mode polls the DB. · consider polling in serve too (Stage 7+)
 - 2026-10-22 · Stage 6 UI (Specs tab, re-import diff page, overrides note, export/import card) not checked in a browser: browser-mcp still disconnected. Backed by API tests. · eyeball at review
 - 2026-10-22 · Stage 5 UI change (copy only) not checked in a browser: browser-mcp disconnected this session. · eyeball at review
@@ -210,6 +219,14 @@ Stage 6 review → then Stage 7: jaq response shaping
 - **Gotchas:** 
 - **Next step:** 
 -->
+
+### Session 8 — 2026-10-22
+- **Stage/task:** Stage 7 — Curation & shaping (all tasks)
+- **Done:** `forge_exec_http::shape` (jaq apply/check, strip_nulls, truncate, shape_body); core `ProjectSettings` + `path_matches` + tool `tags`; store settings/tags (migration 0004); MCP filters, shaping in `run_tool`, `search_tools`/`call_tool`; API settings endpoint + shape validation + `shaped` in test console; UI Response section, tags, Curation card, hidden-tool notes, Shaped badge
+- **Not done / partial:** none
+- **Tests:** passing (shape 10, settings 3, search ranking 1, server shaping 5 incl. the "done when" console test + filters + tool search over MCP; UI 17); clippy + fmt clean. No browser pass (browser-mcp disconnected)
+- **Gotchas:** bash heredocs containing apostrophes broke under the tool harness twice → write patch scripts to the scratchpad instead
+- **Next step:** Stage 7 review, then Stage 8 (DB connections + curated read-only queries)
 
 ### Session 7 — 2026-10-22
 - **Stage/task:** Stage 6 — Re-import, overrides, export/import (all tasks)

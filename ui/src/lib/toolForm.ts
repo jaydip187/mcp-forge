@@ -12,7 +12,10 @@ export interface ToolForm {
   timeout: string;
   bodyMode: "fields" | "schema";
   bodySchemaText: string;
-  response_shape: string | null;
+  /** jq expression, as typed. */
+  responseShape: string;
+  /** Comma-separated, as typed. */
+  tagsText: string;
 }
 
 /** Text state behind one param row (see ParamsEditor). */
@@ -36,7 +39,8 @@ export function newForm(): ToolForm {
     timeout: "30000",
     bodyMode: "fields",
     bodySchemaText: '{\n  "type": "object",\n  "properties": {}\n}',
-    response_shape: null,
+    responseShape: "",
+    tagsText: "",
   };
 }
 
@@ -52,7 +56,8 @@ export function formFromTool(t: Tool): ToolForm {
     timeout: String(t.kind.timeout_ms),
     bodyMode: t.kind.body_schema ? "schema" : "fields",
     bodySchemaText: t.kind.body_schema ? JSON.stringify(t.kind.body_schema, null, 2) : newForm().bodySchemaText,
-    response_shape: t.response_shape,
+    responseShape: t.response_shape ?? "",
+    tagsText: t.tags.join(", "),
   };
 }
 
@@ -106,7 +111,8 @@ export function buildToolInput(form: ToolForm, rows: RowText[]): BuildResult {
       name: form.name.trim(),
       description: form.description,
       enabled: form.enabled,
-      response_shape: form.response_shape,
+      tags: splitTags(form.tagsText),
+      response_shape: form.responseShape.trim() || null,
       kind: {
         type: "http",
         method: form.method,
@@ -125,4 +131,13 @@ export function buildToolInput(form: ToolForm, rows: RowText[]): BuildResult {
 export function paramIndex(field: string): number | null {
   const m = /^kind\.params\[(\d+)\]/.exec(field);
   return m ? Number(m[1]) : null;
+}
+
+/** "a, b,,c " → ["a", "b", "c"] (duplicates dropped, order kept). */
+export function splitTags(text: string): string[] {
+  const out: string[] = [];
+  for (const t of text.split(",").map((x) => x.trim())) {
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
 }

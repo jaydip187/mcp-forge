@@ -8,9 +8,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { splitTags } from "@/lib/toolForm";
 import { fieldError, useProjects } from "@/lib/projects";
 import { href, navigate } from "@/lib/router";
-import type { Project } from "@/types";
+import type { Project, ProjectSettings } from "@/types";
 
 export function SettingsTab({ project, onSaved }: { project: Project; onSaved: (p: Project) => void }) {
   const { reload } = useProjects();
@@ -69,6 +72,8 @@ export function SettingsTab({ project, onSaved }: { project: Project; onSaved: (
           </form>
         </CardContent>
       </Card>
+
+      <CurationCard project={project} onSaved={onSaved} />
 
       <BundleCard project={project} onImported={reload} />
 
@@ -174,5 +179,136 @@ function BundleCard({ project, onImported }: { project: Project; onImported: () 
         </Label>
       </CardContent>
     </Card>
+  );
+}
+
+function lines(text: string): string[] {
+  return text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
+function CurationCard({ project, onSaved }: { project: Project; onSaved: (p: Project) => void }) {
+  const st = project.settings;
+  const [readOnly, setReadOnly] = useState(st.read_only);
+  const [includeTags, setIncludeTags] = useState(st.include_tags.join(", "));
+  const [excludeTags, setExcludeTags] = useState(st.exclude_tags.join(", "));
+  const [includePaths, setIncludePaths] = useState(st.include_paths.join("\n"));
+  const [excludePaths, setExcludePaths] = useState(st.exclude_paths.join("\n"));
+  const [stripNulls, setStripNulls] = useState(st.strip_nulls);
+  const [maxChars, setMaxChars] = useState(String(st.max_response_chars));
+  const [toolSearch, setToolSearch] = useState(st.tool_search);
+  const [err, setErr] = useState<unknown>(null);
+
+  const next: ProjectSettings = {
+    read_only: readOnly,
+    include_tags: splitTags(includeTags),
+    exclude_tags: splitTags(excludeTags),
+    include_paths: lines(includePaths),
+    exclude_paths: lines(excludePaths),
+    strip_nulls: stripNulls,
+    max_response_chars: Number(maxChars),
+    tool_search: toolSearch,
+  };
+  const dirty = JSON.stringify(next) !== JSON.stringify(st);
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    try {
+      onSaved(await api.updateSettings(project.id, next));
+      setErr(null);
+      toast.success("Curation saved. Connected agents get the new tool list.");
+    } catch (e) {
+      setErr(e);
+      if (!(e instanceof ApiError && e.fields.length)) toast.error(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>What agents see</CardTitle>
+        <CardDescription>Filters decide which tools are offered. Hidden tools can't be called either.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={save} className="grid gap-5">
+          <Toggle id="c-ro" checked={readOnly} onChange={setReadOnly} label="Read-only" hint="Only GET, HEAD and OPTIONS tools." />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-1.5">
+              <Label htmlFor="c-it">Only tools tagged</Label>
+              <Input id="c-it" value={includeTags} onChange={(e) => setIncludeTags(e.target.value)} placeholder="Any tag" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="c-et">Hide tools tagged</Label>
+              <Input id="c-et" value={excludeTags} onChange={(e) => setExcludeTags(e.target.value)} placeholder="admin, internal" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="c-ip">Only paths matching</Label>
+              <Textarea id="c-ip" value={includePaths} onChange={(e) => setIncludePaths(e.target.value)} placeholder="/repos/**" className="min-h-16 font-mono text-xs" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="c-ep">Hide paths matching</Label>
+              <Textarea id="c-ep" value={excludePaths} onChange={(e) => setExcludePaths(e.target.value)} placeholder="/admin/**" className="min-h-16 font-mono text-xs" />
+            </div>
+          </div>
+          <p className="-mt-2 text-xs text-muted-foreground">
+            Tags are comma-separated. Paths go one per line: <code>*</code> matches within a segment, <code>**</code> across
+            segments, and text without wildcards matches anywhere in the path.
+          </p>
+          <Toggle
+            id="c-ts"
+            checked={toolSearch}
+            onChange={setToolSearch}
+            label="Tool search"
+            hint="Offer only search_tools and call_tool. Agents look tools up by keyword. Useful when a project has hundreds of tools."
+          />
+          <Toggle id="c-sn" checked={stripNulls} onChange={setStripNulls} label="Strip null fields" hint="Remove null values from JSON responses before the agent sees them." />
+          <div className="grid max-w-xs gap-1.5">
+            <Label htmlFor="c-max">Longest response (characters)</Label>
+            <Input
+              id="c-max"
+              value={maxChars}
+              onChange={(e) => setMaxChars(e.target.value)}
+              inputMode="numeric"
+              className="font-mono"
+              aria-invalid={!!fieldError(err, "max_response_chars")}
+            />
+            {fieldError(err, "max_response_chars") ? (
+              <p className="text-xs text-destructive">{fieldError(err, "max_response_chars")}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">Longer responses are cut, with a note telling the agent what was left out.</p>
+            )}
+          </div>
+          <Button type="submit" className="w-fit" disabled={!dirty}>
+            Save curation
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Toggle({
+  id,
+  checked,
+  onChange,
+  label,
+  hint,
+}: {
+  id: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  hint: string;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <Switch id={id} checked={checked} onCheckedChange={onChange} className="mt-0.5" />
+      <div className="grid gap-0.5">
+        <Label htmlFor={id}>{label}</Label>
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      </div>
+    </div>
   );
 }

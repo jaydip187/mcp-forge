@@ -10,6 +10,7 @@ use crate::validate::{is_valid_name, ValidationErrors, MAX_NAME_LEN};
 pub const DEFAULT_TIMEOUT_MS: u32 = 30_000;
 pub const MAX_TIMEOUT_MS: u32 = 300_000;
 pub const MAX_DESCRIPTION_LEN: usize = 8_192;
+pub const MAX_TAGS: usize = 20;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolDef {
@@ -20,6 +21,9 @@ pub struct ToolDef {
     pub description: String,
     pub kind: ToolKind,
     pub enabled: bool,
+    /// Grouping labels (from the spec's tags on import); used by project filters.
+    #[serde(default)]
+    pub tags: Vec<String>,
     pub source: Source,
     pub overrides: Overrides,
     /// jaq expression applied to responses (Stage 7).
@@ -38,6 +42,8 @@ pub struct ToolInput {
     pub kind: ToolKind,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    #[serde(default)]
+    pub tags: Vec<String>,
     #[serde(default)]
     pub response_shape: Option<String>,
 }
@@ -223,6 +229,14 @@ impl ToolInput {
         }
         if matches!(&self.response_shape, Some(s) if s.trim().is_empty()) {
             errs.push("response_shape", "must not be blank; omit it instead");
+        }
+        if self.tags.len() > MAX_TAGS {
+            errs.push("tags", format!("at most {MAX_TAGS} tags"));
+        }
+        for (i, t) in self.tags.iter().enumerate() {
+            if t.trim().is_empty() || t.chars().count() > 64 || t.chars().any(char::is_control) {
+                errs.push(format!("tags[{i}]"), "must be 1–64 characters");
+            }
         }
         match &self.kind {
             ToolKind::Http(h) => h.validate_into(&mut errs),

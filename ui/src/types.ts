@@ -9,10 +9,22 @@ export const LOCATIONS: ParamLocation[] = ["path", "query", "header", "body"];
 export type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
 export type JsonObject = { [k: string]: Json };
 
+export interface ProjectSettings {
+  read_only: boolean;
+  include_tags: string[];
+  exclude_tags: string[];
+  include_paths: string[];
+  exclude_paths: string[];
+  strip_nulls: boolean;
+  max_response_chars: number;
+  tool_search: boolean;
+}
+
 export interface Project {
   id: string;
   name: string;
   slug: string;
+  settings: ProjectSettings;
   created_at: string;
   updated_at: string;
 }
@@ -44,6 +56,7 @@ export interface ToolInput {
   description: string;
   kind: HttpSpec;
   enabled: boolean;
+  tags: string[];
   response_shape: string | null;
 }
 

@@ -452,7 +452,20 @@ fn build_operation(
         deprecated,
     );
 
+    let tags: Vec<String> = op
+        .get("tags")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .filter(|t| !t.trim().is_empty())
+                .take(forge_core::MAX_TAGS)
+                .map(|t| t.chars().take(64).collect())
+                .collect()
+        })
+        .unwrap_or_default();
     let tool = ToolInput {
+        tags: tags.clone(),
         name,
         description,
         kind: ToolKind::Http(HttpSpec {
@@ -489,16 +502,7 @@ fn build_operation(
         operation_id,
         method,
         path: path.to_owned(),
-        tags: op
-            .get("tags")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default(),
+        tags,
         summary,
         deprecated,
         needs_auth: needs_auth(security),

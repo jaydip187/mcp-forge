@@ -7,10 +7,11 @@ use crate::tool::{Overrides, ToolDef, ToolInput, ToolKind};
 
 /// Fields that can be overridden, as recorded in `Overrides::fields`.
 /// Params are tracked as one unit (`kind.params`).
-pub const OVERRIDABLE_FIELDS: [&str; 11] = [
+pub const OVERRIDABLE_FIELDS: [&str; 12] = [
     "name",
     "description",
     "enabled",
+    "tags",
     "response_shape",
     "kind.method",
     "kind.base_url",
@@ -29,6 +30,7 @@ impl ToolDef {
             description: self.description.clone(),
             kind: self.kind.clone(),
             enabled: self.enabled,
+            tags: self.tags.clone(),
             response_shape: self.response_shape.clone(),
         }
     }
@@ -40,6 +42,7 @@ fn field_value(t: &ToolInput, field: &str) -> Value {
         "name" => serde_json::to_value(&t.name),
         "description" => serde_json::to_value(&t.description),
         "enabled" => serde_json::to_value(t.enabled),
+        "tags" => serde_json::to_value(&t.tags),
         "response_shape" => serde_json::to_value(&t.response_shape),
         "kind.method" => serde_json::to_value(h.method),
         "kind.base_url" => serde_json::to_value(&h.base_url),
@@ -60,6 +63,7 @@ fn copy_field(from: &ToolInput, to: &mut ToolInput, field: &str) {
         "name" => to.name = from.name.clone(),
         "description" => to.description = from.description.clone(),
         "enabled" => to.enabled = from.enabled,
+        "tags" => to.tags = from.tags.clone(),
         "response_shape" => to.response_shape = from.response_shape.clone(),
         "kind.method" => dst.method = src.method,
         "kind.base_url" => dst.base_url = src.base_url.clone(),

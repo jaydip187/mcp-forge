@@ -7,6 +7,7 @@ import type {
   JsonObject,
   McpToolView,
   Project,
+  ProjectSettings,
   ReimportPreview,
   ServerInfo,
   SpecRecord,
@@ -113,6 +114,7 @@ export const api = {
   createProject: (input: { name: string; slug?: string }) => request<Project>("POST", "/projects", input),
   updateProject: (id: string, input: { name: string; slug?: string }) => request<Project>("PUT", p(id), input),
   deleteProject: (id: string) => request<void>("DELETE", p(id)),
+  updateSettings: (id: string, settings: ProjectSettings) => request<Project>("PUT", `${p(id)}/settings`, settings),
 
   listTools: (pid: string) => request<Tool[]>("GET", `${p(pid)}/tools`),
   getTool: (pid: string, id: string) => request<Tool>("GET", `${p(pid)}/tools/${id}`),

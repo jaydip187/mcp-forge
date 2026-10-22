@@ -6,6 +6,7 @@
 
 mod args;
 mod secrets;
+pub mod shape;
 
 use std::sync::Arc;
 use std::time::Duration;

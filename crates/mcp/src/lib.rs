@@ -8,7 +8,8 @@
 
 use std::time::Duration;
 
-use forge_core::{HttpMethod, ToolDef, ToolKind};
+use forge_core::{HttpMethod, ProjectSettings, ToolDef, ToolKind};
+use forge_exec_http::shape::{shape_body, ShapeOptions};
 use forge_exec_http::{ExecError, HttpExecutor, HttpOutcome};
 use forge_store::{Store, StoreError};
 use rmcp::model::{
@@ -18,7 +19,7 @@ use rmcp::model::{
 };
 use rmcp::service::{NotificationContext, RequestContext, SubscriptionContext};
 use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceExt};
-use serde_json::Map;
+use serde_json::{json, Map, Value};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
@@ -54,6 +55,13 @@ impl ChangeBus {
     }
 }
 
+/// Meta-tools listed instead of the real tools when a project has
+/// `tool_search` on: agents find tools by keyword, then call them by name.
+pub const SEARCH_TOOL: &str = "search_tools";
+pub const CALL_TOOL: &str = "call_tool";
+const DEFAULT_SEARCH_LIMIT: usize = 8;
+const MAX_SEARCH_LIMIT: usize = 25;
+
 /// MCP handler for a single project.
 #[derive(Clone)]
 pub struct ForgeMcp {
@@ -73,22 +81,33 @@ impl ForgeMcp {
         }
     }
 
-    async fn enabled_tools(&self) -> Result<Vec<ToolDef>, ErrorData> {
+    async fn settings(&self) -> Result<ProjectSettings, ErrorData> {
+        Ok(self
+            .store
+            .get_project(self.project_id)
+            .await
+            .map_err(internal)?
+            .settings)
+    }
+
+    /// Enabled tools that pass the project's filters.
+    async fn exposed_tools(&self, settings: &ProjectSettings) -> Result<Vec<ToolDef>, ErrorData> {
         let tools = self
             .store
             .list_tools(self.project_id)
             .await
             .map_err(internal)?;
-        Ok(tools.into_iter().filter(|t| t.enabled).collect())
+        Ok(tools.into_iter().filter(|t| settings.exposes(t)).collect())
     }
 
     async fn call_named(
         &self,
         name: &str,
-        args: &Map<String, serde_json::Value>,
+        args: &Map<String, Value>,
+        settings: &ProjectSettings,
     ) -> Result<CallToolResult, ErrorData> {
         let tool = match self.store.get_tool_by_name(self.project_id, name).await {
-            Ok(t) if t.enabled => t,
+            Ok(t) if settings.exposes(&t) => t,
             Ok(_) | Err(StoreError::NotFound(_)) => {
                 return Err(ErrorData::invalid_params(
                     format!("unknown tool `{name}`"),
@@ -97,7 +116,7 @@ impl ForgeMcp {
             }
             Err(e) => return Err(internal(e)),
         };
-        let run = run_tool(&self.store, &self.exec, &tool, args)
+        let run = run_tool(&self.store, &self.exec, &tool, args, settings)
             .await
             .map_err(internal)?;
         tracing::info!(
@@ -106,12 +125,145 @@ impl ForgeMcp {
             status = run.outcome.as_ref().ok().map(|o| o.status),
             "tool call"
         );
-        let content = vec![ContentBlock::text(run.text)];
-        Ok(if run.is_error {
-            CallToolResult::error(content)
-        } else {
-            CallToolResult::success(content)
+        Ok(result(run.is_error, run.text))
+    }
+
+    async fn search(
+        &self,
+        args: &Map<String, Value>,
+        settings: &ProjectSettings,
+    ) -> Result<CallToolResult, ErrorData> {
+        let Some(query) = args.get("query").and_then(Value::as_str) else {
+            return Ok(result(
+                true,
+                "Invalid arguments:\n- `query`: required argument is missing".into(),
+            ));
+        };
+        let limit = args
+            .get("limit")
+            .and_then(Value::as_u64)
+            .map_or(DEFAULT_SEARCH_LIMIT, |l| {
+                (l as usize).clamp(1, MAX_SEARCH_LIMIT)
+            });
+        let tools = self.exposed_tools(settings).await?;
+        let hits = search_tools(&tools, query, limit);
+        if hits.is_empty() {
+            return Ok(result(
+                false,
+                format!(
+                    "No tools match `{query}`. Try other words, or an empty query to list some tools."
+                ),
+            ));
+        }
+        let found: Vec<Value> = hits
+            .iter()
+            .map(|t| {
+                let m = to_mcp_tool(t);
+                json!({ "name": m.name, "description": m.description, "input_schema": m.input_schema })
+            })
+            .collect();
+        Ok(result(
+            false,
+            serde_json::to_string(&found).expect("JSON serializes"),
+        ))
+    }
+}
+
+fn result(is_error: bool, text: String) -> CallToolResult {
+    let content = vec![ContentBlock::text(text)];
+    if is_error {
+        CallToolResult::error(content)
+    } else {
+        CallToolResult::success(content)
+    }
+}
+
+/// Ranks tools against a keyword query (name > tags > path > description).
+/// An empty query returns the first `limit` tools.
+pub fn search_tools<'a>(tools: &'a [ToolDef], query: &str, limit: usize) -> Vec<&'a ToolDef> {
+    let terms: Vec<String> = query
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .map(str::to_owned)
+        .collect();
+    if terms.is_empty() {
+        return tools.iter().take(limit).collect();
+    }
+    let mut scored: Vec<(u32, &ToolDef)> = tools
+        .iter()
+        .filter_map(|t| {
+            let ToolKind::Http(h) = &t.kind;
+            let name = t.name.to_lowercase();
+            let desc = t.description.to_lowercase();
+            let path = h.path_template.to_lowercase();
+            let score: u32 = terms
+                .iter()
+                .map(|term| {
+                    let term = term.as_str();
+                    let mut s = 0;
+                    if name.contains(term) {
+                        s += 5;
+                    }
+                    if t.tags.iter().any(|tag| tag.to_lowercase().contains(term)) {
+                        s += 3;
+                    }
+                    if path.contains(term) {
+                        s += 2;
+                    }
+                    if desc.contains(term) {
+                        s += 1;
+                    }
+                    s
+                })
+                .sum();
+            (score > 0).then_some((score, t))
         })
+        .collect();
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
+    scored.into_iter().take(limit).map(|(_, t)| t).collect()
+}
+
+fn search_tool_defs() -> Vec<Tool> {
+    let search = Tool::new(
+        SEARCH_TOOL,
+        "Find tools in this server by keywords (e.g. \"create issue\"). Returns matching tool names, \
+         descriptions and input schemas. Call one with call_tool.",
+        json_object(json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "Words describing what you want to do." },
+                "limit": {
+                    "type": "integer", "minimum": 1, "maximum": MAX_SEARCH_LIMIT,
+                    "description": "Most results to return (default 8)."
+                }
+            },
+            "required": ["query"],
+            "additionalProperties": false
+        })),
+    )
+    .with_annotations(ToolAnnotations::new().read_only(true).open_world(false));
+    let call = Tool::new(
+        CALL_TOOL,
+        "Call a tool found with search_tools, passing arguments as its input schema describes.",
+        json_object(json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Tool name from search_tools." },
+                "arguments": { "type": "object", "description": "Arguments for that tool." }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+        })),
+    )
+    .with_annotations(ToolAnnotations::new().open_world(true));
+    vec![search, call]
+}
+
+fn json_object(v: Value) -> Map<String, Value> {
+    match v {
+        Value::Object(m) => m,
+        _ => unreachable!("schema literal is an object"),
     }
 }
 
@@ -121,15 +273,19 @@ pub struct ToolRun {
     pub outcome: Result<HttpOutcome, ExecError>,
     pub is_error: bool,
     pub text: String,
+    /// Set when shaping (jq, null stripping or the size cap) changed the body.
+    pub shaped: Option<String>,
 }
 
-/// Runs a stored tool (enabled or not). Shared by MCP `tools/call` and the
-/// UI test console so both report identical results.
+/// Runs a stored tool (enabled or not) and shapes its response with the
+/// project's settings. Shared by MCP `tools/call` and the UI test console so
+/// both report identical results.
 pub async fn run_tool(
     store: &Store,
     exec: &HttpExecutor,
     tool: &ToolDef,
-    args: &Map<String, serde_json::Value>,
+    args: &Map<String, Value>,
+    settings: &ProjectSettings,
 ) -> Result<ToolRun, StoreError> {
     let ToolKind::Http(spec) = &tool.kind;
     let auth = match spec.auth_ref {
@@ -140,19 +296,46 @@ pub async fn run_tool(
                     "tool `{}` references a missing auth config",
                     tool.name
                 )));
-                return Ok(ToolRun::from_outcome(outcome));
+                return Ok(ToolRun::from_outcome(outcome, tool, settings));
             }
             Err(e) => return Err(e),
         },
         None => None,
     };
     let outcome = exec.execute(spec, auth.as_ref(), args).await;
-    Ok(ToolRun::from_outcome(outcome))
+    Ok(ToolRun::from_outcome(outcome, tool, settings))
 }
 
 impl ToolRun {
-    fn from_outcome(outcome: Result<HttpOutcome, ExecError>) -> Self {
+    fn from_outcome(
+        outcome: Result<HttpOutcome, ExecError>,
+        tool: &ToolDef,
+        settings: &ProjectSettings,
+    ) -> Self {
+        let mut shaped = None;
         let (is_error, text) = match &outcome {
+            Ok(out) if out.is_success() && !out.body.is_empty() => {
+                let opts = ShapeOptions {
+                    strip_nulls: settings.strip_nulls,
+                    max_chars: settings.max_response_chars as usize,
+                };
+                let s = shape_body(
+                    &out.body,
+                    out.content_type.as_deref(),
+                    tool.response_shape.as_deref(),
+                    &opts,
+                );
+                let mut text = s.text;
+                if out.truncated {
+                    text.push_str(
+                        "\n\n[The upstream body exceeded the download limit and was cut before shaping.]",
+                    );
+                }
+                if s.transformed || s.truncated || s.shape_error.is_some() {
+                    shaped = Some(text.clone());
+                }
+                (false, text)
+            }
             Ok(out) => outcome_text(out),
             Err(ExecError::InvalidArgs(errs)) => {
                 let lines: Vec<String> = errs
@@ -160,17 +343,7 @@ impl ToolRun {
                     .iter()
                     .map(|e| format!("- `{}`: {}", e.field, e.message))
                     .collect();
-                (
-                    true,
-                    format!(
-                        "Invalid arguments:
-{}",
-                        lines.join(
-                            "
-"
-                        )
-                    ),
-                )
+                (true, format!("Invalid arguments:\n{}", lines.join("\n")))
             }
             Err(ExecError::Config(m)) => (true, format!("Configuration error: {m}")),
             Err(ExecError::Request(m)) => (true, format!("Request failed: {m}")),
@@ -179,6 +352,7 @@ impl ToolRun {
             outcome,
             is_error,
             text,
+            shaped,
         }
     }
 }
@@ -188,42 +362,24 @@ fn internal(e: StoreError) -> ErrorData {
     ErrorData::internal_error("internal error", None)
 }
 
+/// Text for empty successes and upstream errors (shaping doesn't apply).
 fn outcome_text(out: &HttpOutcome) -> (bool, String) {
     if out.is_success() {
-        let mut body = out.body.clone();
-        if body.is_empty() {
-            body = format!("HTTP {} (empty body)", out.status_line());
-        }
-        if out.truncated {
-            body.push_str(
-                "
-
-[response truncated: upstream body exceeded the size limit]",
-            );
-        }
-        return (false, body);
+        return (false, format!("HTTP {} (empty body)", out.status_line()));
     }
     let mut body: String = out.body.chars().take(MAX_ERROR_BODY_CHARS).collect();
-    let cut = body.len() < out.body.len() || out.truncated;
-    if cut {
-        body.push_str(
-            "
-[truncated]",
-        );
+    if body.len() < out.body.len() || out.truncated {
+        body.push_str("\n[truncated]");
     }
     let detail = if body.is_empty() {
         "(empty body)".to_owned()
     } else {
-        format!(
-            "Response body:
-{body}"
-        )
+        format!("Response body:\n{body}")
     };
     (
         true,
         format!(
-            "Upstream returned HTTP {} for {} {}.
-{detail}",
+            "Upstream returned HTTP {} for {} {}.\n{detail}",
             out.status_line(),
             out.method,
             out.url
@@ -278,7 +434,11 @@ impl ServerHandler for ForgeMcp {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let tools = self.enabled_tools().await?;
+        let settings = self.settings().await?;
+        if settings.tool_search {
+            return Ok(ListToolsResult::with_all_items(search_tool_defs()));
+        }
+        let tools = self.exposed_tools(&settings).await?;
         Ok(ListToolsResult::with_all_items(
             tools.iter().map(to_mcp_tool).collect(),
         ))
@@ -290,7 +450,34 @@ impl ServerHandler for ForgeMcp {
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
         let args = request.arguments.unwrap_or_default();
-        self.call_named(&request.name, &args).await.map(Into::into)
+        let settings = self.settings().await?;
+        let name: &str = request.name.as_ref();
+        let res = if settings.tool_search && name == SEARCH_TOOL {
+            self.search(&args, &settings).await
+        } else if settings.tool_search && name == CALL_TOOL {
+            match args.get("name").and_then(Value::as_str) {
+                None => Ok(result(
+                    true,
+                    "Invalid arguments:\n- `name`: required argument is missing".into(),
+                )),
+                Some(SEARCH_TOOL | CALL_TOOL) => {
+                    Ok(result(true, "call_tool can't call the meta-tools".into()))
+                }
+                Some(inner) => match args.get("arguments") {
+                    None | Some(Value::Null) => {
+                        self.call_named(inner, &Map::new(), &settings).await
+                    }
+                    Some(Value::Object(m)) => self.call_named(inner, m, &settings).await,
+                    Some(_) => Ok(result(
+                        true,
+                        "Invalid arguments:\n- `arguments`: expected object".into(),
+                    )),
+                },
+            }
+        } else {
+            self.call_named(name, &args, &settings).await
+        };
+        res.map(Into::into)
     }
 
     async fn on_initialized(&self, context: NotificationContext<RoleServer>) {
@@ -408,5 +595,47 @@ pub async fn watch_store(store: Store, project_id: Uuid, changes: ChangeBus, eve
             Ok(_) => {}
             Err(e) => tracing::warn!(error = %e, "tool change poll failed"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tool(name: &str, desc: &str, path: &str, tags: &[&str]) -> ToolDef {
+        serde_json::from_value(json!({
+            "id": uuid::Uuid::new_v4(), "project_id": uuid::Uuid::new_v4(),
+            "name": name, "description": desc, "enabled": true, "tags": tags,
+            "kind": { "type": "http", "method": "GET", "base_url": "https://x.io", "path_template": path },
+            "source": { "type": "manual" }, "overrides": {}, "response_shape": null,
+            "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn search_ranks_name_over_tags_over_description() {
+        let tools = [
+            tool(
+                "list_orders",
+                "Lists orders for a user",
+                "/orders",
+                &["orders"],
+            ),
+            tool("get_user", "Fetch one user", "/users/{id}", &["users"]),
+            tool("ping", "Health check", "/ping", &[]),
+        ];
+        let names = |q: &str, n| {
+            search_tools(&tools, q, n)
+                .iter()
+                .map(|t| t.name.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names("user", 10), ["get_user", "list_orders"]);
+        assert_eq!(names("orders", 10), ["list_orders"]);
+        assert_eq!(names("health", 10), ["ping"]);
+        assert!(names("nothing-matches", 10).is_empty());
+        assert_eq!(names("", 2).len(), 2, "empty query lists tools");
+        assert_eq!(names("user", 1), ["get_user"]);
     }
 }

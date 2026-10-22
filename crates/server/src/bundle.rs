@@ -104,6 +104,13 @@ fn tidy(tool: &mut Value) {
     if obj.get("description").and_then(Value::as_str) == Some("") {
         obj.remove("description");
     }
+    if obj
+        .get("tags")
+        .and_then(Value::as_array)
+        .is_some_and(Vec::is_empty)
+    {
+        obj.remove("tags");
+    }
     if let Some(kind) = obj.get_mut("kind").and_then(Value::as_object_mut) {
         kind.remove("auth_ref");
         drop_null(kind, &["body_schema"]);

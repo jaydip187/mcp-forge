@@ -126,7 +126,10 @@ function RunResult({ run }: { run: TestRun }) {
   );
   return (
     <section aria-label="Test result" className="space-y-2">
-      <div className="flex items-center gap-2">{status}</div>
+      <div className="flex items-center gap-2">
+        {status}
+        {run.shaped !== null && <Badge variant="outline">Shaped</Badge>}
+      </div>
       <Tabs defaultValue="agent">
         <TabsList className="w-full">
           <TabsTrigger value="agent">Agent sees</TabsTrigger>
@@ -149,9 +152,10 @@ function RunResult({ run }: { run: TestRun }) {
             </p>
             <Output text={prettyBody(run.response.body, run.response.content_type)} />
             <p className="text-xs text-muted-foreground">
-              {run.shaped === null ? "No response shape is set, so the agent gets this body as is." : "Shaped:"}
+              {run.shaped === null
+                ? "Nothing was shaped: the agent gets this body as is."
+                : "Shaped by the response shape, null stripping or the size limit. The agent gets the version under “Agent sees”."}
             </p>
-            {run.shaped !== null && <Output text={run.shaped} />}
           </TabsContent>
         )}
         {run.request && (

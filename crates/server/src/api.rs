@@ -26,6 +26,10 @@ pub fn router() -> Router<AppState> {
             get(get_project).put(update_project).delete(delete_project),
         )
         .route(
+            "/projects/{project_id}/settings",
+            axum::routing::put(update_settings),
+        )
+        .route(
             "/projects/{project_id}/tools",
             get(list_tools).post(create_tool),
         )
@@ -192,6 +196,7 @@ async fn create_tool(
     ApiPath(project_id): ApiPath<Uuid>,
     ApiJson(input): ApiJson<ToolInput>,
 ) -> ApiResult<(StatusCode, Json<ToolDef>)> {
+    check_shape(&input)?;
     let tool = s.store.create_tool(project_id, &input).await?;
     s.changes.notify(project_id);
     Ok((StatusCode::CREATED, Json(tool)))
@@ -209,6 +214,7 @@ async fn update_tool(
     ApiPath((project_id, id)): ApiPath<(Uuid, Uuid)>,
     ApiJson(input): ApiJson<ToolInput>,
 ) -> ApiResult<Json<ToolDef>> {
+    check_shape(&input)?;
     let tool = s.store.update_tool(project_id, id, &input).await?;
     s.changes.notify(project_id);
     Ok(Json(tool))
@@ -306,7 +312,8 @@ async fn test_tool(
     ApiJson(req): ApiJson<TestRequest>,
 ) -> ApiResult<Json<Value>> {
     let tool = s.store.get_tool(project_id, id).await?;
-    let run = forge_mcp::run_tool(&s.store, &s.exec, &tool, &req.arguments).await?;
+    let settings = s.store.get_project(project_id).await?.settings;
+    let run = forge_mcp::run_tool(&s.store, &s.exec, &tool, &req.arguments, &settings).await?;
     let (request, response, error) = match &run.outcome {
         Ok(o) => (
             json!({ "method": o.method, "url": o.url }),
@@ -335,8 +342,8 @@ async fn test_tool(
         "response": response,
         "error": error,
         "agent_view": { "is_error": run.is_error, "text": run.text },
-        // Response shaping arrives in Stage 7.
-        "shaped": Value::Null,
+        // The agent-facing text when shaping changed it (jq, nulls, size cap).
+        "shaped": run.shaped,
     })))
 }
 
@@ -395,6 +402,17 @@ async fn import_bundle(
 ) -> ApiResult<Json<forge_store::BundleReport>> {
     let bundle =
         crate::bundle::parse_bundle(&req.content).map_err(|e| ApiError::Store(e.into()))?;
+    for (i, (t, _)) in bundle.tools.iter().enumerate() {
+        check_shape(t).map_err(|e| match e {
+            ApiError::Store(StoreError::Validation(mut v)) => {
+                for f in &mut v.errors {
+                    f.field = format!("tools[{i}].{}", f.field);
+                }
+                ApiError::Store(StoreError::Validation(v))
+            }
+            other => other,
+        })?;
+    }
     let report = s
         .store
         .import_bundle(
@@ -406,4 +424,30 @@ async fn import_bundle(
         .await?;
     s.changes.notify(project_id);
     Ok(Json(report))
+}
+
+/// A `response_shape` must compile before it's saved.
+fn check_shape(input: &ToolInput) -> ApiResult<()> {
+    if let Some(expr) = input
+        .response_shape
+        .as_deref()
+        .filter(|e| !e.trim().is_empty())
+    {
+        forge_exec_http::shape::check(expr).map_err(|m| {
+            ApiError::Store(forge_core::ValidationErrors::single("response_shape", m).into())
+        })?;
+    }
+    Ok(())
+}
+
+/// Replaces the project's curation and shaping settings.
+async fn update_settings(
+    State(s): State<AppState>,
+    ApiPath(id): ApiPath<Uuid>,
+    ApiJson(settings): ApiJson<forge_core::ProjectSettings>,
+) -> ApiResult<Json<Project>> {
+    let project = s.store.update_project_settings(id, &settings).await?;
+    // Filters and tool_search change what agents see.
+    s.changes.notify(id);
+    Ok(Json(project))
 }

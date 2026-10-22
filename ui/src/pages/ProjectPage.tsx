@@ -59,7 +59,7 @@ export function ProjectPage({ projectId, tab, info }: { projectId: string; tab: 
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
         <TabsContent value="tools" className="pt-4">
-          <ToolsTab projectId={project.id} />
+          <ToolsTab projectId={project.id} settings={project.settings} />
         </TabsContent>
         <TabsContent value="specs" className="pt-4">
           <SpecsTab projectId={project.id} />

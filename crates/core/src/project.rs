@@ -13,6 +13,9 @@ pub struct Project {
     pub name: String,
     /// URL-safe identifier used in `/mcp/{slug}` and `stdio --project`.
     pub slug: String,
+    /// Curation and response shaping; changed via the settings endpoint.
+    #[serde(default)]
+    pub settings: crate::settings::ProjectSettings,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
