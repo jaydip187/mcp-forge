@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { href, navigate } from "@/lib/router";
+import { listLabels } from "@/lib/fields";
 import { syncPathParams } from "@/lib/template";
 import { buildToolInput, formFromTool, newForm, paramIndex, type ToolForm } from "@/lib/toolForm";
 import { ParamsEditor, toRow, type ParamRow } from "@/pages/ParamsEditor";
@@ -117,6 +118,20 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
         <div className="overflow-x-auto rounded-lg border bg-card px-4 py-3">
           <RequestLine method={form.method} baseUrl={form.base_url} path={form.path_template} size="lg" />
         </div>
+        {saved && saved.source.type !== "manual" && (
+          <ImportedNote
+            tool={saved}
+            onReset={async () => {
+              try {
+                const t = await api.resetOverrides(projectId, saved.id);
+                setSaved(t);
+                toast.success("The next re-import will use the spec's values");
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : String(e));
+              }
+            }}
+          />
+        )}
       </header>
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
@@ -285,6 +300,26 @@ function Field({ id, label, error, hint, children }: { id: string; label: string
       <Label htmlFor={id}>{label}</Label>
       {children}
       {error ? <p className="text-xs text-destructive">{error}</p> : hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+function ImportedNote({ tool, onReset }: { tool: Tool; onReset: () => Promise<void> }) {
+  const kept = tool.overrides.fields;
+  const from = tool.source.type === "swagger" ? "a Swagger spec" : "an OpenAPI spec";
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+      <span>
+        Imported from {from}.{" "}
+        {kept.length === 0
+          ? "Re-importing updates it; anything you change here will be kept."
+          : `Re-importing keeps your ${listLabels(kept)}.`}
+      </span>
+      {kept.length > 0 && (
+        <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => void onReset()}>
+          Use the spec's values next time
+        </Button>
+      )}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { href, navigate, type ProjectTab } from "@/lib/router";
 import { AuthTab } from "@/pages/AuthTab";
 import { ConnectTab, mcpUrl } from "@/pages/ConnectTab";
 import { SettingsTab } from "@/pages/SettingsTab";
+import { SpecsTab } from "@/pages/SpecsTab";
 import { ToolsTab } from "@/pages/ToolsTab";
 import type { Project, ServerInfo } from "@/types";
 
@@ -52,12 +53,16 @@ export function ProjectPage({ projectId, tab, info }: { projectId: string; tab: 
       <Tabs value={tab} onValueChange={(v) => navigate(href.project(project.id, v as ProjectTab))}>
         <TabsList>
           <TabsTrigger value="tools">Tools</TabsTrigger>
+          <TabsTrigger value="specs">Specs</TabsTrigger>
           <TabsTrigger value="auth">Auth</TabsTrigger>
           <TabsTrigger value="connect">Connect</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
         <TabsContent value="tools" className="pt-4">
           <ToolsTab projectId={project.id} />
+        </TabsContent>
+        <TabsContent value="specs" className="pt-4">
+          <SpecsTab projectId={project.id} />
         </TabsContent>
         <TabsContent value="auth" className="pt-4">
           <AuthTab projectId={project.id} />

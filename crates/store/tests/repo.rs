@@ -251,6 +251,7 @@ async fn import_tools_is_atomic_and_tags_source() {
         source_url: None,
         filename: Some("pets.json".into()),
         raw: "{\"openapi\":\"3.0.0\"}".into(),
+        options: json!({ "base_url": "https://x.io" }),
     };
     let (rec, tools) = s
         .import_tools(
@@ -303,4 +304,220 @@ async fn import_tools_is_atomic_and_tags_source() {
         )
         .await;
     assert!(matches!(r, Err(StoreError::Validation(e)) if e.has("tools[1].name")));
+}
+
+fn spec_for_tests() -> forge_store::NewSpec {
+    forge_store::NewSpec {
+        kind: "openapi3".into(),
+        title: "Pets".into(),
+        version: "1".into(),
+        source_url: None,
+        filename: None,
+        raw: "v1".into(),
+        options: json!({}),
+    }
+}
+
+#[tokio::test]
+async fn edits_to_imported_tools_become_overrides() {
+    let s = store().await;
+    let p = s.create_project(&project("A")).await.unwrap();
+    let (_, tools) = s
+        .import_tools(p.id, &spec_for_tests(), &[(tool("t", None), "op".into())])
+        .await
+        .unwrap();
+    let t = &tools[0];
+    assert!(t.overrides.fields.is_empty());
+
+    let mut edit = t.input();
+    edit.description = "mine".into();
+    edit.enabled = false;
+    let u = s.update_tool(p.id, t.id, &edit).await.unwrap();
+    let fields: Vec<_> = u.overrides.fields.iter().map(String::as_str).collect();
+    assert_eq!(fields, ["description", "enabled"]);
+    assert_eq!(s.get_tool(p.id, t.id).await.unwrap().overrides, u.overrides);
+
+    // Saving again without changes doesn't add anything; manual tools never track.
+    let again = s.update_tool(p.id, t.id, &edit).await.unwrap();
+    assert_eq!(again.overrides, u.overrides);
+    let m = s.create_tool(p.id, &tool("manual", None)).await.unwrap();
+    let mut medit = m.input();
+    medit.description = "x".into();
+    assert!(s
+        .update_tool(p.id, m.id, &medit)
+        .await
+        .unwrap()
+        .overrides
+        .fields
+        .is_empty());
+
+    let reset = s
+        .reset_overrides(p.id, t.id, Some(&["enabled".to_owned()]))
+        .await
+        .unwrap();
+    assert_eq!(
+        reset.overrides.fields.iter().collect::<Vec<_>>(),
+        ["description"]
+    );
+    assert_eq!(reset.description, "mine", "reset keeps current values");
+    let all = s.reset_overrides(p.id, t.id, None).await.unwrap();
+    assert!(all.overrides.fields.is_empty());
+}
+
+#[tokio::test]
+async fn apply_reimport_updates_inserts_deletes_atomically() {
+    let s = store().await;
+    let p = s.create_project(&project("A")).await.unwrap();
+    let (spec, tools) = s
+        .import_tools(
+            p.id,
+            &spec_for_tests(),
+            &[(tool("a", None), "a".into()), (tool("b", None), "b".into())],
+        )
+        .await
+        .unwrap();
+    let (a, b) = (&tools[0], &tools[1]);
+    let mut edit = a.input();
+    edit.description = "mine".into();
+    s.update_tool(p.id, a.id, &edit).await.unwrap();
+
+    let mut v2 = spec_for_tests();
+    v2.raw = "v2".into();
+    v2.version = "2".into();
+    let mut new_a = a.input();
+    new_a.description = "mine".into();
+    let ToolKind::Http(h) = &mut new_a.kind;
+    h.timeout_ms = 1234;
+    let (rec, res) = s
+        .apply_reimport(
+            p.id,
+            spec.id,
+            &v2,
+            &[(a.id, new_a, "a".into())],
+            &[(tool("c", None), "c".into())],
+            &[b.id],
+        )
+        .await
+        .unwrap();
+    assert_eq!(rec.version, "2");
+    assert!(rec.updated_at.is_some());
+    assert_eq!(s.get_spec_raw(p.id, spec.id).await.unwrap(), "v2");
+    assert_eq!(res.deleted, [b.id]);
+    assert_eq!(res.created[0].source.spec_id(), Some(spec.id));
+    let a2 = s.get_tool(p.id, a.id).await.unwrap();
+    let ToolKind::Http(h) = &a2.kind;
+    assert_eq!(h.timeout_ms, 1234);
+    assert!(
+        a2.overrides.fields.contains("description"),
+        "system updates keep overrides"
+    );
+    assert!(
+        !a2.overrides.fields.contains("kind.timeout_ms"),
+        "and don't add new ones"
+    );
+
+    // A failing step (name clash) rolls everything back.
+    let mut clash = tool("c", None);
+    clash.description = "dup".into();
+    let r = s
+        .apply_reimport(
+            p.id,
+            spec.id,
+            &spec_for_tests(),
+            &[],
+            &[(clash, "x".into())],
+            &[a.id],
+        )
+        .await;
+    assert!(matches!(r, Err(StoreError::Conflict(_))), "{r:?}");
+    assert!(
+        s.get_tool(p.id, a.id).await.is_ok(),
+        "delete was rolled back"
+    );
+    assert_eq!(s.get_spec_raw(p.id, spec.id).await.unwrap(), "v2");
+    assert_eq!(s.tools_for_spec(p.id, spec.id).await.unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn import_bundle_policies() {
+    use forge_store::ConflictPolicy;
+    let s = store().await;
+    let p = s.create_project(&project("A")).await.unwrap();
+    let auths = vec![auth("token")];
+    let tools = vec![
+        (tool("a", None), Some("token".to_owned())),
+        (tool("b", None), None),
+    ];
+
+    let r = s
+        .import_bundle(p.id, &auths, &tools, ConflictPolicy::Fail)
+        .await
+        .unwrap();
+    assert_eq!(r.auth_created, ["token"]);
+    assert_eq!(r.tools_created, ["a", "b"]);
+    let a = s.get_tool_by_name(p.id, "a").await.unwrap();
+    let ToolKind::Http(h) = &a.kind;
+    assert_eq!(
+        h.auth_ref,
+        Some(s.list_auth_configs(p.id).await.unwrap()[0].id)
+    );
+    assert_eq!(a.source, Source::Manual);
+
+    // Same bundle again: identical auth is kept, tools conflict.
+    let r = s
+        .import_bundle(p.id, &auths, &tools, ConflictPolicy::Fail)
+        .await;
+    assert!(matches!(r, Err(StoreError::Conflict(_))), "{r:?}");
+    let r = s
+        .import_bundle(p.id, &auths, &tools, ConflictPolicy::Skip)
+        .await
+        .unwrap();
+    assert_eq!((r.auth_kept.len(), r.tools_skipped.len()), (1, 2));
+
+    let mut changed = tool("a", None);
+    changed.description = "replaced".into();
+    let r = s
+        .import_bundle(
+            p.id,
+            &[],
+            &[(changed, Some("token".into())), (tool("c", None), None)],
+            ConflictPolicy::Replace,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        (r.tools_updated.clone(), r.tools_created.clone()),
+        (vec!["a".to_owned()], vec!["c".to_owned()])
+    );
+    assert_eq!(
+        s.get_tool_by_name(p.id, "a").await.unwrap().description,
+        "replaced"
+    );
+
+    // Unknown auth name → validation error, nothing written.
+    let r = s
+        .import_bundle(
+            p.id,
+            &[],
+            &[(tool("d", None), Some("nope".into()))],
+            ConflictPolicy::Fail,
+        )
+        .await;
+    assert!(matches!(r, Err(StoreError::Validation(e)) if e.has("tools[0].auth")));
+    assert!(s.get_tool_by_name(p.id, "d").await.is_err());
+
+    // A conflict partway through rolls back earlier inserts.
+    let mut other = auth("other");
+    other.secret_ref = forge_core::SecretRef::parse("env:OTHER").unwrap();
+    let r = s
+        .import_bundle(
+            p.id,
+            &[other],
+            &[(tool("e", None), None), (tool("a", None), None)],
+            ConflictPolicy::Fail,
+        )
+        .await;
+    assert!(matches!(r, Err(StoreError::Conflict(_))));
+    assert!(s.get_tool_by_name(p.id, "e").await.is_err());
+    assert_eq!(s.list_auth_configs(p.id).await.unwrap().len(), 1);
 }

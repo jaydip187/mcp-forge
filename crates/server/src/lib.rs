@@ -2,9 +2,11 @@
 
 pub mod api;
 mod assets;
+pub mod bundle;
 pub mod config;
 mod import;
 mod mcp_http;
+mod reimport;
 pub mod security;
 
 use std::path::PathBuf;
@@ -66,7 +68,12 @@ impl AppState {
 pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
-        .nest("/api", api::router().merge(import::router()))
+        .nest(
+            "/api",
+            api::router()
+                .merge(import::router())
+                .merge(reimport::router()),
+        )
         .route("/mcp/{slug}", any(mcp_http::handle))
         .fallback(assets::serve)
         .layer(axum::middleware::from_fn_with_state(

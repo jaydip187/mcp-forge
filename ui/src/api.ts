@@ -1,11 +1,13 @@
 import type {
   AuthConfig,
   AuthConfigInput,
+  BundleReport,
   FieldError,
   ImportPreview,
   JsonObject,
   McpToolView,
   Project,
+  ReimportPreview,
   ServerInfo,
   SpecRecord,
   TestRun,
@@ -90,6 +92,17 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return data as T;
 }
 
+/** Like `request`, for endpoints that answer with plain text (YAML export). */
+async function requestText(method: string, path: string): Promise<string> {
+  const headers: Record<string, string> = {};
+  const t = token.get();
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const resp = await fetch(`/api${path}`, { method, headers });
+  if (resp.status === 401) onUnauthorized();
+  if (!resp.ok) throw new ApiError(resp.status, "http_error", `The server answered ${resp.status}.`);
+  return resp.text();
+}
+
 const p = (projectId: string) => `/projects/${encodeURIComponent(projectId)}`;
 
 export const api = {
@@ -124,6 +137,34 @@ export const api = {
     },
   ) => request<{ spec: SpecRecord; created: Tool[] }>("POST", `${p(pid)}/import/openapi`, body),
   listSpecs: (pid: string) => request<SpecRecord[]>("GET", `${p(pid)}/specs`),
+  previewReimport: (
+    pid: string,
+    sid: string,
+    body: { content?: string; url?: string; base_url?: string; auth_ref?: string },
+  ) => request<ReimportPreview>("POST", `${p(pid)}/specs/${sid}/reimport/preview`, body),
+  reimport: (
+    pid: string,
+    sid: string,
+    body: {
+      content?: string;
+      source_url?: string | null;
+      filename?: string | null;
+      base_url?: string;
+      auth_ref?: string;
+      add: string[];
+      remove: string[];
+    },
+  ) =>
+    request<{ spec: SpecRecord; result: { updated: Tool[]; created: Tool[]; deleted: string[] } }>(
+      "POST",
+      `${p(pid)}/specs/${sid}/reimport`,
+      body,
+    ),
+  resetOverrides: (pid: string, tid: string, fields?: string[]) =>
+    request<Tool>("POST", `${p(pid)}/tools/${tid}/overrides/reset`, fields ? { fields } : {}),
+  exportBundle: (pid: string) => requestText("GET", `${p(pid)}/export`),
+  importBundle: (pid: string, content: string, onConflict: "fail" | "skip" | "replace") =>
+    request<BundleReport>("POST", `${p(pid)}/import/bundle`, { content, on_conflict: onConflict }),
 
   listAuth: (pid: string) => request<AuthConfig[]>("GET", `${p(pid)}/auth-configs`),
   createAuth: (pid: string, input: AuthConfigInput) => request<AuthConfig>("POST", `${p(pid)}/auth-configs`, input),

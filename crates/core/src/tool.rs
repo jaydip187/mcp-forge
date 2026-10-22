@@ -77,6 +77,23 @@ pub enum Source {
     },
 }
 
+impl Source {
+    /// The spec an imported tool came from.
+    pub fn spec_id(&self) -> Option<Uuid> {
+        match self {
+            Source::Manual => None,
+            Source::OpenApi { spec_id, .. } | Source::Swagger { spec_id, .. } => Some(*spec_id),
+        }
+    }
+
+    pub fn op_id(&self) -> Option<&str> {
+        match self {
+            Source::Manual => None,
+            Source::OpenApi { op_id, .. } | Source::Swagger { op_id, .. } => Some(op_id),
+        }
+    }
+}
+
 /// Names of fields the user edited by hand; preserved across re-import (Stage 6).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Overrides {

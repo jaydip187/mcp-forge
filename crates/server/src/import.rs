@@ -21,7 +21,7 @@ use crate::api::{ApiError, ApiJson, ApiPath};
 use crate::AppState;
 
 /// Specs like GitHub's are ~14 MB; leave room for JSON escaping.
-const MAX_SPEC_BYTES: usize = 48 * 1024 * 1024;
+pub(crate) const MAX_SPEC_BYTES: usize = 48 * 1024 * 1024;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub fn router() -> Router<AppState> {
@@ -117,6 +117,7 @@ async fn commit(
             "Select at least one operation to import.".into(),
         ));
     }
+    let base_url_opt = req.base_url.clone().filter(|b| !b.trim().is_empty());
     let imported = run_import(&req.content, req.base_url, req.source_url.clone())?;
     let existing = s.store.tool_names(project_id).await?;
     let names = assign_names(&imported.operations, &existing);
@@ -168,6 +169,7 @@ async fn commit(
         source_url: req.source_url,
         filename: req.filename,
         raw: req.content,
+        options: json!({ "base_url": base_url_opt, "auth_ref": req.auth_ref }),
     };
     let (record, created) = s.store.import_tools(project_id, &spec, &tools).await?;
     s.changes.notify(project_id);
@@ -182,7 +184,7 @@ async fn list_specs(
     Ok(Json(s.store.list_specs(project_id).await?))
 }
 
-fn run_import(
+pub(crate) fn run_import(
     content: &str,
     base_url: Option<String>,
     source_url: Option<String>,
@@ -198,7 +200,7 @@ fn run_import(
     .map_err(import_error)
 }
 
-fn import_error(e: ImportError) -> ApiError {
+pub(crate) fn import_error(e: ImportError) -> ApiError {
     ApiError::Store(StoreError::Validation(ValidationErrors::single(
         "content",
         e.to_string(),
@@ -230,7 +232,7 @@ fn assign_names(ops: &[BuiltOperation], existing: &[String]) -> HashMap<String, 
 }
 
 /// Fetches a spec from a URL the user typed. http(s) only, size- and time-capped.
-async fn fetch_spec(url: &str) -> Result<String, ApiError> {
+pub(crate) async fn fetch_spec(url: &str) -> Result<String, ApiError> {
     let parsed = reqwest::Url::parse(url)
         .map_err(|e| ApiError::BadRequest(format!("That URL isn't valid: {e}")))?;
     if !matches!(parsed.scheme(), "http" | "https") {

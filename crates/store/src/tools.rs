@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use forge_core::{Overrides, Source, ToolDef, ToolInput, ValidationErrors};
+use forge_core::{changed_fields, Overrides, Source, ToolDef, ToolInput, ValidationErrors};
 use uuid::Uuid;
 
 use crate::{from_json, now, on_unique, parse_id, to_json, Store, StoreError};
@@ -60,6 +60,40 @@ pub(crate) fn new_tool_def(project_id: Uuid, input: &ToolInput, source: Source) 
         created_at: ts,
         updated_at: ts,
     }
+}
+
+pub(crate) fn apply_input(tool: &mut ToolDef, input: &ToolInput) {
+    tool.name = input.name.clone();
+    tool.description = input.description.clone();
+    tool.kind = input.kind.clone();
+    tool.enabled = input.enabled;
+    tool.response_shape = input.response_shape.clone();
+    tool.updated_at = now();
+}
+
+/// Writes every mutable column of an existing tool.
+pub(crate) async fn write_tool<'e, E>(exec: E, tool: &ToolDef) -> Result<(), StoreError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
+    sqlx::query(
+        "UPDATE tools SET name = ?, description = ?, kind = ?, auth_ref = ?, enabled = ?,          source = ?, overrides = ?, response_shape = ?, updated_at = ?          WHERE project_id = ? AND id = ?",
+    )
+    .bind(&tool.name)
+    .bind(&tool.description)
+    .bind(to_json(&tool.kind))
+    .bind(tool.kind.auth_ref().map(|id| id.to_string()))
+    .bind(tool.enabled)
+    .bind(to_json(&tool.source))
+    .bind(to_json(&tool.overrides))
+    .bind(&tool.response_shape)
+    .bind(tool.updated_at)
+    .bind(tool.project_id.to_string())
+    .bind(tool.id.to_string())
+    .execute(exec)
+    .await
+    .map_err(|e| on_unique(e, name_taken(&tool.name)))?;
+    Ok(())
 }
 
 pub(crate) async fn insert_tool<'e, E>(exec: E, tool: &ToolDef) -> Result<(), StoreError>
@@ -156,6 +190,9 @@ impl Store {
     }
 
     /// Replaces the user-editable fields; `source`, `overrides` and `created_at` are kept.
+    /// Replaces the user-editable fields; `source` and `created_at` are kept.
+    /// On an imported tool, every field that changes is recorded in
+    /// `overrides` so a later re-import keeps the user's version.
     pub async fn update_tool(
         &self,
         project_id: Uuid,
@@ -165,28 +202,35 @@ impl Store {
         input.validate()?;
         let mut tool = self.get_tool(project_id, id).await?;
         self.check_auth_ref(project_id, input).await?;
-        tool.name = input.name.clone();
-        tool.description = input.description.clone();
-        tool.kind = input.kind.clone();
-        tool.enabled = input.enabled;
-        tool.response_shape = input.response_shape.clone();
+        if tool.source != Source::Manual {
+            for f in changed_fields(&tool.input(), input) {
+                tool.overrides.fields.insert(f.to_owned());
+            }
+        }
+        apply_input(&mut tool, input);
+        write_tool(&self.pool, &tool).await?;
+        Ok(tool)
+    }
+
+    /// Stops keeping the user's version of `fields` (all fields if `None`), so
+    /// the next re-import takes the spec's values. The current values stay.
+    pub async fn reset_overrides(
+        &self,
+        project_id: Uuid,
+        id: Uuid,
+        fields: Option<&[String]>,
+    ) -> Result<ToolDef, StoreError> {
+        let mut tool = self.get_tool(project_id, id).await?;
+        match fields {
+            None => tool.overrides.fields.clear(),
+            Some(fs) => {
+                for f in fs {
+                    tool.overrides.fields.remove(f);
+                }
+            }
+        }
         tool.updated_at = now();
-        sqlx::query(
-            "UPDATE tools SET name = ?, description = ?, kind = ?, auth_ref = ?, enabled = ?, \
-             response_shape = ?, updated_at = ? WHERE project_id = ? AND id = ?",
-        )
-        .bind(&tool.name)
-        .bind(&tool.description)
-        .bind(to_json(&tool.kind))
-        .bind(tool.kind.auth_ref().map(|id| id.to_string()))
-        .bind(tool.enabled)
-        .bind(&tool.response_shape)
-        .bind(tool.updated_at)
-        .bind(project_id.to_string())
-        .bind(id.to_string())
-        .execute(&self.pool)
-        .await
-        .map_err(|e| on_unique(e, name_taken(&tool.name)))?;
+        write_tool(&self.pool, &tool).await?;
         Ok(tool)
     }
 

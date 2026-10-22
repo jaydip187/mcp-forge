@@ -4,10 +4,10 @@
 > Legend: `[ ]` todo · `[~]` in progress / partial · `[x]` done · `[-]` dropped (say why)
 
 ## Next up
-Stage 5 review → then Stage 6: override tracking
+Stage 6 review → then Stage 7: jaq response shaping
 
 ## Current stage
-**Stage 5 — Swagger 2.0 importer** · status: done · review: requested
+**Stage 6 — Re-import, overrides, export/import** · status: done · review: requested
 
 ---
 
@@ -63,12 +63,12 @@ Stage 5 review → then Stage 6: override tracking
 - [x] 2.0 → IR conversion
 - [x] Preview flow reuse
 - [x] Equivalence test vs 3.x Petstore
-- [ ] Stage review approved
+- [x] Stage review approved
 
 ### Stage 6 — Re-import, overrides, export/import
-- [ ] Override tracking
-- [ ] Re-import with diff preview
-- [ ] YAML export/import (CLI + UI), secrets as refs only
+- [x] Override tracking
+- [x] Re-import with diff preview
+- [x] YAML export/import (CLI + UI), secrets as refs only
 - [ ] Stage review approved
 
 ### Stage 7 — Curation & shaping
@@ -156,6 +156,13 @@ Stage 5 review → then Stage 6: override tracking
 - 2026-10-21 · New endpoints: `GET /api/info` (version, exe, data_dir, auth_required for snippets), `GET /api/projects/{pid}/tools/{tid}/mcp` (tool exactly as MCP clients see it), `POST …/tools/{tid}/test {arguments}` → `{request, response, error, agent_view, shaped:null}`. Test console and MCP `tools/call` share `forge_mcp::run_tool`, so results are identical. Console runs disabled tools too
 - 2026-10-21 · Snippets: Claude Code CLI (`claude mcp add --transport http …` / `-- <exe> stdio …`) + `mcpServers` JSON for HTTP and stdio; single-quoted shell args (literal in bash and PowerShell); token shown only as `<your-admin-token>`
 - 2026-10-21 · vitest 5 (vitest 3 pulled tinypool with critical advisories); `npm audit` clean
+- 2026-10-22 · Overrides: 11 tracked fields (`name`, `description`, `enabled`, `response_shape`, `kind.method|base_url|path_template|params|body_schema|auth_ref|timeout_ms`); params tracked as one unit. `update_tool` on an imported tool adds every changed field; manual tools never track. Overrides are only removed explicitly (`POST …/tools/{id}/overrides/reset`, all or listed fields), which keeps current values but lets the next re-import overwrite them
+- 2026-10-22 · Re-import merge (`forge_core::merge_overrides`): start from the fresh spec tool, copy back overridden fields; `kind.path_template` and `kind.params` travel together (path params must match the template)
+- 2026-10-22 · Re-import matching by `Source.op_id` (operationId, else `"METHOD /path"`); an operationId rename shows up as removed + added. Results: changed (with changed fields and kept overrides), unchanged, added (selectable; supported ones pre-selected), removed (kept unless ticked for deletion), blocked (op now unsupported → tool left as is). Renamed-by-spec tools are deduped against other tools
+- 2026-10-22 · Specs store their import options (`base_url`, `auth_ref`; migration 0003) and re-import reuses them unless changed (`""` clears). Re-import without new content re-runs the stored spec (e.g. to change base URL). The spec row is updated in place (same id) and gets `updated_at`
+- 2026-10-22 · `Store::apply_reimport` is one transaction: spec row, deletes (scoped to the spec), system updates (overrides untouched, no new ones), inserts
+- 2026-10-22 · Bundle `tools.yaml` v1: `project {name, slug}`, `auth_configs` (name, kind, secret_ref), `tools` (ToolInput with `auth: <config name>` instead of ids; nulls/empties dropped). Raw secrets fail to parse on import. Imported tools become manual (spec links/overrides aren't exported). Conflict policy fail (default) / skip / replace; identical existing auth configs are reused silently. All-or-nothing
+- 2026-10-22 · CLI `mcp-forge export --project x [-o file]` (stdout by default) and `mcp-forge import --project x [file|-] [--on-conflict …]`; import creates the project (name from the file) if the slug doesn't exist. API: `GET …/export` (attachment), `POST …/import/bundle {content, on_conflict}`
 - 2026-10-22 · Swagger 2.0 is converted to an OpenAPI 3.0 document (`swagger2::to_openapi3`) and then imported by the 3.x importer · one mapping path means 2.0 and 3.x imports can't drift; equivalence is structural. `import_any` dispatches on the `swagger` field
 - 2026-10-22 · 2.0 conversion: servers = preferred https scheme + host + basePath (no host → basePath, resolved against fetch URL); `definitions` → components.schemas with refs rewritten; global/op/path-level params inlined (op overrides path); `body` → JSON requestBody (first JSON-ish `consumes`); `formData` → urlencoded/multipart requestBody (required if any field is); `type: file` → string/binary; `x-nullable` → nullable; securityDefinitions basic/apiKey/oauth2 → 3.0 schemes; `collectionFormat` → style/explode
 - 2026-10-22 · Specs record `kind` (`openapi3`/`swagger2`); 2.0 tools get `Source::Swagger { spec_id, op_id }`. Same preview/commit endpoints (`/import/openapi…`) serve both
@@ -183,6 +190,8 @@ Stage 5 review → then Stage 6: override tracking
 - 2026-10-21 · Tested with the rmcp client + raw JSON-RPC (protocol 2025-06-18), not the MCP Inspector UI itself (needs npx/network). · manual check at review
 - 2026-10-22 · Large-spec test (`large_real_spec`) is `#[ignore]` and reads `MCP_FORGE_LARGE_SPEC`; GitHub's 13 MB spec isn't vendored. Result on 2026-10-22: GitHub REST 3.0.3 and 3.1.0 → 1242/1242 ops supported, unique names, all valid, largest tool 25 KB, ~95 ms (release). · consider a CI job that downloads it
 - 2026-10-22 · Executor can't send comma/space/pipe-joined array query values (2.0 default `csv`, 3.x `explode: false`); such params import with a warning and are sent as repeated keys. · add a per-param array style to the IR when a real API needs it
+- 2026-10-22 · CLI `import` (and any other out-of-process write) doesn't notify MCP sessions of a running `serve`; only stdio mode polls the DB. · consider polling in serve too (Stage 7+)
+- 2026-10-22 · Stage 6 UI (Specs tab, re-import diff page, overrides note, export/import card) not checked in a browser: browser-mcp still disconnected. Backed by API tests. · eyeball at review
 - 2026-10-22 · Stage 5 UI change (copy only) not checked in a browser: browser-mcp disconnected this session. · eyeball at review
 - 2026-10-22 · Import preview renders all operations without virtualization (fine at 1242 rows in manual testing). · revisit if slower specs show up
 - 2026-10-21 · No browser-level (Playwright) UI tests; UI logic is unit-tested (vitest) and the full flow was verified manually in Chrome. · consider for Stage 11
@@ -201,6 +210,14 @@ Stage 5 review → then Stage 6: override tracking
 - **Gotchas:** 
 - **Next step:** 
 -->
+
+### Session 7 — 2026-10-22
+- **Stage/task:** Stage 6 — Re-import, overrides, export/import (all tasks)
+- **Done:** core `changed_fields`/`merge_overrides` + `Source::spec_id/op_id`; store override tracking, `reset_overrides`, spec options (migration 0003), `apply_reimport`, `tools_for_spec`, `import_bundle` with conflict policies; server re-import preview/commit, override reset, bundle export/import endpoints, `export`/`import` CLI; UI Specs tab, re-import diff page, imported-tool note with reset, export/import card
+- **Not done / partial:** none
+- **Tests:** passing (core overrides 3, store +4, server re-import 2 incl. the "done when" flow, bundle 2 incl. CLI round trip + 2 unit, config +1; UI 15); clippy + fmt clean. No browser pass (browser-mcp disconnected)
+- **Gotchas:** re-import must not add overrides (system update path `write_tool`, not `update_tool`)
+- **Next step:** Stage 6 review, then Stage 7 curation & shaping
 
 ### Session 6 — 2026-10-22
 - **Stage/task:** Stage 5 — Swagger 2.0 importer (all tasks)

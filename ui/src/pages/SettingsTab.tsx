@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from "react";
+import { useState, type ChangeEvent, type FormEvent } from "react";
+import { DownloadIcon, UploadIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
@@ -6,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { fieldError, useProjects } from "@/lib/projects";
 import { href, navigate } from "@/lib/router";
 import type { Project } from "@/types";
@@ -68,6 +70,8 @@ export function SettingsTab({ project, onSaved }: { project: Project; onSaved: (
         </CardContent>
       </Card>
 
+      <BundleCard project={project} onImported={reload} />
+
       <Card className="border-destructive/40">
         <CardHeader>
           <CardTitle>Delete project</CardTitle>
@@ -91,5 +95,84 @@ export function SettingsTab({ project, onSaved }: { project: Project; onSaved: (
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+type Policy = "fail" | "skip" | "replace";
+
+function BundleCard({ project, onImported }: { project: Project; onImported: () => Promise<void> }) {
+  const [policy, setPolicy] = useState<Policy>("fail");
+  const [busy, setBusy] = useState(false);
+
+  async function download() {
+    try {
+      const yaml = await api.exportBundle(project.id);
+      const url = URL.createObjectURL(new Blob([yaml], { type: "application/yaml" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${project.slug}-tools.yaml`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function upload(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    try {
+      const r = await api.importBundle(project.id, await file.text(), policy);
+      const parts = [
+        `${r.tools_created.length} tools added`,
+        r.tools_updated.length ? `${r.tools_updated.length} replaced` : "",
+        r.tools_skipped.length ? `${r.tools_skipped.length} skipped` : "",
+        r.auth_created.length ? `${r.auth_created.length} auth configs added` : "",
+      ].filter(Boolean);
+      toast.success(`Imported ${file.name}: ${parts.join(", ")}`);
+      await onImported();
+    } catch (err) {
+      const msg = err instanceof ApiError ? (err.fields[0] ? `${err.fields[0].field}: ${err.fields[0].message}` : err.message) : String(err);
+      toast.error(msg);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Export and import</CardTitle>
+        <CardDescription>
+          A YAML file with this project's tools and auth configs. Secrets stay as references, so the file is safe to share.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-wrap items-end gap-3">
+        <Button variant="outline" onClick={() => void download()}>
+          <DownloadIcon /> Download tools.yaml
+        </Button>
+        <div className="grid gap-1">
+          <Label htmlFor="b-policy" className="text-xs text-muted-foreground">
+            If a name already exists
+          </Label>
+          <Select value={policy} onValueChange={(v) => setPolicy(v as Policy)}>
+            <SelectTrigger id="b-policy" className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="fail">Stop, change nothing</SelectItem>
+              <SelectItem value="skip">Keep what's here</SelectItem>
+              <SelectItem value="replace">Use the file's version</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <Label htmlFor="b-file" className="flex h-9 cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm font-medium hover:bg-muted/60 has-focus-visible:ring-2 has-focus-visible:ring-ring">
+          <UploadIcon className="size-4" /> {busy ? "Importing…" : "Import tools.yaml"}
+          <input id="b-file" type="file" accept=".yaml,.yml,.json" className="sr-only" onChange={upload} disabled={busy} />
+        </Label>
+      </CardContent>
+    </Card>
   );
 }

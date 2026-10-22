@@ -85,6 +85,8 @@ describe("router", () => {
     expect(parseRoute("#/p/abc/tools/new")).toEqual({ name: "tool", projectId: "abc", toolId: null });
     expect(parseRoute("#/p/abc/tools/t1")).toEqual({ name: "tool", projectId: "abc", toolId: "t1" });
     expect(parseRoute("#/p/abc/import")).toEqual({ name: "import", projectId: "abc" });
+    expect(parseRoute("#/p/abc/specs")).toEqual({ name: "project", projectId: "abc", tab: "specs" });
+    expect(parseRoute("#/p/abc/specs/s1/reimport")).toEqual({ name: "reimport", projectId: "abc", specId: "s1" });
   });
 });
 
@@ -163,5 +165,16 @@ describe("glob", () => {
     expect(pathMatcher("STORE")("/store/inventory")).toBe(true);
     expect(pathMatcher("/a.b/*")("/aXb/c")).toBe(false);
     expect(pathMatcher("")("/anything")).toBe(true);
+  });
+});
+
+import { listLabels } from "./fields";
+
+describe("fields", () => {
+  it("lists override labels in plain words", () => {
+    expect(listLabels(["description"])).toBe("description");
+    expect(listLabels(["description", "kind.params"])).toBe("description and parameters");
+    expect(listLabels(["name", "enabled", "kind.base_url"])).toBe("name, visibility and base URL");
+    expect(listLabels([])).toBe("");
   });
 });

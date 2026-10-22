@@ -41,6 +41,16 @@ pub fn router() -> Router<AppState> {
             "/projects/{project_id}/tools/{tool_id}/test",
             axum::routing::post(test_tool),
         )
+        .route(
+            "/projects/{project_id}/tools/{tool_id}/overrides/reset",
+            axum::routing::post(reset_overrides),
+        )
+        .route("/projects/{project_id}/export", get(export_bundle))
+        .route(
+            "/projects/{project_id}/import/bundle",
+            axum::routing::post(import_bundle)
+                .layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)),
+        )
         .route("/info", get(info))
         .route(
             "/projects/{project_id}/auth-configs",
@@ -328,4 +338,72 @@ async fn test_tool(
         // Response shaping arrives in Stage 7.
         "shaped": Value::Null,
     })))
+}
+
+#[derive(Deserialize, Default)]
+struct ResetRequest {
+    /// Fields to stop keeping; all of them when absent.
+    #[serde(default)]
+    fields: Option<Vec<String>>,
+}
+
+/// Stops keeping the user's version of some fields on re-import.
+async fn reset_overrides(
+    State(s): State<AppState>,
+    ApiPath((project_id, id)): ApiPath<(Uuid, Uuid)>,
+    ApiJson(req): ApiJson<ResetRequest>,
+) -> ApiResult<Json<ToolDef>> {
+    Ok(Json(
+        s.store
+            .reset_overrides(project_id, id, req.fields.as_deref())
+            .await?,
+    ))
+}
+
+/// `tools.yaml` download for a project.
+async fn export_bundle(
+    State(s): State<AppState>,
+    ApiPath(project_id): ApiPath<Uuid>,
+) -> ApiResult<axum::response::Response> {
+    let project = s.store.get_project(project_id).await?;
+    let yaml = crate::bundle::export_project(&s.store, project_id).await?;
+    let disposition = format!("attachment; filename=\"{}-tools.yaml\"", project.slug);
+    Ok((
+        [
+            (
+                axum::http::header::CONTENT_TYPE,
+                "application/yaml; charset=utf-8".to_owned(),
+            ),
+            (axum::http::header::CONTENT_DISPOSITION, disposition),
+        ],
+        yaml,
+    )
+        .into_response())
+}
+
+#[derive(Deserialize)]
+struct BundleImportRequest {
+    content: String,
+    #[serde(default)]
+    on_conflict: forge_store::ConflictPolicy,
+}
+
+async fn import_bundle(
+    State(s): State<AppState>,
+    ApiPath(project_id): ApiPath<Uuid>,
+    ApiJson(req): ApiJson<BundleImportRequest>,
+) -> ApiResult<Json<forge_store::BundleReport>> {
+    let bundle =
+        crate::bundle::parse_bundle(&req.content).map_err(|e| ApiError::Store(e.into()))?;
+    let report = s
+        .store
+        .import_bundle(
+            project_id,
+            &bundle.auth_configs,
+            &bundle.tools,
+            req.on_conflict,
+        )
+        .await?;
+    s.changes.notify(project_id);
+    Ok(Json(report))
 }

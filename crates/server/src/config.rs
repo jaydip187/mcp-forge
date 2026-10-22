@@ -28,6 +28,46 @@ pub enum Command {
     Serve(ServeArgs),
     /// Serve one project's tools over MCP stdio.
     Stdio(StdioArgs),
+    /// Write a project's auth configs and tools as YAML (secrets stay references).
+    Export(ExportArgs),
+    /// Load auth configs and tools from a YAML file into a project.
+    Import(ImportArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ExportArgs {
+    /// Slug of the project to export.
+    #[arg(long)]
+    pub project: String,
+    /// Write to this file instead of stdout.
+    #[arg(long, short)]
+    pub out: Option<PathBuf>,
+    #[command(flatten)]
+    pub common: CommonArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct ImportArgs {
+    /// Slug of the project to import into; created if it doesn't exist.
+    #[arg(long)]
+    pub project: String,
+    /// YAML file to read; `-` or omitted reads stdin.
+    pub file: Option<PathBuf>,
+    /// What to do when a tool or auth config with the same name exists.
+    #[arg(long, value_enum, default_value_t = OnConflict::Fail)]
+    pub on_conflict: OnConflict,
+    #[command(flatten)]
+    pub common: CommonArgs,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum OnConflict {
+    /// Abort without changing anything.
+    Fail,
+    /// Keep what's there.
+    Skip,
+    /// Overwrite with the file's version.
+    Replace,
 }
 
 #[derive(Debug, Args)]
@@ -144,7 +184,7 @@ mod tests {
             full.extend_from_slice(args);
             match parse(&full).command {
                 Command::Serve(s) => s,
-                Command::Stdio(_) => unreachable!(),
+                _ => unreachable!(),
             }
         };
         let local = serve(&[]).security().unwrap();
@@ -163,6 +203,31 @@ mod tests {
         .unwrap();
         assert!(!open.loopback_hosts_only);
         assert_eq!(open.admin_token.as_deref(), Some("0123456789abcdef"));
+    }
+
+    #[test]
+    fn export_import_args() {
+        let Command::Export(e) = parse(&["mcp-forge", "export", "--project", "demo"]).command
+        else {
+            panic!("expected export");
+        };
+        assert_eq!((e.project.as_str(), e.out), ("demo", None));
+        let Command::Import(i) = parse(&[
+            "mcp-forge",
+            "import",
+            "--project",
+            "demo",
+            "tools.yaml",
+            "--on-conflict",
+            "replace",
+        ])
+        .command
+        else {
+            panic!("expected import");
+        };
+        assert_eq!(i.file, Some(PathBuf::from("tools.yaml")));
+        assert_eq!(i.on_conflict, OnConflict::Replace);
+        assert!(Cli::try_parse_from(["mcp-forge", "import"]).is_err());
     }
 
     #[test]

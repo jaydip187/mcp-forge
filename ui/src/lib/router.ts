@@ -5,17 +5,19 @@ export type Route =
   | { name: "home" }
   | { name: "project"; projectId: string; tab: ProjectTab }
   | { name: "tool"; projectId: string; toolId: string | null }
-  | { name: "import"; projectId: string };
+  | { name: "import"; projectId: string }
+  | { name: "reimport"; projectId: string; specId: string };
 
-export type ProjectTab = "tools" | "auth" | "connect" | "settings";
-const TABS: ProjectTab[] = ["tools", "auth", "connect", "settings"];
+export type ProjectTab = "tools" | "specs" | "auth" | "connect" | "settings";
+const TABS: ProjectTab[] = ["tools", "specs", "auth", "connect", "settings"];
 
 export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
-  const [a, pid, b, tid] = parts;
+  const [a, pid, b, tid, c] = parts;
   if (a === "p" && pid) {
     if (b === "tools" && tid) return { name: "tool", projectId: pid, toolId: tid === "new" ? null : tid };
     if (b === "import") return { name: "import", projectId: pid };
+    if (b === "specs" && tid && c === "reimport") return { name: "reimport", projectId: pid, specId: tid };
     const tab = (TABS as string[]).includes(b ?? "") ? (b as ProjectTab) : "tools";
     return { name: "project", projectId: pid, tab };
   }
@@ -28,6 +30,7 @@ export const href = {
     tab === "tools" ? `#/p/${encodeURIComponent(pid)}` : `#/p/${encodeURIComponent(pid)}/${tab}`,
   tool: (pid: string, tid: string | null) => `#/p/${encodeURIComponent(pid)}/tools/${tid ?? "new"}`,
   import: (pid: string) => `#/p/${encodeURIComponent(pid)}/import`,
+  reimport: (pid: string, sid: string) => `#/p/${encodeURIComponent(pid)}/specs/${encodeURIComponent(sid)}/reimport`,
 };
 
 export function navigate(to: string) {

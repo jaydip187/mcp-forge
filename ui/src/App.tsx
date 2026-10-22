@@ -26,6 +26,7 @@ import { href, useRoute, type Route } from "@/lib/router";
 import { Home } from "@/pages/Home";
 import { ImportPage } from "@/pages/ImportPage";
 import { ProjectPage } from "@/pages/ProjectPage";
+import { ReimportPage } from "@/pages/ReimportPage";
 import { ToolEditor } from "@/pages/ToolEditor";
 import { Unlock } from "@/pages/Unlock";
 import type { ServerInfo } from "@/types";
@@ -101,6 +102,8 @@ function Page({ route, info }: { route: Route; info: ServerInfo }) {
       return <ProjectPage key={route.projectId} projectId={route.projectId} tab={route.tab} info={info} />;
     case "import":
       return <ImportPage key={route.projectId} projectId={route.projectId} />;
+    case "reimport":
+      return <ReimportPage key={route.specId} projectId={route.projectId} specId={route.specId} />;
     case "tool":
       return <ToolEditor key={`${route.projectId}/${route.toolId ?? "new"}`} projectId={route.projectId} toolId={route.toolId} />;
   }

@@ -47,10 +47,16 @@ export interface ToolInput {
   response_shape: string | null;
 }
 
+export type ToolSource =
+  | { type: "manual" }
+  | { type: "open_api" | "swagger"; spec_id: string; op_id: string };
+
 export interface Tool extends ToolInput {
   id: string;
   project_id: string;
-  source: { type: string };
+  source: ToolSource;
+  /** Fields the user edited; kept on re-import. */
+  overrides: { fields: string[] };
   created_at: string;
   updated_at: string;
 }
@@ -147,5 +153,30 @@ export interface SpecRecord {
   version: string;
   source_url: string | null;
   filename: string | null;
+  options: { base_url?: string | null; auth_ref?: string | null };
   created_at: string;
+  updated_at: string | null;
+}
+
+export interface ReimportPreview {
+  spec: SpecRecord;
+  info: ImportPreview["info"];
+  base_url: string | null;
+  auth_ref: string | null;
+  changed: { tool_id: string; name: string; new_name: string; key: string; fields: string[]; kept: string[] }[];
+  unchanged: number;
+  blocked: { tool_id: string; name: string; key: string; warnings: string[] }[];
+  added: ImportOperation[];
+  removed: { tool_id: string; name: string; op_id: string | null }[];
+  content: string | null;
+  source_url: string | null;
+}
+
+export interface BundleReport {
+  auth_created: string[];
+  auth_updated: string[];
+  auth_kept: string[];
+  tools_created: string[];
+  tools_updated: string[];
+  tools_skipped: string[];
 }

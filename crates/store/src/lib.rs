@@ -1,11 +1,13 @@
 //! SQLite-backed store for projects, tools and auth configs.
 
 mod auth;
+mod bundle;
 mod projects;
 mod specs;
 mod tools;
 
-pub use specs::{NewSpec, SpecRecord};
+pub use bundle::{BundleReport, ConflictPolicy};
+pub use specs::{NewSpec, ReimportResult, SpecRecord};
 
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
