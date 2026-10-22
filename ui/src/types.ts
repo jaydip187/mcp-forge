@@ -62,10 +62,15 @@ export interface SqlParam {
   description: string | null;
 }
 
+export type ExplorationMode = "list_tables" | "describe_table" | "run_sql";
+export const EXPLORATION_MODES: ExplorationMode[] = ["list_tables", "describe_table", "run_sql"];
+
+export type SqlMode = { type: "query"; sql: string; params: SqlParam[] } | { type: ExplorationMode };
+
 export interface SqlSpec {
   type: "sql";
   connection_id: string;
-  mode: { type: "query"; sql: string; params: SqlParam[] };
+  mode: SqlMode;
 }
 
 export type ToolKind = HttpSpec | SqlSpec;

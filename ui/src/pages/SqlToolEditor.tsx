@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { href, navigate } from "@/lib/router";
-import { buildSqlInput, newSqlForm, paramType, sqlFormFromTool, sqlParamIndex, syncSqlParams, type SqlForm } from "@/lib/sqlForm";
+import { buildSqlInput, EXPLORATION_LABEL, newSqlForm, paramType, sqlFormFromTool, sqlParamIndex, syncSqlParams, type SqlForm } from "@/lib/sqlForm";
 import { TestConsole } from "@/pages/TestConsole";
 import { DRIVER_LABEL, SQL_PARAM_TYPES, type DbConnection, type SqlParam, type SqlParamType, type Tool } from "@/types";
 
@@ -97,8 +97,14 @@ export function SqlToolEditor({ projectId, tool }: { projectId: string; tool: To
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">{saved ? saved.name : "New SQL tool"}</h1>
         <p className="text-sm text-muted-foreground">
+          {form.mode !== "query" ? (
+            "A database exploration tool. Everything it runs is read-only and limited to the allowed tables."
+          ) : (
+            <>
           A fixed, read-only query. Agents fill in the <code>:name</code> parameters; values are always sent separately from
           the SQL, never pasted into it.
+            </>
+          )}
         </p>
       </header>
 
@@ -141,7 +147,7 @@ export function SqlToolEditor({ projectId, tool }: { projectId: string; tool: To
               <Input id="s-name" value={form.name} onChange={(e) => set({ name: e.target.value })} className="font-mono" placeholder="find_orders" aria-invalid={!!err("name")} />
             </Field>
             <Field id="s-desc" label="Description" error={err("description")}>
-              <Textarea id="s-desc" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="Recent orders for one customer: id, status, total and date, newest first." className="min-h-20" />
+              <Textarea id="s-desc" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder={form.mode === "query" ? "Recent orders for one customer: id, status, total and date, newest first." : "Optional. Extra guidance for agents, shown before the generated description."} className="min-h-20" />
             </Field>
             <Field id="s-tags" label="Tags" error={err("tags")} hint="Comma-separated. Project filters and tool search use them.">
               <Input id="s-tags" value={form.tagsText} onChange={(e) => set({ tagsText: e.target.value })} placeholder="orders, reporting" />
@@ -152,6 +158,40 @@ export function SqlToolEditor({ projectId, tool }: { projectId: string; tool: To
             </div>
           </Section>
 
+          {form.mode !== "query" && (
+            <Section title={EXPLORATION_LABEL[form.mode].title} description={EXPLORATION_LABEL[form.mode].blurb}>
+              <Field id="s-conn" label="Database" error={err("kind.connection_id")}>
+                <Select value={form.connection_id || "none"} onValueChange={(v) => set({ connection_id: v === "none" ? "" : v })}>
+                  <SelectTrigger id="s-conn" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(conns ?? []).map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name} ({DRIVER_LABEL[c.driver]})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <p className="text-sm text-muted-foreground">
+                Agents get a description written from the database's settings (limits, allowed tables, masked columns),
+                so it stays current when you change them. Anything you put in Description above is shown first.
+              </p>
+              {conn && (
+                <p className="text-sm text-muted-foreground">
+                  Allowed tables: {conn.table_allowlist.length ? conn.table_allowlist.join(", ") : "every non-system table"}.{" "}
+                  <a className="underline" href={href.project(projectId, "databases")}>
+                    Change on the Databases tab
+                  </a>
+                  .
+                </p>
+              )}
+            </Section>
+          )}
+
+          {form.mode === "query" && (
+            <>
           <Section title="Query" description="One SELECT statement. Writes, multiple statements and risky functions are refused when you save.">
             <Field id="s-conn" label="Database" error={err("kind.connection_id")}>
               <Select value={form.connection_id || "none"} onValueChange={(v) => set({ connection_id: v === "none" ? "" : v })}>
@@ -248,6 +288,9 @@ export function SqlToolEditor({ projectId, tool }: { projectId: string; tool: To
               </Button>
             </div>
           </Section>
+
+            </>
+          )}
 
           <Section title="Response" description="Agents get {columns, rows, truncated}. Reshape it here if they need less.">
             <Field id="s-shape" label="Response shape (jq)" error={err("response_shape")} hint="Leave empty to return the result as is. The project's size limit still applies.">

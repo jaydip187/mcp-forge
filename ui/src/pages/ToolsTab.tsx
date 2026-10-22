@@ -121,7 +121,10 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
                 {t.kind.type === "http" ? (
                   <RequestLine method={t.kind.method} baseUrl={t.kind.base_url} path={t.kind.path_template} size="sm" showBase={false} className="mt-0.5" />
                 ) : (
-                  <SqlLine sql={t.kind.mode.sql} connection={connections.get(t.kind.connection_id)} />
+                  <SqlLine
+                    sql={t.kind.mode.type === "query" ? t.kind.mode.sql : t.kind.mode.type}
+                    connection={connections.get(t.kind.connection_id)}
+                  />
                 )}
                 {t.description && <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">{t.description}</p>}
                 {(() => {

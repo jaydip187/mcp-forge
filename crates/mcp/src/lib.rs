@@ -9,7 +9,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use forge_core::{HttpMethod, ProjectSettings, SecretResolver, ToolDef, ToolKind};
+use std::collections::HashMap;
+
+use forge_core::{
+    DbConnection, HttpMethod, ProjectSettings, SecretResolver, SqlMode, SqlSpec, ToolDef, ToolKind,
+};
 use forge_exec_http::shape::{shape_body, ShapeOptions};
 use forge_exec_http::{ExecError, HttpExecutor, HttpOutcome};
 use forge_exec_sql::{SqlError, SqlExecutor, SqlOutcome};
@@ -118,6 +122,18 @@ impl ForgeMcp {
         Ok(tools.into_iter().filter(|t| settings.exposes(t)).collect())
     }
 
+    /// The project's DB connections by id (SQL tool descriptions use them).
+    async fn connections(&self) -> Result<HashMap<Uuid, DbConnection>, ErrorData> {
+        Ok(self
+            .store
+            .list_connections(self.project_id)
+            .await
+            .map_err(internal)?
+            .into_iter()
+            .map(|c| (c.id, c))
+            .collect())
+    }
+
     async fn call_named(
         &self,
         name: &str,
@@ -168,6 +184,7 @@ impl ForgeMcp {
                 (l as usize).clamp(1, MAX_SEARCH_LIMIT)
             });
         let tools = self.exposed_tools(settings).await?;
+        let conns = self.connections().await?;
         let hits = search_tools(&tools, query, limit);
         if hits.is_empty() {
             return Ok(result(
@@ -180,7 +197,7 @@ impl ForgeMcp {
         let found: Vec<Value> = hits
             .iter()
             .map(|t| {
-                let m = to_mcp_tool(t);
+                let m = to_mcp_tool(t, connection_of(t, &conns));
                 json!({ "name": m.name, "description": m.description, "input_schema": m.input_schema })
             })
             .collect();
@@ -480,16 +497,86 @@ fn outcome_text(out: &HttpOutcome) -> (bool, String) {
     )
 }
 
-/// MCP view of a stored tool. Input schema is derived, never stored.
-pub fn to_mcp_tool(t: &ToolDef) -> Tool {
+fn connection_of<'a>(
+    t: &ToolDef,
+    conns: &'a HashMap<Uuid, DbConnection>,
+) -> Option<&'a DbConnection> {
+    t.kind.connection_ref().and_then(|id| conns.get(&id))
+}
+
+/// What an agent is told about a SQL tool. Exploration tools always get a
+/// description generated from the connection (driver, limits, allowlist,
+/// masks), after the user's own text if any; curated queries use the user's
+/// text, or a generated one when it's empty.
+pub fn sql_tool_description(t: &ToolDef, spec: &SqlSpec, conn: Option<&DbConnection>) -> String {
+    let user = t.description.trim();
+    let db = conn.map_or_else(
+        || "the configured database".to_owned(),
+        |c| format!("the `{}` database ({})", c.name, driver_label(c)),
+    );
+    let generated = match &spec.mode {
+        SqlMode::Query { .. } if !user.is_empty() => return user.to_owned(),
+        SqlMode::Query { .. } => {
+            format!("Runs a fixed read-only query on {db}. Returns {{columns, rows, truncated}}.")
+        }
+        SqlMode::ListTables => format!(
+            "Lists the tables and views you can query in {db}. Returns {{columns: [schema, name, type], rows}}. \
+             Then use describe_table to see a table's columns."
+        ),
+        SqlMode::DescribeTable => format!(
+            "Shows the columns of one table in {db}: type, nullable, default, primary key, and whether its \
+             values are masked."
+        ),
+        SqlMode::RunSql => {
+            let mut d = format!(
+                "Runs one read-only SQL query on {db}. Only SELECT (or WITH … SELECT) is allowed; writes, \
+                 multiple statements and system catalogs are refused. Returns {{columns, rows, truncated}}."
+            );
+            if let Some(c) = conn {
+                d.push_str(&format!(
+                    " At most {} rows; queries stop after {} s.",
+                    c.row_limit,
+                    f64::from(c.timeout_ms) / 1000.0
+                ));
+                if c.table_allowlist.is_empty() {
+                    d.push_str(" All non-system tables are available.");
+                } else {
+                    d.push_str(&format!(" Tables you may read: {}.", c.table_allowlist.join(", ")));
+                }
+                if !c.column_masks.is_empty() {
+                    let masks: Vec<String> = c.column_masks.iter().map(|m| m.to_string()).collect();
+                    d.push_str(&format!(
+                        " Masked columns ({}) can't be selected, filtered on or used in expressions; \
+                         `SELECT *` shows them as [masked].",
+                        masks.join(", ")
+                    ));
+                }
+            }
+            d
+        }
+    };
+    if user.is_empty() {
+        generated
+    } else {
+        format!("{user}\n\n{generated}")
+    }
+}
+
+fn driver_label(c: &DbConnection) -> &'static str {
+    match c.driver {
+        forge_core::Driver::Postgres => "PostgreSQL",
+        forge_core::Driver::Mysql => "MySQL",
+        forge_core::Driver::Sqlite => "SQLite",
+    }
+}
+
+/// MCP view of a stored tool. Input schema is derived, never stored. SQL
+/// tools need their connection to describe themselves fully.
+pub fn to_mcp_tool(t: &ToolDef, conn: Option<&DbConnection>) -> Tool {
     let spec = match &t.kind {
         ToolKind::Http(spec) => spec,
         ToolKind::Sql(spec) => {
-            let description = if t.description.trim().is_empty() {
-                "Runs a read-only SQL query and returns {columns, rows, truncated}.".to_owned()
-            } else {
-                t.description.clone()
-            };
+            let description = sql_tool_description(t, spec, conn);
             // Curated queries only read, and only from the configured database.
             let annotations = ToolAnnotations::new()
                 .read_only(true)
@@ -548,8 +635,12 @@ impl ServerHandler for ForgeMcp {
             return Ok(ListToolsResult::with_all_items(search_tool_defs()));
         }
         let tools = self.exposed_tools(&settings).await?;
+        let conns = self.connections().await?;
         Ok(ListToolsResult::with_all_items(
-            tools.iter().map(to_mcp_tool).collect(),
+            tools
+                .iter()
+                .map(|t| to_mcp_tool(t, connection_of(t, &conns)))
+                .collect(),
         ))
     }
 

@@ -4,10 +4,10 @@
 > Legend: `[ ]` todo · `[~]` in progress / partial · `[x]` done · `[-]` dropped (say why)
 
 ## Next up
-Stage 8 review → then Stage 9: list_tables / describe_table / run_sql (opt-in)
+Stage 9 review → then Stage 10: statement classifier (Read/Write/DDL/Admin)
 
 ## Current stage
-**Stage 8 — DB connections + curated read-only queries** · status: done · review: requested
+**Stage 9 — Exploration + read-only run_sql** · status: done · review: requested
 
 ---
 
@@ -88,12 +88,12 @@ Stage 8 review → then Stage 9: list_tables / describe_table / run_sql (opt-in)
 - [x] Row limit, timeout, cell cap, column masks
 - [x] SQLite → Postgres → MySQL
 - [x] testcontainers tests per layer
-- [ ] Stage review approved
+- [x] Stage review approved
 
 ### Stage 9 — Exploration + read-only run_sql
-- [ ] list_tables / describe_table / run_sql (opt-in)
-- [ ] Table allowlist + masks
-- [ ] Generated descriptions + readOnlyHint
+- [x] list_tables / describe_table / run_sql (opt-in)
+- [x] Table allowlist + masks
+- [x] Generated descriptions + readOnlyHint
 - [ ] Stage review approved
 
 ### Stage 10 — Writes
@@ -201,6 +201,13 @@ Stage 8 review → then Stage 9: list_tables / describe_table / run_sql (opt-in)
 - 2026-10-22 · Deps: `sqlparser` 0.63 (visitor), sqlx features postgres/mysql/json/uuid/rust_decimal/tls-rustls-ring-webpki, `futures-util`, dev `testcontainers-modules` 0.15 (postgres:16-alpine, mysql:8.4)
 - 2026-10-22 · Docker tests (`crates/exec_sql/tests/containers.rs`) are `#[ignore = "needs Docker"]`; a dedicated ubuntu CI job runs them with `--ignored`
 - 2026-10-22 · UI: Databases tab (list, add/edit, Test with the write-access warning, SELECT-only recommendation), SQL tool editor (connection, SQL with `:name` param sync on blur, typed params, jq shape), SQL rows/query view in the test console; "New SQL tool" route `#/p/{id}/tools/new-sql`. `table_allowlist` is not shown until Stage 9 enforces it
+- 2026-10-22 · Exploration tools are stored SQL tools with `SqlMode::ListTables | DescribeTable | RunSql` (no SQL/params; fixed inputs `pattern?`, `table`, `sql`). Opt-in per connection via `POST …/db-connections/{id}/exploration-tools {modes}`: creates `{connection}_{mode}` (deduped `_2…`, tag `database`, empty description), skips modes the connection already has. Disable/delete like any tool · matches the PROMPT IR; no hidden virtual tools
+- 2026-10-22 · Descriptions of exploration tools (and of curated queries with no description) are generated at list time from the connection: database name + driver, row/time limits, allowed tables, masked columns. A user description is shown first · stays current when the connection changes. `to_mcp_tool(tool, Option<&DbConnection>)`
+- 2026-10-22 · Table allowlist applies to the exploration tools only (curated queries are admin-written). Entries `*`, `schema.*`, `schema.table`, `table` (any schema), case-insensitive; empty = every non-system table. Unqualified references match `schema.…` entries only for the fixed default schema (PG `public`, SQLite `main`; none for MySQL, so use unqualified names there). System catalogs (pg_catalog, information_schema, pg_toast, mysql, performance_schema, sys, unqualified `pg_*` on PG, `sqlite_*`) are always refused in run_sql/describe and hidden from list_tables
+- 2026-10-22 · Table references are collected with CTE scoping: a reference to a visible CTE isn't a table, but inside a non-recursive CTE's own body (or earlier siblings) a same-named reference is the real table, and a CTE inside a subquery doesn't hide outer tables · stops `WITH users AS (SELECT * FROM secrets) …`-style allowlist bypasses
+- 2026-10-22 · run_sql masks are strict (curated queries keep result-name masking): when a mask applies to a table the query reads (or is `*.col`), the query is refused if any identifier names a masked column (aliases, functions, WHERE, ORDER BY), it uses a whole-row reference (`to_json(u)`), `t.*` inside expressions/function calls, `(expr).*`, or `*` anywhere but the outermost plain SELECT. The outermost `SELECT *` stays allowed and its masked columns come back as `[masked]` by name
+- 2026-10-22 · run_sql refuses placeholders ("write values inline"); denylist gained `table_to_xml*`, `schema_to_xml*`, `database_to_xml*`, `cursor_to_xmlschema`, `ts_stat` (read tables by name / run SQL from a string)
+- 2026-10-22 · list_tables/describe_table use information_schema (PG, MySQL `DATABASE()` only) or sqlite_master/`pragma_table_info`, run through the same read-only session (≤2 000 catalog rows), then filter by allowlist + system rules. describe_table output: `column, type, nullable, default, primary_key, masked`; a name matching several *visible* schemas asks for `schema.table`; schemas the connection can't read are ignored. Results use the `{columns, rows, truncated}` shape
 - 2026-10-21 · `.gitattributes` forces LF (esp. `migrations/*.sql`) · sqlx checksums migrations; CRLF conversion on Windows checkouts would break existing DBs
 - 2026-10-21 · Timestamps truncated to ms so they round-trip through SQLite exactly
 
@@ -213,8 +220,8 @@ Stage 8 review → then Stage 9: list_tables / describe_table / run_sql (opt-in)
 
 ## Known issues / tech debt
 <!-- Append: YYYY-MM-DD · issue · stage to fix -->
-- 2026-10-22 · Column masks match result column *names*: an alias or expression (`SELECT email AS e`, `lower(email)`) escapes them. Fine for admin-written curated SQL, not for agent SQL. · Stage 9 run_sql must reject queries referencing masked columns
-- 2026-10-22 · `table_allowlist` is stored and validated but not enforced (exploration tools don't exist yet). · Stage 9
+- 2026-10-22 · Curated queries still mask by result column *name* (an alias escapes it); run_sql uses the strict check. · fine while curated SQL is admin-written
+- 2026-10-22 · The allowlist/mask checks are static: a user-defined function that reads other tables, or `ORDER BY 3` on a masked column (ordering side channel), isn't caught. Hard isolation needs a DB role limited to the allowed tables/columns (the Test button shows what the role can do). · document in Stage 11 security model
 - 2026-10-22 · Postgres binds are typed (`string` → TEXT), so comparing a string param to a date/uuid column needs a cast in the SQL (`:since::timestamptz`); the editor hint says so. · consider more param types (date, uuid) later
 - 2026-10-22 · Privilege check limits: MySQL roles granted to the user aren't expanded (reported as a warning); SQLite only checks file permissions; PgBouncer may reject the `default_transaction_read_only` startup option (the per-run `BEGIN READ ONLY` still applies). · revisit on user reports
 - 2026-10-22 · Pools are cached per connection in the process; `serve` drops them on edit/delete, but a CLI bundle import that changes a connection isn't seen by a running `serve` until its DSN/driver/timeout changes. · same as the existing out-of-process note
@@ -243,6 +250,14 @@ Stage 8 review → then Stage 9: list_tables / describe_table / run_sql (opt-in)
 - **Gotchas:** 
 - **Next step:** 
 -->
+
+### Session 10 — 2026-10-22
+- **Stage/task:** Stage 9 — Exploration tools + read-only run_sql (all tasks); Stage 8 approved ("continue")
+- **Done:** core exploration `SqlMode`s with fixed inputs; guard CTE scoping, allowlist/system-table rules, strict mask check, more denied functions; `explore.rs` (per-driver catalog SQL, filtering, describe output); executor dispatch (`run_query` handles all modes, shared `execute`); MCP generated descriptions from the connection; opt-in endpoint; UI allowlist field, Agent tools panel, exploration tool editor view, SQL textarea in the console
+- **Not done / partial:** none
+- **Tests:** passing — workspace + clippy + fmt; exec_sql lib 17 (CTE shadowing, allowlist/system, 10 mask bypass shapes, explore filtering); containers 2 (PG 16 + MySQL 8.4 now also cover list/describe/run_sql, schema shadowing, pg_user/pg_roles/mysql.user/information_schema refused); server `exploration_tools_respect_allowlist_and_masks` (the "done when", over MCP); UI 23. Browser QA: set allowlist, added all three agent tools, `lower(email)` refused as masked, a join/aggregate ran
+- **Gotchas:** first container run found describe_table calling `users` ambiguous because a non-allowed schema also had `users` → filter by allowlist before the ambiguity check; sqlparser doesn't parse a bare `TABLE x` statement (refused anyway)
+- **Next step:** Stage 9 review, then Stage 10 writes
 
 ### Session 9 — 2026-10-22
 - **Stage/task:** Stage 8 — DB connections + curated read-only queries (all tasks); Stage 7 approved ("continue")

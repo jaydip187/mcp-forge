@@ -1,12 +1,14 @@
 //! Static checks on SQL before it reaches a database: placeholder binding and
 //! the read-only AST guard (layers 3 and 4 of the read-only model).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::ops::ControlFlow;
 
-use forge_core::Driver;
+use forge_core::{ColumnMask, Driver};
 use sqlparser::ast::{
-    Expr, ObjectName, ObjectNamePart, Query, SetExpr, Statement, TableFactor, Visit, Visitor,
+    Expr, FunctionArg, FunctionArgExpr, FunctionArguments, Ident, ObjectName, ObjectNamePart,
+    Query, Select, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, Statement, TableFactor,
+    Visit, Visitor,
 };
 use sqlparser::dialect::{Dialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
 use sqlparser::parser::Parser;
@@ -127,6 +129,19 @@ const DENIED_FUNCTIONS: &[&str] = &[
     "query_to_xmlschema",
     "query_to_xml_and_xmlschema",
     "cursor_to_xml",
+    "cursor_to_xmlschema",
+    // These read whole tables by name or run SQL from a string, which would
+    // get around the table allowlist.
+    "table_to_xml",
+    "table_to_xmlschema",
+    "table_to_xml_and_xmlschema",
+    "schema_to_xml",
+    "schema_to_xmlschema",
+    "schema_to_xml_and_xmlschema",
+    "database_to_xml",
+    "database_to_xmlschema",
+    "database_to_xml_and_xmlschema",
+    "ts_stat",
     // MySQL
     "sleep",
     "benchmark",
@@ -171,16 +186,30 @@ fn full_name(name: &ObjectName) -> String {
 }
 
 /// Facts about a statement that passed the guard.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckedQuery {
     /// Tables and views the query reads (as written, possibly qualified).
+    /// References to the query's own CTEs are not included.
     pub tables: Vec<String>,
+    /// Table names and aliases usable as whole-row references.
+    pub row_names: Vec<String>,
+    pub statement: Statement,
+}
+
+/// CTE names visible inside one query, and those visible inside each of its
+/// CTE bodies (a non-recursive CTE can't see itself or later siblings, so a
+/// same-named reference there is the real table).
+struct Scope {
+    visible: HashSet<String>,
+    ctes: Vec<(*const Query, HashSet<String>)>,
 }
 
 #[derive(Default)]
 struct Guard {
     problem: Option<String>,
     tables: BTreeSet<String>,
+    row_names: BTreeSet<String>,
+    scopes: Vec<Scope>,
 }
 
 impl Guard {
@@ -222,6 +251,41 @@ impl Visitor for Guard {
     }
 
     fn pre_visit_query(&mut self, q: &Query) -> ControlFlow<()> {
+        let base = match self.scopes.last() {
+            Some(top) => top
+                .ctes
+                .iter()
+                .find(|(p, _)| std::ptr::eq(*p, q))
+                .map_or_else(|| top.visible.clone(), |(_, v)| v.clone()),
+            None => HashSet::new(),
+        };
+        let mut scope = Scope {
+            visible: base.clone(),
+            ctes: Vec::new(),
+        };
+        if let Some(w) = &q.with {
+            let aliases: Vec<String> = w
+                .cte_tables
+                .iter()
+                .map(|c| c.alias.name.value.to_lowercase())
+                .collect();
+            for (i, c) in w.cte_tables.iter().enumerate() {
+                let mut v = base.clone();
+                v.extend(
+                    if w.recursive {
+                        &aliases[..]
+                    } else {
+                        &aliases[..i]
+                    }
+                    .iter()
+                    .cloned(),
+                );
+                scope.ctes.push((&*c.query as *const Query, v));
+            }
+            scope.visible.extend(aliases);
+        }
+        self.scopes.push(scope);
+        collect_table_exprs(&q.body, &mut self.tables);
         if !q.locks.is_empty() {
             return self.reject("locking clauses (FOR UPDATE/SHARE) are not allowed".into());
         }
@@ -239,6 +303,11 @@ impl Visitor for Guard {
         }
     }
 
+    fn post_visit_query(&mut self, _q: &Query) -> ControlFlow<()> {
+        self.scopes.pop();
+        ControlFlow::Continue(())
+    }
+
     fn pre_visit_table_factor(&mut self, t: &TableFactor) -> ControlFlow<()> {
         match t {
             TableFactor::Table {
@@ -252,9 +321,27 @@ impl Visitor for Guard {
                 self.reject(format!("function `{}` is not allowed", full_name(name)))
             }
             TableFactor::Table {
-                name, args: None, ..
+                name,
+                alias,
+                args: None,
+                ..
             } => {
-                self.tables.insert(full_name(name));
+                self.row_names.insert(last_part(name).to_lowercase());
+                if let Some(a) = alias {
+                    self.row_names.insert(a.name.value.to_lowercase());
+                }
+                let is_cte = name.0.len() == 1
+                    && self
+                        .scopes
+                        .last()
+                        .is_some_and(|s| s.visible.contains(&last_part(name).to_lowercase()));
+                if !is_cte {
+                    self.tables.insert(full_name(name));
+                }
+                ControlFlow::Continue(())
+            }
+            TableFactor::Derived { alias: Some(a), .. } => {
+                self.row_names.insert(a.name.value.to_lowercase());
                 ControlFlow::Continue(())
             }
             _ => ControlFlow::Continue(()),
@@ -289,8 +376,207 @@ pub fn check_read_only(sql: &str, driver: Driver) -> Result<CheckedQuery, String
         Some(p) => Err(p),
         None => Ok(CheckedQuery {
             tables: guard.tables.into_iter().collect(),
+            row_names: guard.row_names.into_iter().collect(),
+            statement: stmt.clone(),
         }),
     }
+}
+
+/// `TABLE name` reads a table without a FROM clause.
+fn collect_table_exprs(body: &SetExpr, out: &mut BTreeSet<String>) {
+    match body {
+        SetExpr::Table(t) => {
+            if let Some(name) = &t.table_name {
+                out.insert(match &t.schema_name {
+                    Some(s) => format!("{s}.{name}"),
+                    None => name.clone(),
+                });
+            }
+        }
+        SetExpr::SetOperation { left, right, .. } => {
+            collect_table_exprs(left, out);
+            collect_table_exprs(right, out);
+        }
+        _ => {}
+    }
+}
+
+/// `(schema, name)` of a table reference, lower-cased. `a.b.c` → `(a.b, c)`.
+fn split_table(table: &str) -> (Option<String>, String) {
+    let t = table.to_lowercase();
+    match t.rsplit_once('.') {
+        Some((s, n)) => (Some(s.to_owned()), n.to_owned()),
+        None => (None, t),
+    }
+}
+
+/// The schema an unqualified name resolves to, when it's fixed.
+fn default_schema(driver: Driver) -> Option<&'static str> {
+    match driver {
+        Driver::Postgres => Some("public"),
+        Driver::Sqlite => Some("main"),
+        // The connection's database; not known without asking the server.
+        Driver::Mysql => None,
+    }
+}
+
+/// System catalogs: never readable through `run_sql`, whatever the allowlist.
+pub fn is_system_table(table: &str, driver: Driver) -> bool {
+    const SYSTEM_SCHEMAS: &[&str] = &[
+        "pg_catalog",
+        "information_schema",
+        "pg_toast",
+        "mysql",
+        "performance_schema",
+        "sys",
+    ];
+    let (schema, name) = split_table(table);
+    match schema {
+        Some(s) => {
+            let last = s.rsplit('.').next().unwrap_or(&s);
+            SYSTEM_SCHEMAS.contains(&last)
+                || (driver == Driver::Sqlite && name.starts_with("sqlite_"))
+        }
+        // Unqualified pg_* names resolve to pg_catalog first.
+        None => {
+            (driver == Driver::Postgres && name.starts_with("pg_"))
+                || (driver == Driver::Sqlite && name.starts_with("sqlite_"))
+        }
+    }
+}
+
+/// Whether `table` (as written in a query or passed to `describe_table`) is
+/// covered by the allowlist. Entries: `*`, `schema.*`, `schema.table` or
+/// `table` (any schema). An empty allowlist allows every non-system table.
+/// Unqualified references match `schema.…` entries only for the driver's
+/// fixed default schema (`public`, `main`).
+pub fn table_allowed(table: &str, allowlist: &[String], driver: Driver) -> bool {
+    if allowlist.is_empty() {
+        return true;
+    }
+    let (schema, name) = split_table(table);
+    let schema = schema.or_else(|| default_schema(driver).map(str::to_owned));
+    allowlist.iter().any(|entry| {
+        let entry = entry.to_lowercase();
+        if entry == "*" {
+            return true;
+        }
+        match entry.rsplit_once('.') {
+            None => entry == name,
+            Some((es, en)) => schema.as_deref() == Some(es) && (en == "*" || en == name),
+        }
+    })
+}
+
+/// Columns masked for a query that reads `tables`.
+pub fn masked_columns(masks: &[ColumnMask], tables: &[String]) -> HashSet<String> {
+    masks
+        .iter()
+        .filter(|m| m.applies(&m.column, tables))
+        .map(|m| m.column.to_lowercase())
+        .collect()
+}
+
+struct MaskGuard<'a> {
+    columns: &'a HashSet<String>,
+    row_names: HashSet<String>,
+    top_select: Option<*const Select>,
+    problem: Option<String>,
+}
+
+impl MaskGuard<'_> {
+    fn reject(&mut self, why: String) -> ControlFlow<()> {
+        self.problem = Some(why);
+        ControlFlow::Break(())
+    }
+}
+
+impl Visitor for MaskGuard<'_> {
+    type Break = ();
+
+    fn pre_visit_ident(&mut self, i: &Ident) -> ControlFlow<()> {
+        if self.columns.contains(&i.value.to_lowercase()) {
+            return self.reject(format!(
+                "column `{}` is masked and can't be used in queries",
+                i.value
+            ));
+        }
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_expr(&mut self, e: &Expr) -> ControlFlow<()> {
+        match e {
+            // `to_json(u)` etc. would return the whole row, masked columns included.
+            Expr::Identifier(i) if self.row_names.contains(&i.value.to_lowercase()) => self.reject(
+                format!(
+                    "whole-row references like `{}` aren't allowed while columns are masked; name the columns",
+                    i.value
+                ),
+            ),
+            Expr::QualifiedWildcard(..) => {
+                self.reject("`t.*` inside expressions isn't allowed while columns are masked".into())
+            }
+            Expr::Function(f) => {
+                let star = matches!(&f.args, FunctionArguments::List(l) if l.args.iter().any(|a| matches!(a,
+                    FunctionArg::Unnamed(FunctionArgExpr::QualifiedWildcard(_))
+                        | FunctionArg::Named { arg: FunctionArgExpr::QualifiedWildcard(_), .. }
+                        | FunctionArg::ExprNamed { arg: FunctionArgExpr::QualifiedWildcard(_), .. })));
+                if star {
+                    self.reject(
+                        "`t.*` inside function calls isn't allowed while columns are masked".into(),
+                    )
+                } else {
+                    ControlFlow::Continue(())
+                }
+            }
+            _ => ControlFlow::Continue(()),
+        }
+    }
+
+    fn pre_visit_select(&mut self, s: &Select) -> ControlFlow<()> {
+        let top = self.top_select.is_some_and(|t| std::ptr::eq(t, s));
+        for item in &s.projection {
+            match item {
+                SelectItem::QualifiedWildcard(SelectItemQualifiedWildcardKind::Expr(_), _) => {
+                    return self.reject("`(expr).*` isn't allowed while columns are masked".into());
+                }
+                // Masking works on result column names, which a nested or
+                // set-operation `*` can rename; only the outermost SELECT may use it.
+                SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(..) if !top => {
+                    return self.reject(
+                        "`*` is only allowed in the outermost SELECT while columns are masked; name the columns"
+                            .into(),
+                    );
+                }
+                _ => {}
+            }
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+/// For agent-written SQL: refuses any way of reading a masked column other
+/// than through a result column of the same name (which is then masked).
+pub fn check_masks(q: &CheckedQuery, masks: &[ColumnMask]) -> Result<(), String> {
+    let columns = masked_columns(masks, &q.tables);
+    if columns.is_empty() {
+        return Ok(());
+    }
+    let top_select = match &q.statement {
+        Statement::Query(query) => match query.body.as_ref() {
+            SetExpr::Select(s) => Some(&**s as *const Select),
+            _ => None,
+        },
+        _ => None,
+    };
+    let mut g = MaskGuard {
+        columns: &columns,
+        row_names: q.row_names.iter().cloned().collect(),
+        top_select,
+        problem: None,
+    };
+    let _ = q.statement.visit(&mut g);
+    g.problem.map_or(Ok(()), Err)
 }
 
 #[cfg(test)]
@@ -397,6 +683,100 @@ mod tests {
     }
 
     #[test]
+    fn cte_references_are_not_tables_but_shadowing_is_caught() {
+        let t = |sql: &str| check_read_only(sql, Driver::Postgres).unwrap().tables;
+        assert_eq!(
+            t("WITH x AS (SELECT * FROM orders) SELECT * FROM x"),
+            ["orders"]
+        );
+        // Non-recursive: inside its own body, `secrets` is the real table.
+        assert_eq!(
+            t("WITH secrets AS (SELECT * FROM secrets) SELECT * FROM secrets"),
+            ["secrets"]
+        );
+        // A later sibling isn't visible to an earlier one.
+        assert_eq!(
+            t("WITH a AS (SELECT * FROM b), b AS (SELECT 1) SELECT * FROM a"),
+            ["b"]
+        );
+        // A CTE inside a subquery doesn't hide the outer real table.
+        assert_eq!(
+            t("SELECT * FROM (WITH users AS (SELECT 1) SELECT * FROM users) s JOIN users ON true"),
+            ["users"]
+        );
+        assert!(t("WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 3) SELECT * FROM c").is_empty());
+        // A bare `TABLE secrets` statement doesn't parse (so it's refused).
+        assert!(check_read_only("TABLE secrets", Driver::Postgres).is_err());
+        assert_eq!(t("SELECT 1 UNION TABLE public.s"), ["public.s"]);
+    }
+
+    #[test]
+    fn allowlist_and_system_tables() {
+        let allow = |list: &[&str], t: &str, d| {
+            table_allowed(
+                t,
+                &list.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                d,
+            )
+        };
+        assert!(allow(&[], "anything", Driver::Postgres));
+        assert!(allow(&["users"], "USERS", Driver::Postgres));
+        assert!(allow(&["users"], "sales.users", Driver::Postgres));
+        assert!(allow(&["public.users"], "users", Driver::Postgres));
+        assert!(!allow(&["sales.users"], "users", Driver::Postgres));
+        assert!(allow(&["sales.*"], "sales.orders", Driver::Postgres));
+        assert!(!allow(&["sales.*"], "orders", Driver::Postgres));
+        assert!(allow(&["main.*"], "orders", Driver::Sqlite));
+        assert!(!allow(&["shop.users"], "users", Driver::Mysql));
+        assert!(allow(&["*"], "x.y", Driver::Mysql));
+        assert!(!allow(&["users"], "orders", Driver::Mysql));
+
+        for (t, d) in [
+            ("pg_catalog.pg_authid", Driver::Postgres),
+            ("pg_user", Driver::Postgres),
+            ("information_schema.tables", Driver::Mysql),
+            ("mysql.user", Driver::Mysql),
+            ("sqlite_master", Driver::Sqlite),
+            ("main.sqlite_schema", Driver::Sqlite),
+        ] {
+            assert!(is_system_table(t, d), "{t}");
+        }
+        assert!(!is_system_table("pg_orders", Driver::Mysql));
+        assert!(!is_system_table("public.users", Driver::Postgres));
+    }
+
+    #[test]
+    fn masks_block_every_way_to_read_the_column() {
+        let masks = [ColumnMask::parse("users.password_hash").unwrap()];
+        let check = |sql: &str| {
+            let q = check_read_only(sql, Driver::Postgres).unwrap();
+            check_masks(&q, &masks)
+        };
+        check("SELECT * FROM users").unwrap();
+        check("SELECT u.* FROM users u").unwrap();
+        check("SELECT id, name FROM users WHERE id = 1").unwrap();
+        check("SELECT count(*) FROM users").unwrap();
+        check("SELECT password_hash FROM orders").unwrap(); // mask is for users only
+        for sql in [
+            "SELECT password_hash FROM users",
+            "SELECT password_hash AS p FROM users",
+            "SELECT id FROM users WHERE password_hash LIKE 'a%'",
+            "SELECT md5(u.password_hash) FROM users u",
+            "SELECT to_json(u) FROM users u",
+            "SELECT row_to_json(x) FROM (SELECT id FROM users) x",
+            "SELECT json_agg(u.*) FROM users u",
+            "SELECT * FROM (SELECT * FROM users) x",
+            "SELECT 'a' AS a, 'b' AS b, 'c' AS c, 'd' AS d UNION ALL SELECT * FROM users",
+            "WITH x AS (SELECT * FROM users) SELECT id FROM x",
+        ] {
+            assert!(check(sql).is_err(), "{sql}");
+        }
+        let any = [ColumnMask::parse("*.email").unwrap()];
+        let q = check_read_only("SELECT email FROM anything", Driver::Sqlite).unwrap();
+        assert!(check_masks(&q, &any).is_err());
+    }
+
+    #[test]
     fn rejects_denied_functions_anywhere() {
         for (d, sql) in [
             (Driver::Postgres, "SELECT pg_terminate_backend(123)"),
@@ -420,6 +800,14 @@ mod tests {
                 "SELECT query_to_xml('DELETE FROM t', true, true, '')",
             ),
             (Driver::Mysql, "SELECT SLEEP(10)"),
+            (
+                Driver::Postgres,
+                "SELECT table_to_xml('secrets', true, true, '')",
+            ),
+            (
+                Driver::Postgres,
+                "SELECT * FROM ts_stat('SELECT body FROM secrets')",
+            ),
             (Driver::Mysql, "SELECT LOAD_FILE('/etc/passwd')"),
             (Driver::Mysql, "SELECT BENCHMARK(1000000, MD5('x'))"),
             (Driver::Sqlite, "SELECT load_extension('evil')"),

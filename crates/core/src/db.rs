@@ -1,4 +1,5 @@
-//! Database connections and SQL tools (Stage 8: curated read-only queries).
+//! Database connections and SQL tools: curated read-only queries and the
+//! opt-in exploration tools (`list_tables`, `describe_table`, `run_sql`).
 
 use std::collections::HashSet;
 use std::fmt;
@@ -258,7 +259,30 @@ pub enum SqlMode {
         #[serde(default)]
         params: Vec<SqlParam>,
     },
+    /// Lists tables and views the connection may read (allowlist applies).
+    ListTables,
+    /// Columns, types, nullability and primary key of one allowed table.
+    DescribeTable,
+    /// Runs one agent-written read-only query against allowed tables.
+    RunSql,
 }
+
+impl SqlMode {
+    /// Snake-case name, as in the serialized `type` tag.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SqlMode::Query { .. } => "query",
+            SqlMode::ListTables => "list_tables",
+            SqlMode::DescribeTable => "describe_table",
+            SqlMode::RunSql => "run_sql",
+        }
+    }
+}
+
+/// Argument names of the exploration tools.
+pub const PATTERN_ARG: &str = "pattern";
+pub const TABLE_ARG: &str = "table";
+pub const SQL_ARG: &str = "sql";
 
 /// Scalar JSON types a SQL param can have; values are bound with the matching
 /// database type.
@@ -305,10 +329,53 @@ impl SqlSpec {
     pub fn params(&self) -> &[SqlParam] {
         match &self.mode {
             SqlMode::Query { params, .. } => params,
+            _ => &[],
         }
     }
 
     pub fn derive_input(&self) -> DerivedInput {
+        let fixed = |name: &str, desc: &str, required: bool| {
+            let Value::Object(schema) = json!({
+                "type": "object",
+                "properties": { name: { "type": "string", "description": desc } },
+                "required": if required { vec![name] } else { vec![] },
+                "additionalProperties": false,
+            }) else {
+                unreachable!("json! object literal")
+            };
+            let bindings = vec![ArgBinding {
+                arg: name.to_owned(),
+                target: ArgTarget::SqlParam {
+                    name: name.to_owned(),
+                },
+                required,
+            }];
+            DerivedInput { schema, bindings }
+        };
+        match &self.mode {
+            SqlMode::Query { .. } => {}
+            SqlMode::ListTables => {
+                return fixed(
+                    PATTERN_ARG,
+                    "Only tables whose name contains this text (case-insensitive).",
+                    false,
+                )
+            }
+            SqlMode::DescribeTable => {
+                return fixed(
+                    TABLE_ARG,
+                    "Table name, optionally schema-qualified (`orders` or `sales.orders`).",
+                    true,
+                )
+            }
+            SqlMode::RunSql => {
+                return fixed(
+                    SQL_ARG,
+                    "One read-only SELECT statement. Write values inline; no placeholders.",
+                    true,
+                )
+            }
+        }
         let mut properties = Map::new();
         let mut required = Vec::new();
         let mut bindings = Vec::new();
@@ -344,7 +411,9 @@ impl SqlSpec {
     /// Structural checks. Placeholder matching and the read-only SQL check
     /// need a SQL parser and run in the SQL executor.
     pub(crate) fn validate_into(&self, errs: &mut ValidationErrors) {
-        let SqlMode::Query { sql, params } = &self.mode;
+        let SqlMode::Query { sql, params } = &self.mode else {
+            return;
+        };
         if sql.trim().is_empty() {
             errs.push("kind.mode.sql", "must not be empty");
         } else if sql.len() > MAX_SQL_LEN {
@@ -483,5 +552,24 @@ mod tests {
         ] {
             assert!(errs.has(f), "{f}: {errs}");
         }
+    }
+
+    #[test]
+    fn exploration_modes_have_fixed_inputs() {
+        let spec = |mode: Value| -> SqlSpec {
+            serde_json::from_value(json!({ "connection_id": Uuid::nil(), "mode": mode })).unwrap()
+        };
+        let d = spec(json!({ "type": "run_sql" })).derive_input();
+        assert_eq!(d.schema["required"], json!(["sql"]));
+        assert_eq!(d.bindings[0].arg, "sql");
+        let d = spec(json!({ "type": "list_tables" })).derive_input();
+        assert_eq!(d.schema["required"], json!([]));
+        assert!(d.schema["properties"]["pattern"].is_object());
+        let s = spec(json!({ "type": "describe_table" }));
+        assert_eq!(s.mode.as_str(), "describe_table");
+        assert!(s.params().is_empty());
+        let mut errs = ValidationErrors::default();
+        s.validate_into(&mut errs);
+        assert!(errs.is_empty());
     }
 }

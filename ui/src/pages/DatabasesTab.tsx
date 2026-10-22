@@ -1,19 +1,31 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { CircleCheckIcon, PlugZapIcon, TriangleAlertIcon } from "lucide-react";
+import { BotIcon, CircleCheckIcon, PlugZapIcon, TriangleAlertIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { fieldError } from "@/lib/projects";
-import { splitList } from "@/lib/sqlForm";
-import { DRIVER_LABEL, DRIVERS, type ConnectionReport, type DbConnection, type DbConnectionInput, type Driver } from "@/types";
+import { href } from "@/lib/router";
+import { EXPLORATION_LABEL, splitList } from "@/lib/sqlForm";
+import {
+  DRIVER_LABEL,
+  DRIVERS,
+  EXPLORATION_MODES,
+  type ConnectionReport,
+  type DbConnection,
+  type DbConnectionInput,
+  type Driver,
+  type ExplorationMode,
+  type Tool,
+} from "@/types";
 
 const DSN_EXAMPLE: Record<Driver, string> = {
   postgres: "postgres://readonly:PASSWORD@db.example.com:5432/shop",
@@ -39,10 +51,24 @@ export function DatabasesTab({ projectId }: { projectId: string }) {
   const [editing, setEditing] = useState<DbConnection | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [reports, setReports] = useState<Record<string, ConnectionReport | "running">>({});
+  const [tools, setTools] = useState<Tool[]>([]);
+  const [agentPanel, setAgentPanel] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setConns(await api.listConnections(projectId));
+    const [cs, ts] = await Promise.all([api.listConnections(projectId), api.listTools(projectId)]);
+    setConns(cs);
+    setTools(ts);
   }, [projectId]);
+
+  /** Exploration tools a connection already has, by mode. */
+  const explorationTools = (c: DbConnection) =>
+    new Map(
+      tools.flatMap((t) =>
+        t.kind.type === "sql" && t.kind.connection_id === c.id && t.kind.mode.type !== "query"
+          ? [[t.kind.mode.type, t] as const]
+          : [],
+      ),
+    );
   useEffect(() => {
     void load();
   }, [load]);
@@ -98,6 +124,7 @@ export function DatabasesTab({ projectId }: { projectId: string }) {
                       <p className="text-sm text-muted-foreground">
                         {DRIVER_LABEL[c.driver]} · read-only · up to {c.row_limit} rows · {c.timeout_ms / 1000}s limit
                         {c.column_masks.length > 0 && ` · ${c.column_masks.length} masked column${c.column_masks.length > 1 ? "s" : ""}`}
+                        {` · ${c.table_allowlist.length ? `${c.table_allowlist.length} allowed table${c.table_allowlist.length > 1 ? "s" : ""}` : "all tables allowed"}`}
                       </p>
                       <p className="font-mono text-xs text-muted-foreground">{c.dsn_ref}</p>
                     </div>
@@ -115,6 +142,9 @@ export function DatabasesTab({ projectId }: { projectId: string }) {
                         <Button size="sm" variant="outline" onClick={() => void test(c)} disabled={report === "running"}>
                           <PlugZapIcon /> {report === "running" ? "Testing…" : "Test"}
                         </Button>
+                        <Button size="sm" variant="outline" onClick={() => setAgentPanel(agentPanel === c.id ? null : c.id)} aria-expanded={agentPanel === c.id}>
+                          <BotIcon /> Agent tools
+                        </Button>
                         <Button size="sm" variant="outline" onClick={() => setEditing(c)}>
                           Edit
                         </Button>
@@ -125,6 +155,16 @@ export function DatabasesTab({ projectId }: { projectId: string }) {
                     )}
                   </div>
                   {report && report !== "running" && <Report report={report} />}
+                  {agentPanel === c.id && (
+                    <AgentTools
+                      projectId={projectId}
+                      conn={c}
+                      existing={explorationTools(c)}
+                      onAdded={async () => {
+                        await load();
+                      }}
+                    />
+                  )}
                 </li>
               );
             })}
@@ -141,6 +181,95 @@ export function DatabasesTab({ projectId }: { projectId: string }) {
           await load();
         }}
       />
+    </div>
+  );
+}
+
+/** Opt-in exploration tools for one connection. */
+function AgentTools({
+  projectId,
+  conn,
+  existing,
+  onAdded,
+}: {
+  projectId: string;
+  conn: DbConnection;
+  existing: Map<ExplorationMode, Tool>;
+  onAdded: () => Promise<void>;
+}) {
+  const [picked, setPicked] = useState<Set<ExplorationMode>>(
+    () => new Set(EXPLORATION_MODES.filter((m) => m !== "run_sql" && !existing.has(m))),
+  );
+  const [busy, setBusy] = useState(false);
+  const missing = EXPLORATION_MODES.filter((m) => !existing.has(m));
+
+  async function add() {
+    setBusy(true);
+    try {
+      const r = await api.addExplorationTools(projectId, conn.id, [...picked]);
+      toast.success(`Added ${r.created.map((t) => t.name).join(", ")}`);
+      setPicked(new Set());
+      await onAdded();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-md border bg-muted/40 p-3">
+      <p className="text-sm text-muted-foreground">
+        Let agents explore this database themselves. Everything stays read-only and limited to{" "}
+        {conn.table_allowlist.length ? `the ${conn.table_allowlist.length} allowed tables` : "non-system tables"}
+        {conn.column_masks.length > 0 && ", with masked columns kept out of reach"}.
+      </p>
+      <ul className="grid gap-2">
+        {EXPLORATION_MODES.map((m) => {
+          const tool = existing.get(m);
+          return (
+            <li key={m} className="flex items-start gap-2">
+              {tool ? (
+                <CircleCheckIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+              ) : (
+                <Checkbox
+                  id={`x-${conn.id}-${m}`}
+                  className="mt-0.5"
+                  checked={picked.has(m)}
+                  onCheckedChange={(v) => {
+                    const next = new Set(picked);
+                    if (v === true) next.add(m);
+                    else next.delete(m);
+                    setPicked(next);
+                  }}
+                />
+              )}
+              <Label htmlFor={`x-${conn.id}-${m}`} className="grid gap-0.5 font-normal">
+                <span className="font-medium">
+                  {EXPLORATION_LABEL[m].title}
+                  {tool && (
+                    <>
+                      {" "}
+                      ·{" "}
+                      <a className="font-mono text-xs underline" href={href.tool(projectId, tool.id)}>
+                        {tool.name}
+                      </a>
+                    </>
+                  )}
+                </span>
+                <span className="text-xs text-muted-foreground">{EXPLORATION_LABEL[m].blurb}</span>
+              </Label>
+            </li>
+          );
+        })}
+      </ul>
+      {missing.length > 0 ? (
+        <Button size="sm" onClick={() => void add()} disabled={busy || picked.size === 0}>
+          {busy ? "Adding…" : "Add selected tools"}
+        </Button>
+      ) : (
+        <p className="text-xs text-muted-foreground">All three are added. Turn them off or delete them on the Tools tab.</p>
+      )}
     </div>
   );
 }
@@ -202,6 +331,7 @@ function ConnectionForm({
 }) {
   const [draft, setDraft] = useState<DbConnectionInput>(existing ?? EMPTY);
   const [masksText, setMasksText] = useState((existing?.column_masks ?? []).join("\n"));
+  const [allowText, setAllowText] = useState((existing?.table_allowlist ?? []).join("\n"));
   const [rowLimit, setRowLimit] = useState(String(draft.row_limit));
   const [timeout, setTimeoutText] = useState(String(draft.timeout_ms));
   const [err, setErr] = useState<unknown>(null);
@@ -215,6 +345,7 @@ function ConnectionForm({
       row_limit: Number(rowLimit),
       timeout_ms: Number(timeout),
       column_masks: splitList(masksText),
+      table_allowlist: splitList(allowText),
     };
     try {
       if (existing) await api.updateConnection(projectId, existing.id, input);
@@ -223,6 +354,7 @@ function ConnectionForm({
       if (!existing) {
         setDraft(EMPTY);
         setMasksText("");
+        setAllowText("");
         setRowLimit(String(EMPTY.row_limit));
         setTimeoutText(String(EMPTY.timeout_ms));
       }
@@ -235,6 +367,7 @@ function ConnectionForm({
 
   const fe = (f: string) => fieldError(err, f);
   const maskErr = err instanceof ApiError ? err.fields.find((f) => f.field.startsWith("column_masks"))?.message : undefined;
+  const allowErr = err instanceof ApiError ? err.fields.find((f) => f.field.startsWith("table_allowlist"))?.message : undefined;
   return (
     <Card className="h-fit">
       <CardHeader>
@@ -282,6 +415,18 @@ function ConnectionForm({
             </div>
             {(fe("row_limit") || fe("timeout_ms")) && (
               <p className="col-span-2 text-xs text-destructive">{fe("row_limit") ?? fe("timeout_ms")}</p>
+            )}
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="d-allow">Tables agents may explore</Label>
+            <Textarea id="d-allow" className="min-h-16 font-mono text-xs" value={allowText} onChange={(e) => setAllowText(e.target.value)} placeholder={"orders\nsales.*"} spellCheck={false} aria-invalid={!!allowErr} />
+            {allowErr ? (
+              <p className="text-xs text-destructive">{allowErr}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                One per line: <code>table</code>, <code>schema.table</code> or <code>schema.*</code>. Empty means every
+                non-system table. Applies to the agent tools (list, describe, run SQL), not to your own saved queries.
+              </p>
             )}
           </div>
           <div className="grid gap-1.5">

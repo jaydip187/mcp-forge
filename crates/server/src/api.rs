@@ -10,8 +10,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use forge_core::{
-    AuthConfig, AuthConfigInput, DbConnection, DbConnectionInput, Project, ProjectInput, ToolDef,
-    ToolInput, ToolKind,
+    AuthConfig, AuthConfigInput, DbConnection, DbConnectionInput, Project, ProjectInput, SqlMode,
+    ToolDef, ToolInput, ToolKind,
 };
 use forge_exec_http::ExecError;
 use forge_exec_sql::SqlError;
@@ -84,6 +84,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/projects/{project_id}/db-connections/{conn_id}/test",
             axum::routing::post(test_connection),
+        )
+        .route(
+            "/projects/{project_id}/db-connections/{conn_id}/exploration-tools",
+            axum::routing::post(add_exploration_tools),
         )
         .fallback(|| async { ApiError::Store(StoreError::NotFound("route")) })
 }
@@ -351,6 +355,87 @@ async fn test_connection(
     Ok(Json(s.exec.sql.test_connection(&conn).await))
 }
 
+#[derive(Deserialize)]
+struct ExplorationRequest {
+    /// Any of `list_tables`, `describe_table`, `run_sql`.
+    modes: Vec<String>,
+}
+
+/// Opt-in: creates the chosen exploration tools for a connection, named
+/// `{connection}_{mode}`. Modes the connection already has a tool for are
+/// skipped. Descriptions stay empty so they're generated from the
+/// connection's current settings.
+async fn add_exploration_tools(
+    State(s): State<AppState>,
+    ApiPath((project_id, id)): ApiPath<(Uuid, Uuid)>,
+    ApiJson(req): ApiJson<ExplorationRequest>,
+) -> ApiResult<(StatusCode, Json<Value>)> {
+    let conn = s.store.get_connection(project_id, id).await?;
+    let tools = s.store.list_tools(project_id).await?;
+    let mut created = Vec::new();
+    let mut existing = Vec::new();
+    let mut taken: std::collections::HashSet<String> =
+        tools.iter().map(|t| t.name.clone()).collect();
+    for (i, m) in req.modes.iter().enumerate() {
+        let mode = match m.as_str() {
+            "list_tables" => SqlMode::ListTables,
+            "describe_table" => SqlMode::DescribeTable,
+            "run_sql" => SqlMode::RunSql,
+            other => {
+                return Err(ApiError::Store(
+                    forge_core::ValidationErrors::single(
+                        format!("modes[{i}]"),
+                        format!(
+                            "unknown mode `{other}`; use list_tables, describe_table or run_sql"
+                        ),
+                    )
+                    .into(),
+                ))
+            }
+        };
+        let have = tools.iter().find(
+            |t| matches!(&t.kind, ToolKind::Sql(sp) if sp.connection_id == id && sp.mode == mode),
+        );
+        if let Some(t) = have {
+            existing.push(t.name.clone());
+            continue;
+        }
+        let suffix = format!("_{}", mode.as_str());
+        let base: String = conn
+            .name
+            .chars()
+            .take(forge_core::MAX_NAME_LEN - suffix.len() - 3)
+            .collect::<String>()
+            + &suffix;
+        let mut name = base.clone();
+        let mut n = 2;
+        while taken.contains(&name) {
+            name = format!("{base}_{n}");
+            n += 1;
+        }
+        taken.insert(name.clone());
+        let input = ToolInput {
+            name,
+            description: String::new(),
+            kind: ToolKind::Sql(forge_core::SqlSpec {
+                connection_id: id,
+                mode,
+            }),
+            enabled: true,
+            tags: vec!["database".into()],
+            response_shape: None,
+        };
+        created.push(s.store.create_tool(project_id, &input).await?);
+    }
+    if !created.is_empty() {
+        s.changes.notify(project_id);
+    }
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "created": created, "existing": existing })),
+    ))
+}
+
 /// A SQL tool's statement must pass the read-only check for its
 /// connection's dialect before it's saved.
 pub(crate) async fn check_sql(s: &AppState, project_id: Uuid, input: &ToolInput) -> ApiResult<()> {
@@ -386,7 +471,11 @@ async fn get_tool_mcp_view(
     ApiPath((project_id, id)): ApiPath<(Uuid, Uuid)>,
 ) -> ApiResult<Json<rmcp::model::Tool>> {
     let tool = s.store.get_tool(project_id, id).await?;
-    Ok(Json(forge_mcp::to_mcp_tool(&tool)))
+    let conn = match tool.kind.connection_ref() {
+        Some(cid) => s.store.get_connection(project_id, cid).await.ok(),
+        None => None,
+    };
+    Ok(Json(forge_mcp::to_mcp_tool(&tool, conn.as_ref())))
 }
 
 #[derive(Deserialize)]

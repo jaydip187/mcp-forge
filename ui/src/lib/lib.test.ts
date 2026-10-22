@@ -263,6 +263,12 @@ describe("sql form", () => {
     });
   });
 
+  it("builds exploration tools without SQL or params", () => {
+    const r = buildSqlInput({ ...newSqlForm("c1"), name: "shop_run_sql", mode: "run_sql", sql: "ignored" });
+    if (!r.ok || r.input.kind.type !== "sql") throw new Error("expected a SQL payload");
+    expect(r.input.kind.mode).toEqual({ type: "run_sql" });
+  });
+
   it("maps server error paths and splits lists", () => {
     expect(sqlParamIndex("kind.mode.params[2].name")).toBe(2);
     expect(sqlParamIndex("kind.mode.sql")).toBeNull();

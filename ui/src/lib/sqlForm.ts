@@ -1,5 +1,5 @@
 import { splitTags } from "./toolForm";
-import type { SqlParam, SqlParamType, Tool, ToolInput } from "../types";
+import type { ExplorationMode, SqlParam, SqlParamType, Tool, ToolInput } from "../types";
 
 export interface SqlForm {
   name: string;
@@ -8,6 +8,8 @@ export interface SqlForm {
   /** Comma-separated, as typed. */
   tagsText: string;
   connection_id: string;
+  /** `query` for curated SQL; exploration tools have no SQL or params. */
+  mode: "query" | ExplorationMode;
   sql: string;
   params: SqlParam[];
   /** jq expression, as typed. */
@@ -21,6 +23,7 @@ export function newSqlForm(connectionId = ""): SqlForm {
     enabled: true,
     tagsText: "",
     connection_id: connectionId,
+    mode: "query",
     sql: "",
     params: [],
     responseShape: "",
@@ -35,8 +38,9 @@ export function sqlFormFromTool(t: Tool): SqlForm {
     enabled: t.enabled,
     tagsText: t.tags.join(", "),
     connection_id: t.kind.connection_id,
-    sql: t.kind.mode.sql,
-    params: t.kind.mode.params,
+    mode: t.kind.mode.type,
+    sql: t.kind.mode.type === "query" ? t.kind.mode.sql : "",
+    params: t.kind.mode.type === "query" ? t.kind.mode.params : [],
     responseShape: t.response_shape ?? "",
   };
 }
@@ -105,11 +109,14 @@ export function buildSqlInput(form: SqlForm): SqlBuildResult {
       kind: {
         type: "sql",
         connection_id: form.connection_id,
-        mode: {
-          type: "query",
-          sql: form.sql,
-          params: form.params.map((p) => ({ ...p, name: p.name.trim(), description: p.description?.trim() || null })),
-        },
+        mode:
+          form.mode === "query"
+            ? {
+                type: "query",
+                sql: form.sql,
+                params: form.params.map((p) => ({ ...p, name: p.name.trim(), description: p.description?.trim() || null })),
+              }
+            : { type: form.mode },
       },
     },
   };
@@ -129,3 +136,12 @@ export function splitList(text: string): string[] {
   }
   return out;
 }
+
+export const EXPLORATION_LABEL: Record<ExplorationMode, { title: string; blurb: string }> = {
+  list_tables: { title: "List tables", blurb: "Lists the tables and views the agent may query." },
+  describe_table: { title: "Describe table", blurb: "Shows one table's columns, types, keys and which are masked." },
+  run_sql: {
+    title: "Run SQL",
+    blurb: "Lets the agent write its own read-only SELECT against allowed tables. Most flexible, so most to review.",
+  },
+};

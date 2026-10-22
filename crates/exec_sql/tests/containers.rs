@@ -6,7 +6,7 @@ mod common;
 
 use std::time::Instant;
 
-use common::{args, query, setup};
+use common::{args, mode, query, setup};
 use forge_exec_sql::{run_read_only, Limits, SqlError, MASKED};
 use serde_json::json;
 use sqlx::{Connection, Executor};
@@ -147,6 +147,80 @@ async fn postgres_layers() {
     assert_eq!(r.can_write, Some(false), "{r:?}");
     assert!(r.warnings.is_empty());
 
+    // Exploration tools: catalog SQL works, allowlist and masks apply.
+    admin
+        .execute("CREATE SCHEMA sales; CREATE TABLE sales.users (id int PRIMARY KEY);")
+        .await
+        .unwrap();
+    let (exp, econn) = setup(
+        "postgres",
+        &admin_dsn,
+        json!({ "table_allowlist": ["public.users"], "column_masks": ["users.password_hash"] }),
+    );
+    let out = exp
+        .run_query(&econn, &mode("list_tables"), &args(json!({})))
+        .await
+        .unwrap();
+    assert_eq!(
+        out.rows,
+        [[json!("public"), json!("users"), json!("table")]]
+    );
+    let out = exp
+        .run_query(
+            &econn,
+            &mode("describe_table"),
+            &args(json!({ "table": "users" })),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        out.rows[0],
+        [
+            json!("id"),
+            json!("integer"),
+            json!(false),
+            json!(null),
+            json!(true),
+            json!(false)
+        ]
+    );
+    let hash = out.rows.iter().find(|r| r[0] == "password_hash").unwrap();
+    assert_eq!(hash[5], json!(true));
+    let e = exp
+        .run_query(
+            &econn,
+            &mode("describe_table"),
+            &args(json!({ "table": "sales.users" })),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(e, SqlError::Rejected(_)), "{e:?}");
+    let out = exp
+        .run_query(
+            &econn,
+            &mode("run_sql"),
+            &args(json!({ "sql": "SELECT id, name FROM users ORDER BY id" })),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        out.rows,
+        [[json!(1), json!("ada")], [json!(2), json!("bob")]]
+    );
+    for sql in [
+        "SELECT * FROM pg_user",
+        "SELECT rolname FROM pg_catalog.pg_roles",
+        "SELECT * FROM sales.users",
+        "SELECT to_json(u) FROM users u",
+        "SELECT table_to_xml('users', true, true, '')",
+    ] {
+        let e = exp
+            .run_query(&econn, &mode("run_sql"), &args(json!({ "sql": sql })))
+            .await
+            .unwrap_err();
+        assert!(matches!(e, SqlError::Rejected(_)), "{sql}: {e:?}");
+    }
+
     // Wrong password: the error never contains the DSN or password.
     let bad = format!("postgres://ro:wrong_secret_pw@127.0.0.1:{port}/postgres");
     let (bad_exec, bad_conn) = setup("postgres", &bad, json!({}));
@@ -262,4 +336,57 @@ async fn mysql_layers() {
     let r = ro_exec.test_connection(&ro_conn).await;
     assert!(r.ok, "{r:?}");
     assert_eq!(r.can_write, Some(false), "{r:?}");
+
+    // Exploration tools on MySQL's catalog.
+    let (exp, econn) = setup(
+        "mysql",
+        &admin_dsn,
+        json!({ "table_allowlist": ["users"], "column_masks": ["*.email"] }),
+    );
+    let out = exp
+        .run_query(&econn, &mode("list_tables"), &args(json!({})))
+        .await
+        .unwrap();
+    assert_eq!(out.rows, [[json!("test"), json!("users"), json!("table")]]);
+    let out = exp
+        .run_query(
+            &econn,
+            &mode("describe_table"),
+            &args(json!({ "table": "USERS" })),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        out.rows[0],
+        [
+            json!("id"),
+            json!("int"),
+            json!(false),
+            json!(null),
+            json!(true),
+            json!(false)
+        ]
+    );
+    assert_eq!(out.rows[2][0], json!("email"));
+    assert_eq!(out.rows[2][5], json!(true));
+    let out = exp
+        .run_query(
+            &econn,
+            &mode("run_sql"),
+            &args(json!({ "sql": "SELECT * FROM users ORDER BY id LIMIT 1" })),
+        )
+        .await
+        .unwrap();
+    assert_eq!(out.rows[0][2], json!(MASKED));
+    for sql in [
+        "SELECT user FROM mysql.user",
+        "SELECT email FROM users",
+        "SELECT * FROM information_schema.tables",
+    ] {
+        let e = exp
+            .run_query(&econn, &mode("run_sql"), &args(json!({ "sql": sql })))
+            .await
+            .unwrap_err();
+        assert!(matches!(e, SqlError::Rejected(_)), "{sql}: {e:?}");
+    }
 }

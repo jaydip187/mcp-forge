@@ -92,8 +92,8 @@ export function TestConsole({ projectId, toolId, version, dirty }: { projectId: 
                       <SelectItem value="false">false</SelectItem>
                     </SelectContent>
                   </Select>
-                ) : type === "object" || type === "array" || type === "custom" ? (
-                  <Textarea id={id} value={values[name] ?? ""} onChange={(e) => setValues({ ...values, [name]: e.target.value })} className="min-h-20 font-mono text-xs" spellCheck={false} placeholder={type === "array" ? "[ ]" : "{ }"} aria-invalid={!!argErrors[name]} />
+                ) : type === "object" || type === "array" || type === "custom" || name === "sql" ? (
+                  <Textarea id={id} value={values[name] ?? ""} onChange={(e) => setValues({ ...values, [name]: e.target.value })} className="min-h-20 font-mono text-xs" spellCheck={false} placeholder={name === "sql" ? "SELECT …" : type === "array" ? "[ ]" : "{ }"} aria-invalid={!!argErrors[name]} />
                 ) : (
                   <Input id={id} value={values[name] ?? ""} onChange={(e) => setValues({ ...values, [name]: e.target.value })} className="font-mono" inputMode={type === "integer" || type === "number" ? "decimal" : undefined} aria-invalid={!!argErrors[name]} />
                 )}
@@ -255,7 +255,6 @@ function SqlRunResult({ run }: { run: SqlTestRun }) {
           </TabsContent>
         )}
       </Tabs>
-      {run.error && run.error.kind !== "invalid_args" && <p className="text-xs text-muted-foreground">{run.error.message}</p>}
     </section>
   );
 }

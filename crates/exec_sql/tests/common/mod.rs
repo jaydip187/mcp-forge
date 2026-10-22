@@ -52,3 +52,9 @@ pub fn query(sql: &str, params: Value) -> SqlSpec {
 pub fn args(v: Value) -> Map<String, Value> {
     v.as_object().unwrap().clone()
 }
+
+/// An exploration tool spec (`list_tables`, `describe_table`, `run_sql`).
+pub fn mode(kind: &str) -> SqlSpec {
+    serde_json::from_value(json!({ "connection_id": Uuid::nil(), "mode": { "type": kind } }))
+        .unwrap()
+}

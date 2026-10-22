@@ -33,7 +33,11 @@ impl H {
             .unwrap();
         db.execute(
             "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT);
-             INSERT INTO users VALUES (1, 'ada', 'ada@x.io'), (2, 'bob', 'bob@x.io');",
+             INSERT INTO users VALUES (1, 'ada', 'ada@x.io'), (2, 'bob', 'bob@x.io');
+             CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, total REAL);
+             INSERT INTO orders VALUES (10, 1, 9.5), (11, 1, 20), (12, 2, 5);
+             CREATE TABLE secrets (id INTEGER PRIMARY KEY, token TEXT);
+             INSERT INTO secrets VALUES (1, 'shh');",
         )
         .await
         .unwrap();
@@ -349,4 +353,179 @@ async fn bundle_round_trip_with_sql_tools() {
             .contains("tools[0].kind.mode.sql"),
         "{e}"
     );
+}
+
+/// Stage 9 "done when": an agent explores the schema and queries within the
+/// allowlist; disallowed tables, system catalogs and masked columns are refused.
+#[tokio::test]
+async fn exploration_tools_respect_allowlist_and_masks() {
+    let h = H::start().await;
+    let p = h.ok("POST", "/projects", json!({ "name": "Shop" })).await;
+    let base = format!("/projects/{}", p["id"].as_str().unwrap());
+    let conn = h
+        .ok(
+            "POST",
+            &format!("{base}/db-connections"),
+            json!({ "name": "shop", "driver": "sqlite", "dsn_ref": "env:SHOP_DB",
+                    "table_allowlist": ["users", "orders"], "column_masks": ["users.email"] }),
+        )
+        .await;
+    let cid = conn["id"].as_str().unwrap();
+    let path = format!("{base}/db-connections/{cid}/exploration-tools");
+    let (st, e) = h
+        .send("POST", &path, json!({ "modes": ["drop_tables"] }))
+        .await;
+    assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY, "{e}");
+    let r = h
+        .ok(
+            "POST",
+            &path,
+            json!({ "modes": ["list_tables", "describe_table", "run_sql"] }),
+        )
+        .await;
+    let names: Vec<&str> = r["created"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        ["shop_list_tables", "shop_describe_table", "shop_run_sql"]
+    );
+    // Opt-in is idempotent.
+    let r = h.ok("POST", &path, json!({ "modes": ["run_sql"] })).await;
+    assert_eq!(r["created"], json!([]));
+    assert_eq!(r["existing"], json!(["shop_run_sql"]));
+
+    let mcp = ()
+        .serve(rmcp::transport::StreamableHttpClientTransport::from_uri(
+            format!("{}/mcp/shop", h.root),
+        ))
+        .await
+        .unwrap();
+    let tools = mcp.list_all_tools().await.unwrap();
+    assert_eq!(tools.len(), 3);
+    for t in &tools {
+        assert_eq!(
+            t.annotations.as_ref().unwrap().read_only_hint,
+            Some(true),
+            "{}",
+            t.name
+        );
+    }
+    let run_sql = tools.iter().find(|t| t.name == "shop_run_sql").unwrap();
+    let desc = run_sql.description.as_deref().unwrap();
+    assert!(
+        desc.contains("SQLite") && desc.contains("users, orders") && desc.contains("users.email"),
+        "{desc}"
+    );
+
+    let call = |name: &'static str, args: Value| {
+        let mcp = &mcp;
+        async move {
+            let r = mcp
+                .call_tool(
+                    CallToolRequestParams::new(name)
+                        .with_arguments(args.as_object().unwrap().clone()),
+                )
+                .await
+                .unwrap();
+            (r.is_error == Some(true), text(&r))
+        }
+    };
+
+    let (err, out) = call("shop_list_tables", json!({})).await;
+    assert!(!err, "{out}");
+    let v: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(
+        v["rows"],
+        json!([["main", "orders", "table"], ["main", "users", "table"]])
+    );
+
+    let (err, out) = call("shop_describe_table", json!({ "table": "users" })).await;
+    assert!(!err, "{out}");
+    let v: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(
+        v["columns"],
+        json!([
+            "column",
+            "type",
+            "nullable",
+            "default",
+            "primary_key",
+            "masked"
+        ])
+    );
+    assert_eq!(
+        v["rows"][0],
+        json!(["id", "INTEGER", true, null, true, false])
+    );
+    assert_eq!(v["rows"][2][0], "email");
+    assert_eq!(v["rows"][2][5], true);
+
+    let (err, out) = call(
+        "shop_run_sql",
+        json!({ "sql": "SELECT u.name, sum(o.total) AS spent FROM users u JOIN orders o ON o.user_id = u.id GROUP BY u.name ORDER BY u.name" }),
+    )
+    .await;
+    assert!(!err, "{out}");
+    let v: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["rows"], json!([["ada", 29.5], ["bob", 5.0]]));
+
+    let (err, out) = call(
+        "shop_run_sql",
+        json!({ "sql": "SELECT * FROM users WHERE id = 1" }),
+    )
+    .await;
+    assert!(!err, "{out}");
+    let v: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["rows"], json!([[1, "ada", "[masked]"]]));
+
+    for (tool, args, why) in [
+        (
+            "shop_describe_table",
+            json!({ "table": "secrets" }),
+            "isn't available",
+        ),
+        (
+            "shop_run_sql",
+            json!({ "sql": "SELECT * FROM secrets" }),
+            "isn't available",
+        ),
+        (
+            "shop_run_sql",
+            json!({ "sql": "WITH users AS (SELECT * FROM secrets) SELECT * FROM users" }),
+            "isn't available",
+        ),
+        (
+            "shop_run_sql",
+            json!({ "sql": "SELECT name FROM sqlite_master" }),
+            "system catalog",
+        ),
+        (
+            "shop_run_sql",
+            json!({ "sql": "SELECT email FROM users" }),
+            "masked",
+        ),
+        (
+            "shop_run_sql",
+            json!({ "sql": "SELECT upper(email) AS e FROM users" }),
+            "masked",
+        ),
+        (
+            "shop_run_sql",
+            json!({ "sql": "DELETE FROM orders" }),
+            "only SELECT",
+        ),
+        (
+            "shop_run_sql",
+            json!({ "sql": "SELECT * FROM orders WHERE id = ?" }),
+            "placeholders",
+        ),
+    ] {
+        let (err, out) = call(tool, args.clone()).await;
+        assert!(err, "{tool} {args}: {out}");
+        assert!(out.contains(why), "{tool} {args}: {out}");
+    }
 }

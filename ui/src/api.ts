@@ -5,6 +5,7 @@ import type {
   ConnectionReport,
   DbConnection,
   DbConnectionInput,
+  ExplorationMode,
   FieldError,
   ImportPreview,
   JsonObject,
@@ -185,4 +186,6 @@ export const api = {
   deleteConnection: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/db-connections/${id}`),
   testConnection: (pid: string, id: string) =>
     request<ConnectionReport>("POST", `${p(pid)}/db-connections/${id}/test`, {}),
+  addExplorationTools: (pid: string, id: string, modes: ExplorationMode[]) =>
+    request<{ created: Tool[]; existing: string[] }>("POST", `${p(pid)}/db-connections/${id}/exploration-tools`, { modes }),
 };

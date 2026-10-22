@@ -9,6 +9,7 @@
 //! 4. functions that write or escape the database are denied ([`guard`]);
 //! 5. results are capped by row limit, timeout and cell length.
 
+mod explore;
 pub mod guard;
 pub mod session;
 pub mod value;
@@ -22,7 +23,7 @@ use std::time::{Duration, Instant};
 
 use forge_core::{
     check_args, ColumnMask, DbConnection, Driver, SecretResolver, SqlMode, SqlSpec,
-    ValidationErrors,
+    ValidationErrors, PATTERN_ARG, SQL_ARG, TABLE_ARG,
 };
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -183,7 +184,10 @@ pub struct ConnectionReport {
 /// Save-time checks for a query tool: every `:name` has a param and vice
 /// versa, and the statement passes the read-only guard.
 pub fn check_query_tool(spec: &SqlSpec, driver: Driver) -> Result<(), ValidationErrors> {
-    let SqlMode::Query { sql, params } = &spec.mode;
+    let SqlMode::Query { sql, params } = &spec.mode else {
+        // Exploration tools carry no SQL of their own.
+        return Ok(());
+    };
     let mut errs = ValidationErrors::default();
     let bound = match guard::bind_placeholders(sql, driver) {
         Ok(b) => b,
@@ -249,6 +253,70 @@ fn binds_for(
             })
         })
         .collect()
+}
+
+/// Builds the outcome of a query and masks its result columns.
+fn finish(
+    conn: &DbConnection,
+    sql: String,
+    binds: &[Bind],
+    tables: &[String],
+    raw: RawResult,
+) -> SqlOutcome {
+    let mut rows = raw.rows;
+    let masked_columns = apply_masks(&conn.column_masks, tables, &raw.columns, &mut rows);
+    SqlOutcome {
+        sql,
+        params: binds.iter().map(Bind::to_json).collect(),
+        columns: raw.columns,
+        rows,
+        truncated: raw.truncated,
+        masked_columns,
+        elapsed_ms: 0,
+    }
+}
+
+fn allowed_list(conn: &DbConnection) -> String {
+    if conn.table_allowlist.is_empty() {
+        "any non-system table".into()
+    } else {
+        conn.table_allowlist.join(", ")
+    }
+}
+
+/// System catalogs are never available; others need the allowlist.
+fn check_table_access(conn: &DbConnection, table: &str) -> Result<(), SqlError> {
+    if guard::is_system_table(table, conn.driver) {
+        return Err(SqlError::Rejected(format!(
+            "`{table}` is a system catalog; use list_tables and describe_table to explore the schema"
+        )));
+    }
+    if !guard::table_allowed(table, &conn.table_allowlist, conn.driver) {
+        return Err(SqlError::Rejected(format!(
+            "table `{table}` isn't available through this connection; allowed: {}",
+            allowed_list(conn)
+        )));
+    }
+    Ok(())
+}
+
+/// The checks agent-written SQL gets on top of the read-only guard: no
+/// placeholders, only allowed tables, no way around column masks.
+pub fn check_agent_sql(conn: &DbConnection, sql: &str) -> Result<guard::CheckedQuery, SqlError> {
+    match guard::bind_placeholders(sql, conn.driver) {
+        Ok(b) if b.names.is_empty() => {}
+        _ => {
+            return Err(SqlError::Rejected(
+                "placeholders aren't supported here; write values inline".into(),
+            ))
+        }
+    }
+    let checked = guard::check_read_only(sql, conn.driver).map_err(SqlError::Rejected)?;
+    for t in &checked.tables {
+        check_table_access(conn, t)?;
+    }
+    guard::check_masks(&checked, &conn.column_masks).map_err(SqlError::Rejected)?;
+    Ok(checked)
 }
 
 /// Replaces masked columns' values; returns the masked column names.
@@ -346,49 +414,86 @@ impl SqlExecutor {
         }
     }
 
-    /// Runs a curated query tool with the agent's arguments.
+    /// Runs `sql` read-only on the connection's pool, with its limits.
+    /// Errors are redacted; timeouts report the connection's limit.
+    async fn execute(
+        &self,
+        conn: &DbConnection,
+        sql: &str,
+        binds: &[Bind],
+        row_limit: u32,
+    ) -> Result<RawResult, SqlError> {
+        let dsn = self.resolve_dsn(conn).await?;
+        let redactor = Redactor::new(&dsn);
+        let limits = Limits {
+            row_limit,
+            timeout_ms: conn.timeout_ms,
+        };
+        async {
+            let pool = self.pool(conn, &dsn).await?;
+            run_read_only(&pool, sql, binds, limits).await
+        }
+        .await
+        .map_err(|e| match e {
+            SqlError::Timeout(_) => SqlError::Timeout(conn.timeout_ms),
+            other => other.redact(&redactor),
+        })
+    }
+
+    /// Runs a SQL tool with the agent's arguments: a curated query or one of
+    /// the exploration tools.
     pub async fn run_query(
         &self,
         conn: &DbConnection,
         spec: &SqlSpec,
         args: &Map<String, Value>,
     ) -> Result<SqlOutcome, SqlError> {
-        let SqlMode::Query { sql, .. } = &spec.mode;
         let derived = spec.derive_input();
         check_args(&derived.bindings, &derived.schema, args).map_err(SqlError::InvalidArgs)?;
-        let bound = guard::bind_placeholders(sql, conn.driver).map_err(SqlError::Rejected)?;
-        let checked =
-            guard::check_read_only(&bound.sql, conn.driver).map_err(SqlError::Rejected)?;
-        let binds = binds_for(spec, &bound.binds, args)?;
-
-        let dsn = self.resolve_dsn(conn).await?;
-        let redactor = Redactor::new(&dsn);
         let started = Instant::now();
-        let limits = Limits {
-            row_limit: conn.row_limit,
-            timeout_ms: conn.timeout_ms,
+        let text = |k: &str| {
+            args.get(k)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
         };
-        let raw = async {
-            let pool = self.pool(conn, &dsn).await?;
-            run_read_only(&pool, &bound.sql, &binds, limits).await
-        }
-        .await
-        .map_err(|e| match e {
-            SqlError::Timeout(_) => SqlError::Timeout(conn.timeout_ms),
-            other => other.redact(&redactor),
-        })?;
-        let mut rows = raw.rows;
-        let masked_columns =
-            apply_masks(&conn.column_masks, &checked.tables, &raw.columns, &mut rows);
-        Ok(SqlOutcome {
-            sql: bound.sql,
-            params: binds.iter().map(Bind::to_json).collect(),
-            columns: raw.columns,
-            rows,
-            truncated: raw.truncated,
-            masked_columns,
-            elapsed_ms: started.elapsed().as_millis() as u64,
-        })
+        let mut out = match &spec.mode {
+            SqlMode::Query { sql, .. } => {
+                let bound =
+                    guard::bind_placeholders(sql, conn.driver).map_err(SqlError::Rejected)?;
+                let checked =
+                    guard::check_read_only(&bound.sql, conn.driver).map_err(SqlError::Rejected)?;
+                let binds = binds_for(spec, &bound.binds, args)?;
+                let raw = self
+                    .execute(conn, &bound.sql, &binds, conn.row_limit)
+                    .await?;
+                finish(conn, bound.sql, &binds, &checked.tables, raw)
+            }
+            SqlMode::RunSql => {
+                let sql = text(SQL_ARG).ok_or_else(|| {
+                    SqlError::InvalidArgs(ValidationErrors::single(SQL_ARG, "must not be empty"))
+                })?;
+                let checked = check_agent_sql(conn, sql)?;
+                let raw = self.execute(conn, sql, &[], conn.row_limit).await?;
+                finish(conn, sql.to_owned(), &[], &checked.tables, raw)
+            }
+            SqlMode::ListTables => {
+                let sql = explore::list_tables_sql(conn.driver);
+                let raw = self.execute(conn, sql, &[], explore::MAX_ROWS).await?;
+                explore::list_tables(conn, sql, raw, text(PATTERN_ARG))
+            }
+            SqlMode::DescribeTable => {
+                let table = text(TABLE_ARG).ok_or_else(|| {
+                    SqlError::InvalidArgs(ValidationErrors::single(TABLE_ARG, "must not be empty"))
+                })?;
+                check_table_access(conn, table)?;
+                let (sql, binds) = explore::describe_table_sql(conn.driver, table);
+                let raw = self.execute(conn, &sql, &binds, explore::MAX_ROWS).await?;
+                explore::describe_table(conn, table, sql, &binds, raw)?
+            }
+        };
+        out.elapsed_ms = started.elapsed().as_millis() as u64;
+        Ok(out)
     }
 
     /// Connects, reads the server version and checks whether the role can
