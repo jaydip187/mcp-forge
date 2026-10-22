@@ -126,7 +126,9 @@ export interface ImportPreview {
   info: {
     title: string;
     api_version: string;
+    /** Version as written: "3.1.0", or "2.0" for Swagger. */
     openapi: string;
+    kind: "openapi3" | "swagger2";
     servers: string[];
     base_url: string | null;
     security_schemes: { name: string; description: string; suggested: AuthKind | null }[];

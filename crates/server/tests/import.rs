@@ -12,6 +12,7 @@ use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const PETSTORE: &str = include_str!("../../importers/tests/fixtures/petstore3.json");
+const PETSTORE_V2: &str = include_str!("../../importers/tests/fixtures/petstore2.json");
 
 struct H {
     base: String,
@@ -268,14 +269,14 @@ async fn commit_rejects_bad_selections_and_content() {
     let (st, e) = h
         .post(
             "/import/openapi/preview",
-            json!({ "content": "{\"swagger\":\"2.0\"}" }),
+            json!({ "content": "{\"swagger\":\"1.2\"}" }),
         )
         .await;
     assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(e["error"]["message"]
         .as_str()
         .unwrap()
-        .contains("Swagger 2.0"));
+        .contains("isn't a Swagger 2.0 document"));
 
     // Nothing was stored by the failed commits.
     assert_eq!(h.get("/specs").await, json!([]));
@@ -296,4 +297,37 @@ async fn specs_over_two_megabytes_are_accepted() {
         .await;
     assert_eq!(st, StatusCode::OK, "{pv}");
     assert_eq!(pv["operations"][0]["name"], "a");
+}
+
+#[tokio::test]
+async fn swagger2_imports_through_the_same_flow() {
+    let h = H::start().await;
+    let (st, pv) = h
+        .post("/import/openapi/preview", json!({ "content": PETSTORE_V2 }))
+        .await;
+    assert_eq!(st, StatusCode::OK, "{pv}");
+    assert_eq!(pv["info"]["kind"], "swagger2");
+    assert_eq!(pv["info"]["openapi"], "2.0");
+    assert_eq!(pv["info"]["base_url"], "https://petstore.swagger.io/v2");
+    assert_eq!(op(&pv, "GET /pet/{petId}")["name"], "getPetById");
+
+    let (st, done) = h
+        .post(
+            "/import/openapi",
+            json!({ "content": PETSTORE_V2, "operations": [{ "key": "GET /pet/{petId}" }, { "key": "POST /pet" }] }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{done}");
+    assert_eq!(done["spec"]["kind"], "swagger2");
+    assert_eq!(done["created"][0]["source"]["type"], "swagger");
+    assert_eq!(done["created"][0]["source"]["op_id"], "getPetById");
+    assert_eq!(
+        done["created"][1]["kind"]["params"]
+            .as_array()
+            .unwrap()
+            .len(),
+        6,
+        "{}",
+        done["created"][1]
+    );
 }

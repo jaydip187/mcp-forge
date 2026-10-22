@@ -45,7 +45,10 @@ pub struct Options {
 pub struct SpecInfo {
     pub title: String,
     pub api_version: String,
+    /// Version as written in the document (`3.1.0`, or `2.0` for Swagger).
     pub openapi: String,
+    /// `openapi3` or `swagger2`.
+    pub kind: String,
     /// Server URLs as written in the spec.
     pub servers: Vec<String>,
     /// First server resolved to an absolute URL, if possible.
@@ -153,6 +156,7 @@ pub fn import(doc: &Value, opts: &Options) -> Result<Imported, ImportError> {
             .to_owned(),
         api_version: str_at(doc, "/info/version").unwrap_or("").to_owned(),
         openapi: openapi.to_owned(),
+        kind: "openapi3".into(),
         servers: servers
             .as_array()
             .map(|a| {
@@ -293,9 +297,18 @@ fn build_operation(
         {
             continue;
         }
-        if p.get("style").and_then(Value::as_str) == Some("deepObject") {
+        let style = p.get("style").and_then(Value::as_str);
+        if style == Some("deepObject") {
             warnings.push(format!(
                 "`{raw_name}` uses deepObject style; it will be sent as JSON text."
+            ));
+        }
+        let is_array = p.pointer("/schema/type").and_then(Value::as_str) == Some("array");
+        let joined = matches!(style, Some("spaceDelimited" | "pipeDelimited"))
+            || (location == ParamLocation::Query && p.get("explode") == Some(&Value::Bool(false)));
+        if is_array && joined {
+            warnings.push(format!(
+                "`{raw_name}` expects one delimited value; arrays are sent as repeated `{raw_name}=` keys."
             ));
         }
         let schema = p

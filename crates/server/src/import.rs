@@ -1,4 +1,4 @@
-//! OpenAPI import: preview (parse + propose tools) and commit (store selected).
+//! OpenAPI 3.x / Swagger 2.0 import: preview (parse + propose tools) and commit (store selected).
 //!
 //! The spec text travels with both calls, so the server keeps no import state.
 //! A URL is fetched only when the user asks for it in the preview call.
@@ -11,7 +11,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use forge_core::{ToolKind, ValidationErrors};
 use forge_importers::openapi3::{self, BuiltOperation, Imported};
-use forge_importers::{parse_document, unique_name, ImportError};
+use forge_importers::{import_any, parse_document, unique_name, ImportError};
 use forge_store::{NewSpec, SpecRecord, StoreError};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -162,7 +162,7 @@ async fn commit(
     errs.into_result().map_err(|e| ApiError::Store(e.into()))?;
 
     let spec = NewSpec {
-        kind: "openapi3".into(),
+        kind: imported.info.kind.clone(),
         title: imported.info.title.clone(),
         version: imported.info.api_version.clone(),
         source_url: req.source_url,
@@ -171,7 +171,7 @@ async fn commit(
     };
     let (record, created) = s.store.import_tools(project_id, &spec, &tools).await?;
     s.changes.notify(project_id);
-    tracing::info!(project = %project_id, spec = %record.id, tools = created.len(), "imported OpenAPI spec");
+    tracing::info!(project = %project_id, spec = %record.id, kind = %record.kind, tools = created.len(), "imported spec");
     Ok(Json(json!({ "spec": record, "created": created })))
 }
 
@@ -188,7 +188,7 @@ fn run_import(
     source_url: Option<String>,
 ) -> Result<Imported, ApiError> {
     let doc = parse_document(content).map_err(import_error)?;
-    openapi3::import(
+    import_any(
         &doc,
         &openapi3::Options {
             base_url,

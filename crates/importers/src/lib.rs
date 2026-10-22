@@ -2,10 +2,11 @@
 //!
 //! - [`openapi3`]: OpenAPI 3.0 and 3.1 (JSON or YAML).
 //!
-//! Swagger 2.0 arrives in Stage 5.
+//! - [`swagger2`]: Swagger 2.0, converted to OpenAPI 3.0 and imported by the same code.
 
 pub mod openapi3;
 mod refs;
+pub mod swagger2;
 
 use std::collections::HashSet;
 
@@ -18,6 +19,21 @@ pub enum ImportError {
     Parse(String),
     #[error("{0}")]
     Unsupported(String),
+}
+
+/// Imports an OpenAPI 3.x or Swagger 2.0 document.
+pub fn import_any(
+    doc: &Value,
+    opts: &openapi3::Options,
+) -> Result<openapi3::Imported, ImportError> {
+    if doc.get("swagger").is_some() {
+        let converted = swagger2::to_openapi3(doc)?;
+        let mut imported = openapi3::import(&converted, opts)?;
+        imported.info.openapi = "2.0".into();
+        imported.info.kind = "swagger2".into();
+        return Ok(imported);
+    }
+    openapi3::import(doc, opts)
 }
 
 /// Parses JSON or YAML into a JSON value. YAML keys that aren't strings

@@ -4,10 +4,10 @@
 > Legend: `[ ]` todo · `[~]` in progress / partial · `[x]` done · `[-]` dropped (say why)
 
 ## Next up
-Stage 4 review → then Stage 5: Swagger 2.0 → IR conversion
+Stage 5 review → then Stage 6: override tracking
 
 ## Current stage
-**Stage 4 — OpenAPI 3.x importer** · status: done · review: requested
+**Stage 5 — Swagger 2.0 importer** · status: done · review: requested
 
 ---
 
@@ -57,12 +57,12 @@ Stage 4 review → then Stage 5: Swagger 2.0 → IR conversion
 - [x] Preview + filter UI
 - [x] Raw spec storage
 - [x] Tests (Petstore + large real spec)
-- [ ] Stage review approved
+- [x] Stage review approved
 
 ### Stage 5 — Swagger 2.0 importer
-- [ ] 2.0 → IR conversion
-- [ ] Preview flow reuse
-- [ ] Equivalence test vs 3.x Petstore
+- [x] 2.0 → IR conversion
+- [x] Preview flow reuse
+- [x] Equivalence test vs 3.x Petstore
 - [ ] Stage review approved
 
 ### Stage 6 — Re-import, overrides, export/import
@@ -156,6 +156,10 @@ Stage 4 review → then Stage 5: Swagger 2.0 → IR conversion
 - 2026-10-21 · New endpoints: `GET /api/info` (version, exe, data_dir, auth_required for snippets), `GET /api/projects/{pid}/tools/{tid}/mcp` (tool exactly as MCP clients see it), `POST …/tools/{tid}/test {arguments}` → `{request, response, error, agent_view, shaped:null}`. Test console and MCP `tools/call` share `forge_mcp::run_tool`, so results are identical. Console runs disabled tools too
 - 2026-10-21 · Snippets: Claude Code CLI (`claude mcp add --transport http …` / `-- <exe> stdio …`) + `mcpServers` JSON for HTTP and stdio; single-quoted shell args (literal in bash and PowerShell); token shown only as `<your-admin-token>`
 - 2026-10-21 · vitest 5 (vitest 3 pulled tinypool with critical advisories); `npm audit` clean
+- 2026-10-22 · Swagger 2.0 is converted to an OpenAPI 3.0 document (`swagger2::to_openapi3`) and then imported by the 3.x importer · one mapping path means 2.0 and 3.x imports can't drift; equivalence is structural. `import_any` dispatches on the `swagger` field
+- 2026-10-22 · 2.0 conversion: servers = preferred https scheme + host + basePath (no host → basePath, resolved against fetch URL); `definitions` → components.schemas with refs rewritten; global/op/path-level params inlined (op overrides path); `body` → JSON requestBody (first JSON-ish `consumes`); `formData` → urlencoded/multipart requestBody (required if any field is); `type: file` → string/binary; `x-nullable` → nullable; securityDefinitions basic/apiKey/oauth2 → 3.0 schemes; `collectionFormat` → style/explode
+- 2026-10-22 · Specs record `kind` (`openapi3`/`swagger2`); 2.0 tools get `Source::Swagger { spec_id, op_id }`. Same preview/commit endpoints (`/import/openapi…`) serve both
+- 2026-10-22 · Array query params declared delimited (2.0 csv/ssv/pipes, 3.x `explode: false`, space/pipeDelimited) import with a warning: the executor sends repeated keys. See known issues
 - 2026-10-22 · OpenAPI parsed as `serde_json::Value`, **not** the `openapiv3` crate · `openapiv3` only models 3.0.x; real specs (e.g. GitHub's descriptions-next) are 3.1. Value-based handling covers both and makes $ref inlining with depth/cycle control simple
 - 2026-10-22 · YAML via `serde_yaml_ng` 0.10 (maintained fork of deprecated `serde_yaml`); non-string YAML keys (`200:`) are stringified. Stage 6 YAML export will reuse it
 - 2026-10-22 · `$ref` handling: local refs only (external → descriptive stub); schemas fully inlined up to 8 nested refs; a ref already on the expansion stack becomes `{type: object, description: "…recursive; not expanded"}`; sibling keywords next to $ref override (3.1). 3.0 `nullable: true` → type union. `allOf/oneOf/anyOf` passed through
@@ -178,6 +182,8 @@ Stage 4 review → then Stage 5: Swagger 2.0 → IR conversion
 <!-- Append: YYYY-MM-DD · issue · stage to fix -->
 - 2026-10-21 · Tested with the rmcp client + raw JSON-RPC (protocol 2025-06-18), not the MCP Inspector UI itself (needs npx/network). · manual check at review
 - 2026-10-22 · Large-spec test (`large_real_spec`) is `#[ignore]` and reads `MCP_FORGE_LARGE_SPEC`; GitHub's 13 MB spec isn't vendored. Result on 2026-10-22: GitHub REST 3.0.3 and 3.1.0 → 1242/1242 ops supported, unique names, all valid, largest tool 25 KB, ~95 ms (release). · consider a CI job that downloads it
+- 2026-10-22 · Executor can't send comma/space/pipe-joined array query values (2.0 default `csv`, 3.x `explode: false`); such params import with a warning and are sent as repeated keys. · add a per-param array style to the IR when a real API needs it
+- 2026-10-22 · Stage 5 UI change (copy only) not checked in a browser: browser-mcp disconnected this session. · eyeball at review
 - 2026-10-22 · Import preview renders all operations without virtualization (fine at 1242 rows in manual testing). · revisit if slower specs show up
 - 2026-10-21 · No browser-level (Playwright) UI tests; UI logic is unit-tested (vitest) and the full flow was verified manually in Chrome. · consider for Stage 11
 - 2026-10-21 · Local Windows dev box has no MSVC `link.exe`; builds use `stable-x86_64-pc-windows-gnu` via `rustup override` (not committed). Also, in Git Bash, coreutils `link` shadows MSVC's — run cargo from PowerShell. CI uses default toolchains. · env only
@@ -195,6 +201,14 @@ Stage 4 review → then Stage 5: Swagger 2.0 → IR conversion
 - **Gotchas:** 
 - **Next step:** 
 -->
+
+### Session 6 — 2026-10-22
+- **Stage/task:** Stage 5 — Swagger 2.0 importer (all tasks)
+- **Done:** `swagger2::to_openapi3` converter + `import_any`; spec kind + `Source::Swagger`; delimited-array warning in the 3.x importer; server uses `import_any`; UI copy covers Swagger 2.0
+- **Not done / partial:** none
+- **Tests:** passing (importer +7: converter units, Petstore 2.0 ↔ 3.0 equivalence, details, csv warning, YAML/basePath; server +1 Swagger end-to-end); UI 14; clippy + fmt clean
+- **Gotchas:** the published Petstore 2.0 and 3.0 specs differ on 4 operations (form vs query, multipart vs octet-stream, array vs string `status`, required vs optional login params) — verified against the fixtures and excluded from the equivalence check with reasons
+- **Next step:** Stage 5 review, then Stage 6 override tracking + re-import
 
 ### Session 5 — 2026-10-22
 - **Stage/task:** Stage 4 — OpenAPI 3.x importer (all tasks)

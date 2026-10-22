@@ -180,9 +180,9 @@ export function ImportPage({ projectId }: { projectId: string }) {
         <ArrowLeftIcon className="size-4" /> Tools
       </a>
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Import from OpenAPI</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Import from an API spec</h1>
         <p className="max-w-prose text-sm text-muted-foreground">
-          Turn the operations in an OpenAPI 3.0 or 3.1 spec into tools. You pick which ones; nothing is created until you import.
+          Turn the operations in an OpenAPI 3.0, 3.1 or Swagger 2.0 spec into tools. You pick which ones; nothing is created until you import.
         </p>
       </div>
 
@@ -206,7 +206,7 @@ export function ImportPage({ projectId }: { projectId: string }) {
             <TabsContent value="file" className="pt-3">
               <Label htmlFor="spec-file" className="flex w-fit cursor-pointer items-center gap-2 rounded-lg border border-dashed px-4 py-3 text-sm hover:bg-muted/60 has-focus-visible:ring-2 has-focus-visible:ring-ring">
                 <UploadIcon className="size-4" />
-                {busy === "reading" || busy === "previewing" ? "Reading…" : "Choose openapi.json or .yaml"}
+                {busy === "reading" || busy === "previewing" ? "Reading…" : "Choose a .json or .yaml spec"}
                 <input id="spec-file" type="file" accept=".json,.yaml,.yml,application/json,application/yaml,text/yaml" className="sr-only" onChange={loadFile} disabled={busy !== null} />
               </Label>
             </TabsContent>
@@ -235,7 +235,7 @@ export function ImportPage({ projectId }: { projectId: string }) {
                 {preview.info.title} {preview.info.api_version && <span className="font-normal text-muted-foreground">v{preview.info.api_version}</span>}
               </CardTitle>
               <CardDescription>
-                OpenAPI {preview.info.openapi}. {preview.operations.length} operations.
+                {preview.info.kind === "swagger2" ? "Swagger 2.0" : `OpenAPI ${preview.info.openapi}`}. {preview.operations.length} operations.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 lg:grid-cols-2">

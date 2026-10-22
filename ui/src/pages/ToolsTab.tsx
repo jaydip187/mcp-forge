@@ -63,7 +63,7 @@ export function ToolsTab({ projectId }: { projectId: string }) {
         <div className="flex gap-2">
           <Button asChild variant="outline">
             <a href={href.import(projectId)}>
-              <FileJsonIcon /> Import OpenAPI
+              <FileJsonIcon /> Import API spec
             </a>
           </Button>
           <Button asChild>
@@ -85,7 +85,7 @@ export function ToolsTab({ projectId }: { projectId: string }) {
               <a href={href.tool(projectId, null)}>Create the first tool</a>
             </Button>
             <Button asChild variant="outline">
-              <a href={href.import(projectId)}>Import from OpenAPI</a>
+              <a href={href.import(projectId)}>Import from an API spec</a>
             </Button>
           </div>
         </div>
