@@ -119,5 +119,5 @@ pub fn merge_overrides(current: &ToolInput, overrides: &Overrides, base: &ToolIn
 }
 
 #[cfg(test)]
-#[path = "tests/overrides.rs"]
+#[path = "../tests/unit/overrides.rs"]
 mod tests;

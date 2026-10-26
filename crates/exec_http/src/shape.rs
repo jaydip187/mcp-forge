@@ -173,5 +173,5 @@ pub fn truncate(text: &str, max: usize) -> (String, bool) {
 }
 
 #[cfg(test)]
-#[path = "tests/shape.rs"]
+#[path = "../tests/unit/shape.rs"]
 mod tests;

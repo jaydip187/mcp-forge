@@ -226,5 +226,5 @@ pub fn describe_table(
 }
 
 #[cfg(test)]
-#[path = "tests/explore.rs"]
+#[path = "../tests/unit/explore.rs"]
 mod tests;

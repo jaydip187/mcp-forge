@@ -124,5 +124,5 @@ pub fn unique_name(base: String, taken: &mut HashSet<String>) -> String {
 }
 
 #[cfg(test)]
-#[path = "tests/lib.rs"]
+#[path = "../tests/unit/lib.rs"]
 mod tests;

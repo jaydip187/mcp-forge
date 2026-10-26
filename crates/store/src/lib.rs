@@ -131,5 +131,5 @@ impl Store {
 }
 
 #[cfg(test)]
-#[path = "tests/lib.rs"]
+#[path = "../tests/unit/lib.rs"]
 mod tests;

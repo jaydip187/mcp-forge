@@ -452,5 +452,5 @@ impl SqlSpec {
 }
 
 #[cfg(test)]
-#[path = "tests/db.rs"]
+#[path = "../tests/unit/db.rs"]
 mod tests;

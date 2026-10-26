@@ -34,5 +34,5 @@ pub use policy::{check_agent_sql, check_query_tool, gate, tool_input, tool_write
 pub use pool::ConnectionReport;
 
 #[cfg(test)]
-#[path = "tests/lib.rs"]
+#[path = "../tests/unit/lib.rs"]
 mod tests;

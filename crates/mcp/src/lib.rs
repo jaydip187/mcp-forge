@@ -890,5 +890,5 @@ pub async fn watch_store(store: Store, project_id: Uuid, changes: ChangeBus, eve
 }
 
 #[cfg(test)]
-#[path = "tests/lib.rs"]
+#[path = "../tests/unit/lib.rs"]
 mod tests;

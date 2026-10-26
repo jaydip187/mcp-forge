@@ -50,5 +50,5 @@ pub fn encode_path_segment(s: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "tests/args.rs"]
+#[path = "../tests/unit/args.rs"]
 mod tests;

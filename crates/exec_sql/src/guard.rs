@@ -26,5 +26,5 @@ fn dialect(driver: Driver) -> Box<dyn Dialect> {
 }
 
 #[cfg(test)]
-#[path = "tests/guard.rs"]
+#[path = "../tests/unit/guard.rs"]
 mod tests;

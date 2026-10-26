@@ -159,5 +159,5 @@ fn glob(p: &[char], s: &[char]) -> bool {
 }
 
 #[cfg(test)]
-#[path = "tests/settings.rs"]
+#[path = "../tests/unit/settings.rs"]
 mod tests;

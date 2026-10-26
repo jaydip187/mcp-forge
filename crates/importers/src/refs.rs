@@ -154,5 +154,5 @@ fn percent_decode(s: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "tests/refs.rs"]
+#[path = "../tests/unit/refs.rs"]
 mod tests;

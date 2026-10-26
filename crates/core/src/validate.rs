@@ -72,5 +72,5 @@ impl fmt::Display for ValidationErrors {
 impl std::error::Error for ValidationErrors {}
 
 #[cfg(test)]
-#[path = "tests/validate.rs"]
+#[path = "../tests/unit/validate.rs"]
 mod tests;

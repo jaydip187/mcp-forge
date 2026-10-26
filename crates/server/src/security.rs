@@ -157,5 +157,5 @@ pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 }
 
 #[cfg(test)]
-#[path = "tests/security.rs"]
+#[path = "../tests/unit/security.rs"]
 mod tests;

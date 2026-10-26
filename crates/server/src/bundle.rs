@@ -294,5 +294,5 @@ pub async fn check_sql_tools(
 }
 
 #[cfg(test)]
-#[path = "tests/bundle.rs"]
+#[path = "../tests/unit/bundle.rs"]
 mod tests;

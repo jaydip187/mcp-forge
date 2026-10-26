@@ -498,5 +498,5 @@ async fn change_password(
 }
 
 #[cfg(test)]
-#[path = "tests/login.rs"]
+#[path = "../tests/unit/login.rs"]
 mod tests;

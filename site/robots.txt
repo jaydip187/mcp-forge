@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://jaydip187.github.io/mcp-forge/sitemap.xml
