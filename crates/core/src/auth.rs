@@ -85,5 +85,5 @@ fn is_http_token(s: &str) -> bool {
 }
 
 #[cfg(test)]
-#[path = "tests/auth.rs"]
+#[path = "../tests/unit/auth.rs"]
 mod tests;

@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mcp-forge: turn HTTP APIs and SQL databases into MCP tools</title>
+<meta name="description" content="mcp-forge is a self-hosted, open-source server that turns HTTP APIs (OpenAPI, Swagger) and SQL databases (PostgreSQL, MySQL, SQLite) into curated MCP tools for Claude and other AI agents. One binary, web UI, read-only by default.">
+<link rel="canonical" href="https://jaydip187.github.io/mcp-forge/">
+<meta name="robots" content="index, follow">
+<meta name="theme-color" content="#1e6e6a" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1917" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="mcp-forge">
+<meta property="og:title" content="mcp-forge: turn HTTP APIs and SQL databases into MCP tools">
+<meta property="og:description" content="Self-hosted server that gives Claude and other AI agents curated tools for your APIs and databases. Open source, one binary, read-only by default.">
+<meta property="og:url" content="https://jaydip187.github.io/mcp-forge/">
+<meta property="og:image" content="https://jaydip187.github.io/mcp-forge/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="mcp-forge turns an HTTP request or SQL query into a tool an AI agent can call.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="mcp-forge: turn HTTP APIs and SQL databases into MCP tools">
+<meta name="twitter:description" content="Self-hosted server that gives Claude and other AI agents curated tools for your APIs and databases.">
+<meta name="twitter:image" content="https://jaydip187.github.io/mcp-forge/og.png">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "name": "mcp-forge",
+      "url": "https://jaydip187.github.io/mcp-forge/",
+      "downloadUrl": "https://github.com/jaydip187/mcp-forge/releases/latest",
+      "codeRepository": "https://github.com/jaydip187/mcp-forge",
+      "softwareVersion": "0.2.0",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "macOS, Linux, Windows",
+      "license": "https://github.com/jaydip187/mcp-forge#license",
+      "description": "Self-hosted server that turns HTTP APIs and SQL databases into curated Model Context Protocol (MCP) tools for AI agents.",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What is mcp-forge?",
+          "acceptedAnswer": { "@type": "Answer", "text": "A self-hosted server with a web UI that turns HTTP APIs and SQL databases into MCP tools. Each project is served as an MCP server over streamable HTTP and stdio, so Claude and other MCP clients can call your APIs and query your databases." }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I import an OpenAPI or Swagger spec?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Paste a URL or upload an OpenAPI 3.x or Swagger 2.0 file, filter the operations, and import the ones you want. You can then rename tools, trim parameters and reshape responses with jq." }
+        },
+        {
+          "@type": "Question",
+          "name": "Can an AI agent change data in my database?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Not unless you allow it. Connections are read only by default. Writes are an explicit opt-in per connection, run in a transaction, are undone if they change more rows than allowed, need a WHERE clause on UPDATE and DELETE, and are recorded in an audit log." }
+        },
+        {
+          "@type": "Question",
+          "name": "Where are my API keys and database passwords stored?",
+          "acceptedAnswer": { "@type": "Answer", "text": "They are not stored. mcp-forge keeps references such as env:GITHUB_TOKEN or keyring:shop-db and resolves them each time a tool runs. Pasted secret values are refused." }
+        },
+        {
+          "@type": "Question",
+          "name": "Does mcp-forge send telemetry?",
+          "acceptedAnswer": { "@type": "Answer", "text": "No. It runs on your machine and only connects to the APIs and databases you configure, and to spec URLs you import on purpose." }
+        },
+        {
+          "@type": "Question",
+          "name": "Which MCP clients work with mcp-forge?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Any client that speaks MCP over streamable HTTP or stdio, including Claude Code, Claude Desktop and clients that read .mcp.json files." }
+        }
+      ]
+    }
+  ]
+}
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;600&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css">
+<script>document.documentElement.classList.add('js')</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap top-inner">
+    <a class="brand" href="./" aria-label="mcp-forge home">
+      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect width="32" height="32" rx="7" fill="currentColor"/><path d="M9 22V10l7 7 7-7v12" fill="none" stroke="var(--paper)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      mcp-forge
+    </a>
+    <nav aria-label="Main">
+      <a href="#install">Install</a>
+      <a href="#databases">Databases</a>
+      <a href="#security">Security</a>
+      <a href="#faq">FAQ</a>
+      <a href="docs/">Docs</a>
+      <a class="gh" href="https://github.com/jaydip187/mcp-forge">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <h1>Give AI agents your APIs and databases, on your terms.</h1>
+      <p class="lede">mcp-forge turns HTTP endpoints and SQL queries into curated
+      <abbr title="Model Context Protocol">MCP</abbr> tools for Claude and other agents.
+      You decide which tools exist, what they are called, and exactly what comes back.
+      One self-hosted binary with a web UI. Read-only by default.</p>
+      <div class="actions">
+        <a class="btn primary" href="#install">Install mcp-forge</a>
+        <a class="btn" href="docs/">Read the guide</a>
+      </div>
+      <p class="fine">Free and open source, MIT or Apache-2.0. macOS, Linux and Windows. No telemetry.</p>
+    </div>
+
+    <figure class="forge" data-forge aria-label="What mcp-forge does">
+      <div class="forge-switch" role="group" aria-label="Choose an example">
+        <button type="button" aria-controls="ex-http" aria-pressed="true" data-show="http">HTTP API</button>
+        <button type="button" aria-controls="ex-sql" aria-pressed="false" data-show="sql">SQL database</button>
+      </div>
+      <div class="forge-stage is-playing" id="ex-http" data-example="http" role="group" aria-label="An HTTP request becomes an MCP tool" style="--seam-d:780ms; --out-d:1230ms">
+        <div class="pane in">
+          <p class="pane-title">You describe</p>
+          <pre><code><span class="ln" style="--d:150ms"><span class="c"># base https://api.github.com</span></span><span class="ln" style="--d:240ms"><span class="k">GET</span> <span class="p">/repos/{owner}/{repo}</span></span><span class="ln" style="--d:330ms">&nbsp;</span><span class="ln" style="--d:420ms"><span class="c"># response shape (jq)</span></span><span class="ln" style="--d:510ms">{name: .full_name,</span><span class="ln" style="--d:600ms"> stars: .stargazers_count,</span><span class="ln" style="--d:690ms"> language}</span></code></pre>
+        </div>
+        <div class="seam" aria-hidden="true"><span></span></div>
+        <div class="pane out">
+          <p class="pane-title">The agent sees</p>
+          <pre><code><span class="ln" style="--d:1380ms"><span class="t">get_repo</span>(owner, repo)</span><span class="ln" style="--d:1490ms">Look up a GitHub repository.</span><span class="ln" style="--d:1600ms">&nbsp;</span><span class="ln" style="--d:1710ms"><span class="c">→ rust-lang / rust</span></span><span class="ln" style="--d:1820ms">{"name": "rust-lang/rust",</span><span class="ln" style="--d:1930ms"> "stars": 104000,</span><span class="ln" style="--d:2040ms"> "language": "Rust"}</span></code></pre>
+        </div>
+        <p class="forge-caption">Example: the full GitHub repository response, trimmed to the three fields the agent needs.</p>
+      </div>
+      <div class="forge-stage" id="ex-sql" data-example="sql" role="group" aria-label="A SQL query becomes an MCP tool" hidden style="--seam-d:690ms; --out-d:1140ms">
+        <div class="pane in">
+          <p class="pane-title">You describe</p>
+          <pre><code><span class="ln" style="--d:150ms"><span class="c"># connection shop, read only</span></span><span class="ln" style="--d:240ms"><span class="k">SELECT</span> id, status, total</span><span class="ln" style="--d:330ms"><span class="k">FROM</span> orders</span><span class="ln" style="--d:420ms"><span class="k">WHERE</span> customer_id</span><span class="ln" style="--d:510ms">  = <span class="p">:customer_id</span></span><span class="ln" style="--d:600ms"><span class="k">ORDER BY</span> id <span class="k">DESC</span></span></code></pre>
+        </div>
+        <div class="seam" aria-hidden="true"><span></span></div>
+        <div class="pane out">
+          <p class="pane-title">The agent sees</p>
+          <pre><code><span class="ln" style="--d:1290ms"><span class="t">recent_orders</span>(customer_id)</span><span class="ln" style="--d:1400ms">The latest orders for one customer.</span><span class="ln" style="--d:1510ms">&nbsp;</span><span class="ln" style="--d:1620ms"><span class="c">→ customer_id = 42</span></span><span class="ln" style="--d:1730ms">{"columns": ["id", "status", "total"],</span><span class="ln" style="--d:1840ms"> "rows": [[1042, "shipped", 59.9]],</span><span class="ln" style="--d:1950ms"> "truncated": false}</span></code></pre>
+        </div>
+        <p class="forge-caption">Example: a saved query with a typed parameter. Values never get pasted into the SQL.</p>
+      </div>
+    </figure>
+  </div>
+</section>
+
+<section id="install" class="band">
+  <div class="wrap">
+    <h2>Install</h2>
+    <div class="tabs" data-tabs>
+      <div role="tablist" aria-label="Operating system">
+        <button role="tab" id="t-unix" aria-controls="p-unix" aria-selected="true">macOS and Linux</button>
+        <button role="tab" id="t-win" aria-controls="p-win" aria-selected="false" tabindex="-1">Windows</button>
+        <button role="tab" id="t-docker" aria-controls="p-docker" aria-selected="false" tabindex="-1">Docker</button>
+      </div>
+      <div role="tabpanel" id="p-unix" aria-labelledby="t-unix" class="cmd">
+        <pre><code>curl --proto '=https' --tlsv1.2 -LsSf https://github.com/jaydip187/mcp-forge/releases/latest/download/mcp-forge-installer.sh | sh</code></pre>
+        <button class="copy" type="button">Copy</button>
+      </div>
+      <div role="tabpanel" id="p-win" aria-labelledby="t-win" class="cmd" hidden>
+        <pre><code>powershell -ExecutionPolicy Bypass -c "irm https://github.com/jaydip187/mcp-forge/releases/latest/download/mcp-forge-installer.ps1 | iex"</code></pre>
+        <button class="copy" type="button">Copy</button>
+      </div>
+      <div role="tabpanel" id="p-docker" aria-labelledby="t-docker" class="cmd" hidden>
+        <pre><code>git clone https://github.com/jaydip187/mcp-forge && cd mcp-forge
+docker build -t mcp-forge .
+docker run -d --name mcp-forge -p 127.0.0.1:7410:7410 -v mcp-forge-data:/data \
+  -e MCP_FORGE_ADMIN_TOKEN="$(openssl rand -hex 24)" mcp-forge</code></pre>
+        <button class="copy" type="button">Copy</button>
+      </div>
+    </div>
+    <p class="note">The installers put <code>mcp-forge</code> in <code>~/.cargo/bin</code>. Prefer a manual install?
+    Download an archive from the <a href="https://github.com/jaydip187/mcp-forge/releases">releases page</a>.</p>
+  </div>
+</section>
+
+<section class="wrap section">
+  <h2>From nothing to a working tool in five minutes</h2>
+  <ol class="steps" data-reveal>
+    <li>
+      <h3>Start the server</h3>
+      <p>Run <code>mcp-forge serve</code> and open <code>http://127.0.0.1:7410</code>. The first run prints a one-time setup code in the log; use it to create your account.</p>
+    </li>
+    <li>
+      <h3>Create a project</h3>
+      <p>A project is one MCP server. Call it <code>github</code> and agents connect to <code>/mcp/github</code>.</p>
+    </li>
+    <li>
+      <h3>Add or import tools</h3>
+      <p>Describe a request by hand, or import an OpenAPI 3.x or Swagger 2.0 spec and keep the operations you want. Try each one in the test console before an agent does.</p>
+    </li>
+    <li>
+      <h3>Connect your agent</h3>
+      <p>Copy a snippet from the Connect tab and ask Claude a question. It calls your tool.</p>
+    </li>
+  </ol>
+</section>
+
+<section class="wrap section split">
+  <div>
+    <h2>HTTP APIs, shaped for agents</h2>
+    <p>Large API responses waste an agent's context and confuse it. Each tool gets a name, a description written for the model, typed parameters and an optional jq response shape, so agents see the fields that matter and nothing else.</p>
+    <ul class="ticks">
+      <li>Import OpenAPI 3.x and Swagger 2.0, from a URL or a file, and re-import when the spec changes</li>
+      <li>Rename tools, hide parameters, set defaults</li>
+      <li>Read-only projects expose only GET, HEAD and OPTIONS tools</li>
+      <li>Hundreds of operations? Offer <code>search_tools</code> and <code>call_tool</code> instead of listing them all</li>
+      <li>Export a project as <code>tools.yaml</code> and import it on another machine</li>
+    </ul>
+  </div>
+  <div class="snippet">
+    <p class="pane-title">Connect Claude Code</p>
+    <pre><code>claude mcp add --transport http github \
+  http://127.0.0.1:7410/mcp/github</code></pre>
+    <p class="pane-title">Or any client, over stdio</p>
+    <pre><code>{
+  "mcpServers": {
+    "github": {
+      "command": "mcp-forge",
+      "args": ["stdio", "--project", "github"]
+    }
+  }
+}</code></pre>
+  </div>
+</section>
+
+<section id="databases" class="band">
+  <div class="wrap split">
+    <div>
+      <h2>SQL databases, read-only until you say otherwise</h2>
+      <p>Connect PostgreSQL, MySQL or SQLite. Publish saved queries with typed <code>:name</code> parameters, and optionally let agents list tables, describe them and write their own SELECT statements. Values are always sent separately from the SQL, never pasted into it.</p>
+      <p>Mask sensitive columns such as <code>users.password_hash</code> or <code>*.email</code>, and limit which tables agents may explore.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <caption>What agents may do on a connection</caption>
+        <thead><tr><th scope="col">Access mode</th><th scope="col">Saved queries</th><th scope="col">Agent-written SQL</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Read only <span class="tag">default</span></th><td>read</td><td>read</td></tr>
+          <tr><th scope="row">Saved writes</th><td>read and write</td><td>read</td></tr>
+          <tr><th scope="row">Full access</th><td>read and write</td><td>read and write</td></tr>
+        </tbody>
+      </table>
+      <p class="note">Every write runs in a transaction, is undone if it changes more rows than allowed (100 by default), needs a <code>WHERE</code> clause on UPDATE and DELETE, can be tried with <code>dry_run</code>, and lands in the audit log.</p>
+    </div>
+  </div>
+</section>
+
+<section id="security" class="wrap section">
+  <h2>Built to fail closed</h2>
+  <p class="measure">Agents get real access to your systems, so every SQL statement passes through independent layers. Each one is enough on its own to stop a write on a read-only connection.</p>
+  <ol class="layers" data-reveal>
+    <li><p><strong>Database login.</strong> Use a login that may only SELECT. The Test button shows what yours can do.</p></li>
+    <li><p><strong>Read-only session.</strong> Reads run in a read-only transaction with a server-side time limit, then roll back.</p></li>
+    <li><p><strong>Statement check.</strong> SQL is parsed; exactly one statement is allowed and classified as read, write, schema change or admin. Writes hidden in CTEs are refused.</p></li>
+    <li><p><strong>Function blocklist.</strong> Functions that write, read server files, reach other servers or sleep, such as <code>pg_read_file</code>, <code>dblink</code> or <code>LOAD_FILE</code>, are refused.</p></li>
+    <li><p><strong>Limits.</strong> Row and time limits, a cap per cell, column masks, a table allowlist, and for writes the row cap, dry run and audit log.</p></li>
+  </ol>
+  <div class="facts">
+    <p><strong>Localhost only by default.</strong> Requests must carry a loopback Host header, which blocks DNS rebinding. Any other address requires an admin token.</p>
+    <p><strong>Secrets are references.</strong> <code>env:NAME</code> or <code>keyring:NAME</code>, resolved at call time and redacted from errors, logs and exports.</p>
+    <p><strong>Accounts done properly.</strong> argon2id passwords, HttpOnly SameSite cookies, CSRF header and sign-in backoff.</p>
+  </div>
+</section>
+
+<section id="faq" class="band">
+  <div class="wrap">
+    <h2>Questions</h2>
+    <div class="faq">
+      <details>
+        <summary>What is MCP?</summary>
+        <p>The Model Context Protocol is an open standard that lets AI applications such as Claude call external tools. mcp-forge serves every project as an MCP server over streamable HTTP at <code>/mcp/&lt;project&gt;</code> and over stdio.</p>
+      </details>
+      <details>
+        <summary>Which MCP clients work with it?</summary>
+        <p>Any client that speaks streamable HTTP or stdio: Claude Code, Claude Desktop, and clients that read <code>.mcp.json</code>. Tool changes are pushed to connected clients, so you can keep editing while an agent is connected.</p>
+      </details>
+      <details>
+        <summary>Where are my API keys and database passwords stored?</summary>
+        <p>Nowhere. mcp-forge keeps references such as <code>env:GITHUB_TOKEN</code> or <code>keyring:shop-db</code> and resolves them each time a tool runs. Pasted secret values are refused, and <code>tools.yaml</code> exports contain only the references.</p>
+      </details>
+      <details>
+        <summary>Can an agent change data in my database?</summary>
+        <p>Only if you allow it on that connection. Schema changes need a separate switch, admin statements never run, and full access must be confirmed explicitly.</p>
+      </details>
+      <details>
+        <summary>Does it send telemetry?</summary>
+        <p>No. It only connects to the APIs and databases you configure, and to spec URLs you import on purpose.</p>
+      </details>
+      <details>
+        <summary>Can I run it on a server for my team?</summary>
+        <p>Yes. Bind to another address with an admin token, put TLS in front with a reverse proxy, and add accounts with <code>mcp-forge user add</code>. A Docker image is included.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<section class="wrap section closing">
+  <h2>Try it on your own API</h2>
+  <p>Install it, start <code>mcp-forge serve</code>, and point it at an API or database you already use.</p>
+  <div class="actions">
+    <a class="btn primary" href="#install">Install mcp-forge</a>
+    <a class="btn" href="docs/">Read the guide</a>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <p>mcp-forge 0.2.0. Licensed MIT or Apache-2.0.</p>
+    <nav aria-label="Footer">
+      <a href="docs/">Docs</a>
+      <a href="https://github.com/jaydip187/mcp-forge">Source</a>
+      <a href="https://github.com/jaydip187/mcp-forge/releases">Releases</a>
+      <a href="https://github.com/jaydip187/mcp-forge/issues">Report an issue</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="site.js" defer></script>
+</body>
+</html>

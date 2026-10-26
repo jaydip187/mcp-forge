@@ -198,5 +198,5 @@ pub fn mysql_row(row: &MySqlRow) -> Vec<Value> {
 }
 
 #[cfg(test)]
-#[path = "tests/value.rs"]
+#[path = "../tests/unit/value.rs"]
 mod tests;

@@ -320,5 +320,5 @@ fn rewrite_refs(v: &Value) -> Value {
 }
 
 #[cfg(test)]
-#[path = "tests/swagger2.rs"]
+#[path = "../tests/unit/swagger2.rs"]
 mod tests;

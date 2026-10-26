@@ -70,5 +70,5 @@ impl<'de> Deserialize<'de> for SecretRef {
 }
 
 #[cfg(test)]
-#[path = "tests/secret.rs"]
+#[path = "../tests/unit/secret.rs"]
 mod tests;

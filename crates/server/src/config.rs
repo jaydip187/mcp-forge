@@ -179,5 +179,5 @@ fn home_dir() -> Option<PathBuf> {
 }
 
 #[cfg(test)]
-#[path = "tests/config.rs"]
+#[path = "../tests/unit/config.rs"]
 mod tests;

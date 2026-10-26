@@ -272,5 +272,5 @@ pub(crate) async fn fetch_spec(url: &str) -> Result<String, ApiError> {
 }
 
 #[cfg(test)]
-#[path = "tests/import.rs"]
+#[path = "../tests/unit/import.rs"]
 mod tests;

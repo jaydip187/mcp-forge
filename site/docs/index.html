@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mcp-forge guide: build MCP tools from APIs and databases</title>
+<meta name="description" content="Step-by-step guide to mcp-forge with worked examples: turn the GitHub API into an MCP tool, import an OpenAPI spec, publish safe SQL queries, connect Claude Code and Claude Desktop, and share tools as YAML.">
+<link rel="canonical" href="https://jaydip187.github.io/mcp-forge/docs/">
+<meta name="robots" content="index, follow">
+<meta name="theme-color" content="#1e6e6a" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1917" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="mcp-forge">
+<meta property="og:title" content="mcp-forge guide: build MCP tools from APIs and databases">
+<meta property="og:description" content="Worked examples: a GitHub API tool, an OpenAPI import, safe SQL queries, and connecting Claude.">
+<meta property="og:url" content="https://jaydip187.github.io/mcp-forge/docs/">
+<meta property="og:image" content="https://jaydip187.github.io/mcp-forge/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://jaydip187.github.io/mcp-forge/og.png">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "TechArticle",
+      "headline": "mcp-forge guide: build MCP tools from APIs and databases",
+      "url": "https://jaydip187.github.io/mcp-forge/docs/",
+      "about": { "@type": "SoftwareApplication", "name": "mcp-forge", "url": "https://jaydip187.github.io/mcp-forge/" },
+      "proficiencyLevel": "Beginner",
+      "dateModified": "2026-10-26"
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "mcp-forge", "item": "https://jaydip187.github.io/mcp-forge/" },
+        { "@type": "ListItem", "position": 2, "name": "Guide", "item": "https://jaydip187.github.io/mcp-forge/docs/" }
+      ]
+    }
+  ]
+}
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;600&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="../style.css">
+<script>document.documentElement.classList.add('js')</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap top-inner">
+    <a class="brand" href="../" aria-label="mcp-forge home">
+      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect width="32" height="32" rx="7" fill="currentColor"/><path d="M9 22V10l7 7 7-7v12" fill="none" stroke="var(--paper)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      mcp-forge
+    </a>
+    <nav aria-label="Main">
+      <a href="../#install">Install</a>
+      <a href="./" aria-current="page">Docs</a>
+      <a href="../#faq">FAQ</a>
+      <a class="gh" href="https://github.com/jaydip187/mcp-forge">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap doc-layout">
+
+<nav class="toc" aria-label="On this page">
+  <details open>
+    <summary>On this page</summary>
+    <ol>
+      <li><a href="#first-run">Install and first run</a></li>
+      <li><a href="#http-tool">Example: a GitHub API tool</a></li>
+      <li><a href="#openapi">Example: import an OpenAPI spec</a></li>
+      <li><a href="#secrets">Auth and secrets</a></li>
+      <li><a href="#sql">Example: a safe SQL query</a></li>
+      <li><a href="#agent-sql">Let agents explore a database</a></li>
+      <li><a href="#writes">Allowing writes</a></li>
+      <li><a href="#connect">Connect Claude and other clients</a></li>
+      <li><a href="#large-apis">Curating large APIs</a></li>
+      <li><a href="#yaml">Share tools as YAML</a></li>
+      <li><a href="#team">Run it for a team</a></li>
+      <li><a href="#cli">CLI reference</a></li>
+      <li><a href="#troubleshooting">Troubleshooting</a></li>
+    </ol>
+  </details>
+</nav>
+
+<main id="main" class="doc">
+
+<h1>Guide</h1>
+<p class="lede">How to turn an HTTP API or a SQL database into tools that Claude and other AI agents can call, with an example for each step. Every example works on a fresh install.</p>
+
+<section id="first-run">
+  <h2>Install and first run</h2>
+  <p>Install with one command (other options are on the <a href="../#install">home page</a>):</p>
+<pre class="code"><code>curl --proto '=https' --tlsv1.2 -LsSf https://github.com/jaydip187/mcp-forge/releases/latest/download/mcp-forge-installer.sh | sh
+mcp-forge --version</code></pre>
+  <p>Start the server:</p>
+<pre class="code"><code>mcp-forge serve</code></pre>
+  <p>Open <code>http://127.0.0.1:7410</code>. On first run there is no account yet, so the server prints a one-time setup code in its log:</p>
+<pre class="code"><code><span class="c">no accounts yet: … setup code ABCD-EFGH-JKLM</span></code></pre>
+  <p>Enter the code in the browser with a username and password to create the first account. Data lives in <code>~/.mcp-forge</code>; change it with <code>--data-dir</code>.</p>
+  <p>Next, click <strong>+</strong> next to <em>Projects</em> and create a project called <code>github</code>. A project is one MCP server: agents connect to <code>http://127.0.0.1:7410/mcp/github</code> and see that project's tools.</p>
+</section>
+
+<section id="http-tool">
+  <h2>Example: a GitHub API tool</h2>
+  <p>Goal: let an agent answer "How many stars does rust-lang/rust have?" without handing it the whole GitHub API.</p>
+  <p>In the <code>github</code> project, click <strong>New HTTP tool</strong> and fill in:</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th scope="col">Field</th><th scope="col">Value</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Name</th><td><code>get_repo</code></td></tr>
+        <tr><th scope="row">Description</th><td>Look up a GitHub repository: stars, language, open issues.</td></tr>
+        <tr><th scope="row">Method</th><td><code>GET</code></td></tr>
+        <tr><th scope="row">Base URL</th><td><code>https://api.github.com</code></td></tr>
+        <tr><th scope="row">Path</th><td><code>/repos/{owner}/{repo}</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Each <code>{placeholder}</code> in the path becomes a required parameter, so the agent sees <code>owner</code> and <code>repo</code>. Values are percent-encoded, so an agent can't sneak in <code>/</code>, <code>?</code> or <code>..</code>.</p>
+
+  <h3>Shape the response</h3>
+  <p>GitHub returns about a hundred fields. Add a <strong>Response shape</strong>, a jq expression applied before the agent sees anything:</p>
+<pre class="code"><code>{name: .full_name, stars: .stargazers_count, language, open_issues: .open_issues_count}</code></pre>
+  <p>Click <strong>Create tool</strong>, then try it in the <strong>Test console</strong> with <code>owner</code> = <code>rust-lang</code> and <code>repo</code> = <code>rust</code>. <em>Agent sees</em> shows exactly what an agent will get back, for example:</p>
+<pre class="code"><code>{
+  "name": "rust-lang/rust",
+  "stars": 104000,
+  "language": "Rust",
+  "open_issues": 9800
+}</code></pre>
+  <p class="aside">Numbers here are illustrative. A few more jq shapes that work well: <code>.items[] | {id, title}</code> to keep two fields of every list item, <code>.items[:10]</code> to keep the first ten, and <code>del(.metadata)</code> to drop one noisy field.</p>
+</section>
+
+<section id="openapi">
+  <h2>Example: import an OpenAPI spec</h2>
+  <p>When an API publishes an OpenAPI 3.x or Swagger 2.0 description, import it instead of typing each tool. The public Swagger Petstore makes a good first try.</p>
+  <ol class="howto">
+    <li>Create a project called <code>petstore</code> and open its <strong>Tools</strong> tab.</li>
+    <li>Click <strong>Import API spec</strong> and paste <code>https://petstore3.swagger.io/api/v3/openapi.json</code>, or upload a JSON or YAML file.</li>
+    <li>Filter the operations by tag, path or method, and tick the ones you want. Fewer, well-described tools work better than hundreds.</li>
+    <li>Click <strong>Import</strong>. Each operation becomes a tool with typed parameters taken from the spec.</li>
+    <li>Rename tools, rewrite descriptions for the model, hide parameters or give them fixed values, and add response shapes, just like a hand-made tool.</li>
+  </ol>
+  <p>When the API changes, import the spec again. mcp-forge matches operations to the tools they created and shows what will change before it changes anything.</p>
+</section>
+
+<section id="secrets">
+  <h2>Auth and secrets</h2>
+  <p>mcp-forge never stores secret values. Auth configs and database connections hold a <strong>reference</strong>, resolved each time a tool runs:</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th scope="col">Reference</th><th scope="col">Where the value comes from</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><code>env:NAME</code></th><td>Environment variable <code>NAME</code> of the mcp-forge process, or of the MCP client when it runs mcp-forge over stdio.</td></tr>
+        <tr><th scope="row"><code>keyring:NAME</code></th><td>Your OS keychain, service <code>mcp-forge</code>, account <code>NAME</code>: macOS Keychain, Windows Credential Manager or Secret Service on Linux.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>A pasted token is rejected. Secret values are redacted from errors, URLs, the test console and the audit log.</p>
+
+  <h3>Example: a GitHub token</h3>
+<pre class="code"><code><span class="c"># macOS and Linux</span>
+export GITHUB_TOKEN=ghp_...
+mcp-forge serve
+
+<span class="c"># Windows PowerShell</span>
+$env:GITHUB_TOKEN = "ghp_..."
+mcp-forge serve</code></pre>
+  <p>On the project's <strong>Auth</strong> tab, add an auth config named <code>github</code> of type <em>Bearer token</em> with reference <code>env:GITHUB_TOKEN</code>, then pick it in the <em>Auth</em> field of <code>get_repo</code>. Three kinds are available:</p>
+  <ul class="plain">
+    <li><strong>Bearer token</strong> sends <code>Authorization: Bearer &lt;secret&gt;</code>.</li>
+    <li><strong>API key</strong> sends the secret as a header or query parameter with the name you choose, such as <code>X-API-Key</code>.</li>
+    <li><strong>Basic</strong> sends a username with the secret as the password.</li>
+  </ul>
+</section>
+
+<section id="sql">
+  <h2>Example: a safe SQL query</h2>
+  <p>Goal: let a support agent look up a customer's recent orders in a PostgreSQL shop database, and nothing else.</p>
+  <h3>1. Point mcp-forge at the database</h3>
+  <p>Ideally use a login that may only SELECT. Put its connection string in an environment variable:</p>
+<pre class="code"><code>export SHOP_DB_URL='postgres://readonly:PASSWORD@db.example.com:5432/shop'
+mcp-forge serve</code></pre>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th scope="col">Database</th><th scope="col">Value of the variable</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">PostgreSQL</th><td><code>postgres://user:PASSWORD@host:5432/db</code></td></tr>
+        <tr><th scope="row">MySQL</th><td><code>mysql://user:PASSWORD@host:3306/db</code></td></tr>
+        <tr><th scope="row">SQLite</th><td><code>/path/to/shop.db</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>On the <strong>Databases</strong> tab, add a connection named <code>shop</code> with driver PostgreSQL and reference <code>env:SHOP_DB_URL</code>. Click <strong>Test</strong>: it shows the server version, the login, and whether that login can change data.</p>
+
+  <h3>2. Publish a saved query</h3>
+  <p>Click <strong>New SQL tool</strong>, name it <code>recent_orders</code>, choose the <code>shop</code> connection and enter one statement:</p>
+<pre class="code"><code>SELECT id, status, total
+FROM orders
+WHERE customer_id = :customer_id
+ORDER BY id DESC</code></pre>
+  <p><code>:customer_id</code> becomes an argument. Set its type to <em>integer</em> and mark it required. Types can be string, integer, number or boolean, optionally with a list of allowed values. Values are always sent separately from the SQL, never pasted into it, so SQL injection through arguments isn't possible.</p>
+  <h3>3. What the agent gets</h3>
+<pre class="code"><code>{
+  "columns": ["id", "status", "total"],
+  "rows": [[1042, "shipped", 59.90], [1017, "delivered", 12.50]],
+  "truncated": false
+}</code></pre>
+  <p><code>truncated</code> turns true when the connection's row limit (100 by default) cut the result short.</p>
+</section>
+
+<section id="agent-sql">
+  <h2>Let agents explore a database</h2>
+  <p>Saved queries cover known questions. For open-ended ones, turn on <strong>Agent tools</strong> for the connection on the Databases tab. Three tools appear, prefixed with the connection name:</p>
+  <ul class="plain">
+    <li><code>shop_list_tables</code> lists the tables and views the agent may use.</li>
+    <li><code>shop_describe_table</code> shows columns, types, keys and which columns are masked.</li>
+    <li><code>shop_run_sql</code> runs one statement the agent writes itself.</li>
+  </ul>
+  <p>Narrow what they can reach:</p>
+  <ul class="plain">
+    <li><strong>Tables agents may explore</strong>: for example <code>orders</code> and <code>customers</code>. Empty means every non-system table. System catalogs are always off limits.</li>
+    <li><strong>Masked columns</strong>: for example <code>users.password_hash</code> or <code>*.email</code>. Their values come back as <code>[masked]</code>, and agent-written SQL can't select, filter on or compute with them.</li>
+  </ul>
+  <p>Agent-written SQL is parsed before it runs. Exactly one statement is allowed, writes hidden in CTEs are refused, and dangerous functions such as <code>pg_read_file</code>, <code>dblink</code>, <code>SLEEP</code> or <code>LOAD_FILE</code> are blocked. Reads run in a read-only transaction with a time limit and are always rolled back.</p>
+</section>
+
+<section id="writes">
+  <h2>Allowing writes</h2>
+  <p>Connections are read only until you change <strong>What agents may do</strong>:</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th scope="col">Access mode</th><th scope="col">Saved queries</th><th scope="col">Agent <code>run_sql</code></th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Read only <span class="tag">default</span></th><td>read</td><td>read</td></tr>
+        <tr><th scope="row">Saved writes</th><td>read and write</td><td>read</td></tr>
+        <tr><th scope="row">Full access</th><td>read and write</td><td>read and write</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>Example: mark an order as shipped</h3>
+  <p>With the connection on <em>Saved writes</em>, create a saved query <code>ship_order</code>:</p>
+<pre class="code"><code>UPDATE orders SET status = 'shipped' WHERE id = :order_id</code></pre>
+  <p>Write tools take an extra <code>dry_run</code> argument. With <code>dry_run: true</code> the statement runs, reports the count and is undone:</p>
+<pre class="code"><code><span class="c">// ship_order({"order_id": 1042, "dry_run": true})</span>
+{"columns": [], "rows": [], "truncated": false,
+ "affected_rows": 1, "committed": false, "dry_run": true}</code></pre>
+  <p>Safety rails on every write:</p>
+  <ul class="plain">
+    <li>It runs in a transaction and is undone if it changes more rows than allowed (<em>Most rows one write may change</em>, 100 by default).</li>
+    <li>UPDATE and DELETE need a <code>WHERE</code> clause. Write <code>WHERE true</code> if you really mean every row.</li>
+    <li>Schema changes (CREATE, ALTER, DROP, TRUNCATE) also need <em>Allow schema changes</em>. Admin statements such as GRANT, SET or COPY never run.</li>
+    <li>The <strong>Audit</strong> tab lists every write: tool, caller, SQL, values, rows, and whether it was committed, undone or failed.</li>
+  </ul>
+</section>
+
+<section id="connect">
+  <h2>Connect Claude and other clients</h2>
+  <p>Each project's <strong>Connect</strong> tab has ready-to-copy versions of everything below.</p>
+  <h3>Claude Code</h3>
+<pre class="code"><code><span class="c"># over HTTP, while mcp-forge serve is running</span>
+claude mcp add --transport http github http://127.0.0.1:7410/mcp/github
+
+<span class="c"># over stdio: Claude Code starts mcp-forge itself, no server needed</span>
+claude mcp add github -- mcp-forge stdio --project github</code></pre>
+  <h3>Claude Desktop, <code>.mcp.json</code> and other clients</h3>
+<pre class="code"><code>{
+  "mcpServers": {
+    "github": { "type": "http", "url": "http://127.0.0.1:7410/mcp/github" }
+  }
+}</code></pre>
+  <p>Or over stdio:</p>
+<pre class="code"><code>{
+  "mcpServers": {
+    "github": { "command": "mcp-forge", "args": ["stdio", "--project", "github"] }
+  }
+}</code></pre>
+  <p>Tool edits reach connected clients right away, so you can keep refining descriptions while an agent is connected. Over stdio, edits made in a running UI are picked up within a couple of seconds. If the server has an admin token, HTTP clients must send <code>Authorization: Bearer &lt;token&gt;</code>; the Connect tab adds the header to its snippets.</p>
+  <p>Now ask Claude <em>"How many stars does rust-lang/rust have?"</em>. It calls <code>get_repo</code> and answers from the shaped response.</p>
+</section>
+
+<section id="large-apis">
+  <h2>Curating large APIs</h2>
+  <p>A big spec can produce hundreds of tools, which crowds an agent's context. The project's <strong>Settings</strong> help:</p>
+  <ul class="plain">
+    <li><strong>Read-only mode</strong> exposes only GET, HEAD and OPTIONS tools and SQL tools that don't write.</li>
+    <li><strong>Tag and path filters</strong> include or hide tools, for example only <code>/repos/**</code>.</li>
+    <li><strong>Tool search</strong> lists just two tools, <code>search_tools</code> and <code>call_tool</code>. The agent searches by keyword and calls what it finds.</li>
+    <li><strong>Strip nulls</strong> and a maximum response length keep answers short.</li>
+  </ul>
+  <p>The Tools tab says why each hidden tool is hidden.</p>
+</section>
+
+<section id="yaml">
+  <h2>Share tools as YAML</h2>
+  <p>Export a project to move it to another machine, keep it in git, or review it in a pull request. Secrets stay references, so the file is safe to share.</p>
+<pre class="code"><code>mcp-forge export --project github -o tools.yaml
+mcp-forge import --project github tools.yaml --on-conflict replace</code></pre>
+  <p>This is what the GitHub tool and the shop query from this guide export as:</p>
+<pre class="code"><code>version: 1
+project:
+  name: GitHub
+  slug: github
+auth_configs:
+- name: github
+  kind:
+    type: bearer
+  secret_ref: env:GITHUB_TOKEN
+db_connections:
+- name: shop
+  driver: postgres
+  dsn_ref: env:SHOP_DB_URL
+  access_mode: read_only
+  row_limit: 100
+  timeout_ms: 10000
+  max_affected_rows: 100
+  allow_ddl: false
+  table_allowlist: [orders, customers]
+  column_masks: ['*.email']
+tools:
+- name: get_repo
+  description: 'Look up a GitHub repository: stars, language, open issues.'
+  auth: github
+  response_shape: '{name: .full_name, stars: .stargazers_count, language, open_issues: .open_issues_count}'
+  kind:
+    type: http
+    method: GET
+    base_url: https://api.github.com
+    path_template: /repos/{owner}/{repo}
+    params:
+    - {name: owner, location: path, required: true, schema: {type: string}}
+    - {name: repo, location: path, required: true, schema: {type: string}}
+- name: recent_orders
+  description: The latest orders for one customer.
+  connection: shop
+  kind:
+    type: sql
+    mode:
+      type: query
+      sql: SELECT id, status, total FROM orders WHERE customer_id = :customer_id ORDER BY id DESC
+      params:
+      - {name: customer_id, required: true, schema: {type: integer}}</code></pre>
+  <p>Tools refer to auth configs and connections by name. <code>--on-conflict</code> decides what happens to existing items with the same name: <code>fail</code> (the default), <code>skip</code> or <code>replace</code>. Importing a connection with full access needs <code>--confirm-full-access</code>. The same import and download are under <em>Settings</em> in the UI.</p>
+</section>
+
+<section id="team">
+  <h2>Run it for a team</h2>
+  <p>By default mcp-forge listens on <code>127.0.0.1:7410</code> only. To listen on another address you must set an admin token of 16 or more characters:</p>
+<pre class="code"><code>export MCP_FORGE_ADMIN_TOKEN="$(openssl rand -hex 24)"
+mcp-forge serve --bind 0.0.0.0:7410</code></pre>
+  <p>MCP clients then send <code>Authorization: Bearer &lt;token&gt;</code>, and scripts may use it on <code>/api</code>. Put TLS in front with a reverse proxy, and manage people's accounts on the server:</p>
+<pre class="code"><code>mcp-forge user add alice          <span class="c"># prompts for a password</span>
+mcp-forge user passwd alice       <span class="c"># new password; ends their sessions</span>
+mcp-forge user list
+mcp-forge user remove alice</code></pre>
+  <h3>Docker</h3>
+<pre class="code"><code>docker build -t mcp-forge .
+docker run -d --name mcp-forge -p 127.0.0.1:7410:7410 \
+  -v mcp-forge-data:/data \
+  -e MCP_FORGE_ADMIN_TOKEN="$(openssl rand -hex 24)" \
+  -e GITHUB_TOKEN=ghp_... \
+  mcp-forge
+docker logs mcp-forge             <span class="c"># shows the first-run setup code</span></code></pre>
+  <p>The container runs as an unprivileged user and keeps data in the <code>/data</code> volume. There is no OS keychain inside a container, so pass secrets as environment variables and reference them as <code>env:NAME</code>.</p>
+</section>
+
+<section id="cli">
+  <h2>CLI reference</h2>
+<pre class="code"><code>mcp-forge serve  [--bind 127.0.0.1:7410] [--admin-token T] [--data-dir DIR]
+mcp-forge stdio  --project SLUG [--data-dir DIR]
+mcp-forge export --project SLUG [-o tools.yaml]
+mcp-forge import --project SLUG [FILE|-] [--on-conflict fail|skip|replace] [--confirm-full-access]
+mcp-forge user add NAME [--password-stdin]
+mcp-forge user passwd NAME [--password-stdin]
+mcp-forge user list
+mcp-forge user remove NAME</code></pre>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th scope="col">Environment variable</th><th scope="col">Same as</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><code>MCP_FORGE_BIND</code></th><td><code>--bind</code></td></tr>
+        <tr><th scope="row"><code>MCP_FORGE_ADMIN_TOKEN</code></th><td><code>--admin-token</code></td></tr>
+        <tr><th scope="row"><code>MCP_FORGE_DATA_DIR</code></th><td><code>--data-dir</code></td></tr>
+        <tr><th scope="row"><code>MCP_FORGE_PROJECT</code></th><td><code>stdio --project</code></td></tr>
+        <tr><th scope="row"><code>RUST_LOG</code></th><td>Log level, for example <code>info,mcp_forge=debug</code>. Logs go to stderr.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="troubleshooting">
+  <h2>Troubleshooting</h2>
+  <dl class="trouble">
+    <dt>"environment variable <code>X</code> is not set"</dt>
+    <dd>Set it in the environment of the process that runs the tool: the <code>serve</code> process, or for stdio the MCP client that starts mcp-forge.</dd>
+    <dt>A client can't connect to <code>/mcp/&lt;project&gt;</code></dt>
+    <dd>Check the project slug on the Connect tab and that <code>mcp-forge serve</code> is running. With an admin token, check that the client sends the <code>Authorization</code> header.</dd>
+    <dt>Tools don't show up</dt>
+    <dd>They may be turned off or hidden by the project's filters. The Tools tab says why next to each hidden tool.</dd>
+    <dt>PostgreSQL says "cannot execute … in a read-only transaction"</dt>
+    <dd>The read-only layer stopped a write. Change the connection's access mode if this tool should write.</dd>
+    <dt>"binding to non-loopback address … requires --admin-token"</dt>
+    <dd>Set <code>MCP_FORGE_ADMIN_TOKEN</code>, or bind to <code>127.0.0.1</code>.</dd>
+    <dt>Lost the setup code or forgot a password</dt>
+    <dd>The setup code is printed on every start until the first account exists. Or run <code>mcp-forge user add &lt;name&gt;</code>, or <code>mcp-forge user passwd &lt;name&gt;</code> to reset a password.</dd>
+    <dt>Port 7410 is in use</dt>
+    <dd>Run <code>mcp-forge serve --bind 127.0.0.1:7420</code> and use that port in client URLs.</dd>
+  </dl>
+  <p>Still stuck? <a href="https://github.com/jaydip187/mcp-forge/issues">Open an issue</a> with the command you ran and the log output.</p>
+</section>
+
+</main>
+</div>
+
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <p>mcp-forge 0.2.0. Licensed MIT or Apache-2.0.</p>
+    <nav aria-label="Footer">
+      <a href="../">Home</a>
+      <a href="https://github.com/jaydip187/mcp-forge">Source</a>
+      <a href="https://github.com/jaydip187/mcp-forge/releases">Releases</a>
+      <a href="https://github.com/jaydip187/mcp-forge/issues">Report an issue</a>
+    </nav>
+  </div>
+</footer>
+<script src="../site.js" defer></script>
+</body>
+</html>

@@ -160,5 +160,5 @@ impl HttpSpec {
 }
 
 #[cfg(test)]
-#[path = "tests/schema.rs"]
+#[path = "../tests/unit/schema.rs"]
 mod tests;

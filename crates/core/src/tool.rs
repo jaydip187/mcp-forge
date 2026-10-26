@@ -433,5 +433,5 @@ fn validate_base_url(raw: &str, errs: &mut ValidationErrors) {
 }
 
 #[cfg(test)]
-#[path = "tests/tool.rs"]
+#[path = "../tests/unit/tool.rs"]
 mod tests;

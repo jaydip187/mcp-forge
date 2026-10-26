@@ -380,5 +380,5 @@ fn base64_encode(input: &[u8]) -> String {
 }
 
 #[cfg(test)]
-#[path = "tests/lib.rs"]
+#[path = "../tests/unit/lib.rs"]
 mod tests;

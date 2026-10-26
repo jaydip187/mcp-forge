@@ -100,5 +100,5 @@ fn json_type_name(v: &Value) -> &'static str {
 }
 
 #[cfg(test)]
-#[path = "tests/args.rs"]
+#[path = "../tests/unit/args.rs"]
 mod tests;
