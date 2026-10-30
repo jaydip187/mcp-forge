@@ -18,6 +18,7 @@ export interface ProjectSettings {
   strip_nulls: boolean;
   max_response_chars: number;
   tool_search: boolean;
+  call_log_days: number;
 }
 
 export interface Project {
@@ -312,4 +313,51 @@ export interface AuditEntry {
   rows_affected: number | null;
   outcome: "committed" | "rolled_back" | "dry_run" | "failed";
   error: string | null;
+}
+
+export type CallStatus = "ok" | "error" | "unknown_tool";
+
+export interface CallEntry {
+  id: string;
+  project_id: string;
+  ts: string;
+  tool_id: string | null;
+  tool_name: string;
+  origin: "mcp" | "console";
+  client: string | null;
+  arguments: Json;
+  status: CallStatus;
+  duration_ms: number;
+  response_chars: number;
+  upstream_status: number | null;
+  error: string | null;
+}
+
+export type CallWindow = "24h" | "7d" | "30d";
+
+export interface CallFilter {
+  tool?: string;
+  status?: CallStatus;
+  origin?: "mcp" | "console";
+}
+
+export interface ToolCallSummary {
+  tool_name: string;
+  calls: number;
+  errors: number;
+  p50_ms: number | null;
+  p95_ms: number | null;
+  last_call: string;
+}
+
+export interface CallSummary {
+  window: CallWindow;
+  since: string;
+  bucket: "hour" | "day";
+  total: number;
+  errors: number;
+  p50_ms: number | null;
+  p95_ms: number | null;
+  tools: ToolCallSummary[];
+  buckets: { start: string; ok: number; errors: number }[];
 }

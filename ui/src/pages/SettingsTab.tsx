@@ -76,6 +76,8 @@ export function SettingsTab({ project, onSaved }: { project: Project; onSaved: (
 
       <CurationCard project={project} onSaved={onSaved} />
 
+      <CallLogCard project={project} onSaved={onSaved} />
+
       <BundleCard project={project} onImported={reload} />
 
       <Card className="border-destructive/40">
@@ -220,6 +222,7 @@ function CurationCard({ project, onSaved }: { project: Project; onSaved: (p: Pro
     strip_nulls: stripNulls,
     max_response_chars: Number(maxChars),
     tool_search: toolSearch,
+    call_log_days: st.call_log_days,
   };
   const dirty = JSON.stringify(next) !== JSON.stringify(st);
 
@@ -292,6 +295,59 @@ function CurationCard({ project, onSaved }: { project: Project; onSaved: (p: Pro
           </div>
           <Button type="submit" className="w-fit" disabled={!dirty}>
             Save curation
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+function CallLogCard({ project, onSaved }: { project: Project; onSaved: (p: Project) => void }) {
+  const st = project.settings;
+  const [days, setDays] = useState(String(st.call_log_days));
+  const [err, setErr] = useState<unknown>(null);
+  const dirty = days !== String(st.call_log_days);
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    try {
+      onSaved(await api.updateSettings(project.id, { ...st, call_log_days: Number(days) }));
+      setErr(null);
+      toast.success(Number(days) === 0 ? "Call log turned off" : "Call log retention saved");
+    } catch (e) {
+      setErr(e);
+      if (!(e instanceof ApiError && e.fields.length)) toast.error(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Call log</CardTitle>
+        <CardDescription>Every tool call, from agents and the test console, with its arguments and result.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={save} className="grid gap-4">
+          <div className="grid max-w-xs gap-1.5">
+            <Label htmlFor="c-days">Keep calls for (days)</Label>
+            <Input
+              id="c-days"
+              value={days}
+              onChange={(e) => setDays(e.target.value)}
+              inputMode="numeric"
+              className="font-mono"
+              aria-invalid={!!fieldError(err, "call_log_days")}
+            />
+            {fieldError(err, "call_log_days") ? (
+              <p className="text-xs text-destructive">{fieldError(err, "call_log_days")}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Up to 365. 0 stops recording and clears the log within the hour. Each project keeps at most 100 000 calls.
+              </p>
+            )}
+          </div>
+          <Button type="submit" className="w-fit" disabled={!dirty}>
+            Save
           </Button>
         </form>
       </CardContent>

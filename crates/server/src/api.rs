@@ -8,7 +8,7 @@ use axum::extract::{FromRequest, FromRequestParts, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use forge_core::{
     AuthConfig, AuthConfigInput, DbConnection, DbConnectionInput, Project, ProjectInput, SqlMode,
     ToolDef, ToolInput, ToolKind,
@@ -21,6 +21,7 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use uuid::Uuid;
 
+use crate::login::CurrentUser;
 use crate::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -548,20 +549,16 @@ struct TestRequest {
 /// upstream response and exactly what an agent would receive.
 async fn test_tool(
     State(s): State<AppState>,
+    user: Option<Extension<CurrentUser>>,
     ApiPath((project_id, id)): ApiPath<(Uuid, Uuid)>,
     ApiJson(req): ApiJson<TestRequest>,
 ) -> ApiResult<Json<Value>> {
     let tool = s.store.get_tool(project_id, id).await?;
     let settings = s.store.get_project(project_id).await?.settings;
-    let run = forge_mcp::run_tool(
-        &s.store,
-        &s.exec,
-        &tool,
-        &req.arguments,
-        &settings,
-        "console",
-    )
-    .await?;
+    // No user when the admin token was used (or sign-in is off).
+    let caller = forge_mcp::Caller::console(user.map(|Extension(u)| u.user.username));
+    let run =
+        forge_mcp::run_tool(&s.store, &s.exec, &tool, &req.arguments, &settings, &caller).await?;
     let (request, response, error) = match &run.outcome {
         RunOutcome::Sql(Ok(o)) => (
             json!({ "sql": o.sql, "params": o.params }),

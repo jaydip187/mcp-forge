@@ -96,6 +96,7 @@ const SECTION: Record<ProjectTab, string> = {
   specs: "Specs",
   auth: "Auth",
   databases: "Databases",
+  calls: "Calls",
   audit: "Audit log",
   connect: "Connect",
   settings: "Settings",

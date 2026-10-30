@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildArgs, prettyBody } from "./args";
+import { ms } from "./format";
 import { parseRoute } from "./router";
 import { buildSnippets } from "./snippets";
 import { parseTyped, placeholders, slugify, splitTemplate, syncPathParams } from "./template";
@@ -196,6 +197,7 @@ describe("visibility", () => {
     strip_nulls: false,
     max_response_chars: 50000,
     tool_search: false,
+    call_log_days: 30,
     ...s,
   });
   const tool = (method: string, path: string, tags: string[], enabled = true) =>
@@ -298,5 +300,21 @@ describe("sql form", () => {
     expect(sqlParamIndex("kind.mode.params[2].name")).toBe(2);
     expect(sqlParamIndex("kind.mode.sql")).toBeNull();
     expect(splitList("users.email\n*.ssn, users.email,")).toEqual(["users.email", "*.ssn"]);
+  });
+});
+
+describe("ms", () => {
+  it("formats durations", () => {
+    expect(ms(null)).toBe("–");
+    expect(ms(0)).toBe("0 ms");
+    expect(ms(999)).toBe("999 ms");
+    expect(ms(1234)).toBe("1.23 s");
+    expect(ms(12_345)).toBe("12.3 s");
+  });
+});
+
+describe("calls route", () => {
+  it("parses the calls tab", () => {
+    expect(parseRoute("#/p/abc/calls")).toEqual({ name: "project", projectId: "abc", tab: "calls" });
   });
 });

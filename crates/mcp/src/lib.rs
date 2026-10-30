@@ -7,13 +7,13 @@
 //! 2026-07-28 clients.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use std::collections::HashMap;
 
 use forge_core::{
-    AuditEntry, DbConnection, HttpMethod, ProjectSettings, SecretResolver, SqlMode, SqlSpec,
-    ToolDef, ToolKind,
+    logged_arguments, logged_error, AuditEntry, CallEntry, CallStatus, DbConnection, HttpMethod,
+    ProjectSettings, SecretResolver, SqlMode, SqlSpec, ToolDef, ToolKind,
 };
 use forge_exec_http::shape::{shape_body, ShapeOptions};
 use forge_exec_http::{ExecError, HttpExecutor, HttpOutcome};
@@ -144,11 +144,28 @@ impl ForgeMcp {
         name: &str,
         args: &Map<String, Value>,
         settings: &ProjectSettings,
+        caller: &Caller,
     ) -> Result<CallToolResult, ErrorData> {
         let conns = self.connections().await?;
         let tool = match self.store.get_tool_by_name(self.project_id, name).await {
             Ok(t) if exposed(settings, &t, &conns) => t,
             Ok(_) | Err(StoreError::NotFound(_)) => {
+                let entry = CallEntry {
+                    id: Uuid::new_v4(),
+                    project_id: self.project_id,
+                    ts: chrono::Utc::now(),
+                    tool_id: None,
+                    tool_name: name.to_owned(),
+                    origin: caller.origin.to_owned(),
+                    client: caller.client.clone(),
+                    arguments: logged_arguments(args),
+                    status: CallStatus::UnknownTool,
+                    duration_ms: 0,
+                    response_chars: 0,
+                    upstream_status: None,
+                    error: Some(format!("unknown tool `{name}`")),
+                };
+                log_call(&self.store, settings, &entry).await;
                 return Err(ErrorData::invalid_params(
                     format!("unknown tool `{name}`"),
                     None,
@@ -156,7 +173,7 @@ impl ForgeMcp {
             }
             Err(e) => return Err(internal(e)),
         };
-        let run = run_tool(&self.store, &self.exec, &tool, args, settings, "mcp")
+        let run = run_tool(&self.store, &self.exec, &tool, args, settings, caller)
             .await
             .map_err(internal)?;
         tracing::info!(
@@ -345,11 +362,84 @@ fn exposed(settings: &ProjectSettings, t: &ToolDef, conns: &HashMap<Uuid, DbConn
     }
 }
 
+/// Who made a call: recorded in the call log and the write audit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Caller {
+    /// `mcp` (an agent) or `console` (the UI test console).
+    pub origin: &'static str,
+    /// MCP client as `name version`, or the signed-in user.
+    pub client: Option<String>,
+}
+
+impl Caller {
+    pub fn mcp(client: Option<String>) -> Self {
+        Self {
+            origin: "mcp",
+            client,
+        }
+    }
+
+    pub fn console(user: Option<String>) -> Self {
+        Self {
+            origin: "console",
+            client: user,
+        }
+    }
+}
+
+/// Appends to the call log unless the project turned it off. A failed
+/// insert is logged, not surfaced: the call itself already happened.
+pub async fn log_call(store: &Store, settings: &ProjectSettings, entry: &CallEntry) {
+    if settings.call_log_days == 0 {
+        return;
+    }
+    if let Err(e) = store.append_call(entry).await {
+        tracing::error!(error = %e, tool = %entry.tool_name, "could not write call log entry");
+    }
+}
+
 /// Runs a stored tool (enabled or not) and shapes its response with the
 /// project's settings. Shared by MCP `tools/call` and the UI test console so
-/// both report identical results. SQL writes are recorded in the audit log
-/// with `origin` (`mcp` or `console`).
+/// both report identical results. Every run goes to the call log; SQL writes
+/// also go to the audit log.
 pub async fn run_tool(
+    store: &Store,
+    exec: &Executors,
+    tool: &ToolDef,
+    args: &Map<String, Value>,
+    settings: &ProjectSettings,
+    caller: &Caller,
+) -> Result<ToolRun, StoreError> {
+    let ts = chrono::Utc::now();
+    let started = Instant::now();
+    let run = execute(store, exec, tool, args, settings, caller.origin).await?;
+    let entry = CallEntry {
+        id: Uuid::new_v4(),
+        project_id: tool.project_id,
+        ts,
+        tool_id: Some(tool.id),
+        tool_name: tool.name.clone(),
+        origin: caller.origin.to_owned(),
+        client: caller.client.clone(),
+        arguments: logged_arguments(args),
+        status: if run.is_error {
+            CallStatus::Error
+        } else {
+            CallStatus::Ok
+        },
+        duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        response_chars: run.text.chars().count() as u64,
+        upstream_status: match &run.outcome {
+            RunOutcome::Http(Ok(o)) => Some(o.status),
+            _ => None,
+        },
+        error: run.is_error.then(|| logged_error(&run.text)),
+    };
+    log_call(store, settings, &entry).await;
+    Ok(run)
+}
+
+async fn execute(
     store: &Store,
     exec: &Executors,
     tool: &ToolDef,
@@ -738,8 +828,16 @@ impl ServerHandler for ForgeMcp {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
+        // Stateless (2026-07-28) clients send their identity per request;
+        // initialize-based sessions sent it once.
+        let client = context
+            .meta
+            .client_info()
+            .or_else(|| context.peer.peer_info().map(|i| i.client_info.clone()))
+            .map(|c| format!("{} {}", c.name, c.version));
+        let caller = Caller::mcp(client);
         let args = request.arguments.unwrap_or_default();
         let settings = self.settings().await?;
         let name: &str = request.name.as_ref();
@@ -756,9 +854,10 @@ impl ServerHandler for ForgeMcp {
                 }
                 Some(inner) => match args.get("arguments") {
                     None | Some(Value::Null) => {
-                        self.call_named(inner, &Map::new(), &settings).await
+                        self.call_named(inner, &Map::new(), &settings, &caller)
+                            .await
                     }
-                    Some(Value::Object(m)) => self.call_named(inner, m, &settings).await,
+                    Some(Value::Object(m)) => self.call_named(inner, m, &settings, &caller).await,
                     Some(_) => Ok(result(
                         true,
                         "Invalid arguments:\n- `arguments`: expected object".into(),
@@ -766,7 +865,7 @@ impl ServerHandler for ForgeMcp {
                 },
             }
         } else {
-            self.call_named(name, &args, &settings).await
+            self.call_named(name, &args, &settings, &caller).await
         };
         res.map(Into::into)
     }

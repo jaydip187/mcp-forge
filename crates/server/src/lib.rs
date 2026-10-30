@@ -3,6 +3,7 @@
 pub mod api;
 mod assets;
 pub mod bundle;
+pub mod calls;
 pub mod config;
 mod import;
 pub mod login;
@@ -83,6 +84,7 @@ pub fn app(state: AppState) -> Router {
             api::router()
                 .merge(import::router())
                 .merge(reimport::router())
+                .merge(calls::router())
                 .merge(login::router()),
         )
         .route("/mcp/{slug}", any(mcp_http::handle))
@@ -115,6 +117,7 @@ pub async fn serve(
     shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> std::io::Result<()> {
     let token = state.shutdown.clone();
+    calls::spawn_pruner(state.store.clone(), token.clone());
     let app = app(state).into_make_service_with_connect_info::<SocketAddr>();
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
