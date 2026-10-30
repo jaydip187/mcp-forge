@@ -12,6 +12,7 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 sqlx.workspace = true
+ring.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 

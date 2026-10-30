@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { KeyRoundIcon } from "lucide-react";
+import { KeyRoundIcon, LinkIcon, UnlinkIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
+import { CopyBlock } from "@/components/CopyBlock";
 import { EmptyState } from "@/components/EmptyState";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,20 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fieldError } from "@/lib/projects";
-import type { AuthConfig, AuthConfigInput, AuthKind } from "@/types";
+import type { AuthConfig, AuthConfigInput, AuthKind, OAuthClientAuth, OAuthStatus } from "@/types";
+
+/** Where the provider sends the browser back after Connect: register it there. */
+export function oauthRedirectUri(origin = window.location.origin): string {
+  return `${origin}/oauth/callback`;
+}
+
+function host(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
 
 export function describeAuth(kind: AuthKind): string {
   switch (kind.type) {
@@ -22,6 +36,10 @@ export function describeAuth(kind: AuthKind): string {
       return `Basic auth as ${kind.username}`;
     case "api_key":
       return kind.location === "header" ? `API key in header ${kind.name}` : `API key in query parameter ${kind.name}`;
+    case "oauth2_client_credentials":
+      return `OAuth2 client credentials from ${host(kind.token_url)}`;
+    case "oauth2_authorization_code":
+      return `OAuth2 sign-in with ${host(kind.auth_url)}`;
   }
 }
 
@@ -29,12 +47,35 @@ const EMPTY: AuthConfigInput = { name: "", kind: { type: "bearer" }, secret_ref:
 
 export function AuthTab({ projectId }: { projectId: string }) {
   const [configs, setConfigs] = useState<AuthConfig[] | null>(null);
+  const [oauth, setOauth] = useState<OAuthStatus[]>([]);
   const [editing, setEditing] = useState<AuthConfig | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setConfigs(await api.listAuth(projectId));
+    const [list, status] = await Promise.all([api.listAuth(projectId), api.oauthStatus(projectId)]);
+    setConfigs(list);
+    setOauth(status);
   }, [projectId]);
+
+  async function connect(c: AuthConfig) {
+    try {
+      const { authorize_url } = await api.oauthStart(projectId, c.id);
+      // The provider sends the browser back to /oauth/callback, which returns here.
+      window.location.assign(authorize_url);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+
+  async function disconnect(c: AuthConfig) {
+    try {
+      await api.oauthDisconnect(projectId, c.id);
+      toast.success(`Disconnected ${c.name}`);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e));
+    }
+  }
   useEffect(() => {
     void load();
   }, [load]);
@@ -74,7 +115,28 @@ export function AuthTab({ projectId }: { projectId: string }) {
                   <p className="font-medium">{c.name}</p>
                   <p className="text-sm text-muted-foreground">{describeAuth(c.kind)}</p>
                   <p className="font-mono text-xs text-muted-foreground">{c.secret_ref}</p>
+                  {c.kind.type === "oauth2_authorization_code" && (
+                    <ConnectionLine status={oauth.find((o) => o.auth_config_id === c.id)} />
+                  )}
                 </div>
+                {c.kind.type === "oauth2_authorization_code" && confirmDelete !== c.id && (
+                  <div className="flex gap-2">
+                    {oauth.some((o) => o.auth_config_id === c.id) ? (
+                      <>
+                        <Button size="sm" variant="outline" onClick={() => void connect(c)}>
+                          <LinkIcon /> Reconnect
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => void disconnect(c)}>
+                          <UnlinkIcon /> Disconnect
+                        </Button>
+                      </>
+                    ) : (
+                      <Button size="sm" onClick={() => void connect(c)}>
+                        <LinkIcon /> Connect
+                      </Button>
+                    )}
+                  </div>
+                )}
                 {confirmDelete === c.id ? (
                   <div className="flex gap-2">
                     <Button size="sm" variant="destructive" onClick={() => void remove(c)}>
@@ -113,23 +175,59 @@ export function AuthTab({ projectId }: { projectId: string }) {
   );
 }
 
+function ConnectionLine({ status }: { status: OAuthStatus | undefined }) {
+  if (!status)
+    return <p className="mt-1 text-xs font-medium text-warning">Not connected: tools using it fail until someone connects it.</p>;
+  return (
+    <p className="mt-1 text-xs text-muted-foreground">
+      Connected {new Date(status.connected_at).toLocaleString()}
+      {status.connected_by && ` by ${status.connected_by}`}
+      {status.can_refresh ? " · refreshes itself" : " · no refresh token: reconnect when it expires"}
+    </p>
+  );
+}
+
+function kindFor(type: AuthKind["type"]): AuthKind {
+  switch (type) {
+    case "bearer":
+      return { type };
+    case "basic":
+      return { type, username: "" };
+    case "api_key":
+      return { type, location: "header", name: "X-API-Key" };
+    case "oauth2_client_credentials":
+      return { type, token_url: "", client_id: "", scopes: [], audience: null, client_auth: "body" };
+    case "oauth2_authorization_code":
+      return { type, auth_url: "", token_url: "", client_id: "", scopes: [], client_auth: "body" };
+  }
+}
+
 function AuthForm({ projectId, existing, onDone }: { projectId: string; existing: AuthConfig | null; onDone: () => Promise<void> }) {
   const [draft, setDraft] = useState<AuthConfigInput>(existing ?? EMPTY);
+  const [scopesText, setScopesText] = useState(() => ("scopes" in draft.kind ? draft.kind.scopes.join(" ") : ""));
   const [err, setErr] = useState<unknown>(null);
 
   function setType(type: AuthKind["type"]) {
-    const kind: AuthKind =
-      type === "bearer" ? { type } : type === "basic" ? { type, username: "" } : { type, location: "header", name: "X-API-Key" };
-    setDraft((d) => ({ ...d, kind }));
+    setDraft((d) => ({ ...d, kind: kindFor(type) }));
+    setScopesText("");
   }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    let input = draft;
+    if ("scopes" in draft.kind) {
+      const scopes = scopesText.split(/[\s,]+/).filter(Boolean);
+      const kind = draft.kind.type === "oauth2_client_credentials" ? { ...draft.kind, scopes, audience: draft.kind.audience?.trim() || null } : { ...draft.kind, scopes };
+      input = { ...draft, kind };
+    }
     try {
-      if (existing) await api.updateAuth(projectId, existing.id, draft);
-      else await api.createAuth(projectId, draft);
+      if (existing) await api.updateAuth(projectId, existing.id, input);
+      else await api.createAuth(projectId, input);
       toast.success(existing ? `Saved ${draft.name}` : `Added ${draft.name}`);
-      if (!existing) setDraft(EMPTY);
+      if (!existing) {
+        setDraft(EMPTY);
+        setScopesText("");
+      }
       setErr(null);
       await onDone();
     } catch (e) {
@@ -161,9 +259,20 @@ function AuthForm({ projectId, existing, onDone }: { projectId: string; existing
                 <SelectItem value="bearer">Bearer token</SelectItem>
                 <SelectItem value="api_key">API key</SelectItem>
                 <SelectItem value="basic">Basic auth</SelectItem>
+                <SelectItem value="oauth2_authorization_code">OAuth2: sign in (authorization code)</SelectItem>
+                <SelectItem value="oauth2_client_credentials">OAuth2: client credentials</SelectItem>
               </SelectContent>
             </Select>
           </div>
+          {(k.type === "oauth2_client_credentials" || k.type === "oauth2_authorization_code") && (
+            <OAuthFields
+              kind={k}
+              onChange={(kind) => setDraft({ ...draft, kind })}
+              scopesText={scopesText}
+              onScopes={setScopesText}
+              err={err}
+            />
+          )}
           {k.type === "api_key" && (
             <div className="grid grid-cols-[7rem_1fr] gap-2">
               <div className="grid gap-1.5">
@@ -193,7 +302,9 @@ function AuthForm({ projectId, existing, onDone }: { projectId: string; existing
             </div>
           )}
           <div className="grid gap-1.5">
-            <Label htmlFor="a-ref">{k.type === "basic" ? "Password reference" : "Secret reference"}</Label>
+            <Label htmlFor="a-ref">
+              {k.type === "basic" ? "Password reference" : "scopes" in k ? "Client secret reference" : "Secret reference"}
+            </Label>
             <Input id="a-ref" className="font-mono" value={draft.secret_ref} onChange={(e) => setDraft({ ...draft, secret_ref: e.target.value })} placeholder="env:GITHUB_TOKEN" spellCheck={false} autoComplete="off" />
             <p className="text-xs text-muted-foreground">
               <code>env:NAME</code> reads an environment variable of the mcp-forge process. <code>keyring:NAME</code> reads
@@ -220,5 +331,65 @@ function AuthForm({ projectId, existing, onDone }: { projectId: string; existing
         </form>
       </CardContent>
     </Card>
+  );
+}
+
+type OAuthKind = Extract<AuthKind, { type: "oauth2_client_credentials" | "oauth2_authorization_code" }>;
+
+function OAuthFields({
+  kind: k,
+  onChange,
+  scopesText,
+  onScopes,
+  err,
+}: {
+  kind: OAuthKind;
+  onChange: (k: OAuthKind) => void;
+  scopesText: string;
+  onScopes: (s: string) => void;
+  err: unknown;
+}) {
+  const field = (id: string, label: string, name: string, value: string, set: (v: string) => void, placeholder: string) => (
+    <div className="grid gap-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <Input id={id} className="font-mono" value={value} onChange={(e) => set(e.target.value)} placeholder={placeholder} spellCheck={false} aria-invalid={!!fieldError(err, name)} />
+      {fieldError(err, name) && <p className="text-xs text-destructive">{fieldError(err, name)}</p>}
+    </div>
+  );
+  return (
+    <>
+      {k.type === "oauth2_authorization_code" &&
+        field("a-authurl", "Authorization URL", "kind.auth_url", k.auth_url, (v) => onChange({ ...k, auth_url: v }), "https://accounts.example.com/o/oauth2/auth")}
+      {field("a-tokenurl", "Token URL", "kind.token_url", k.token_url, (v) => onChange({ ...k, token_url: v }), "https://oauth2.example.com/token")}
+      {field("a-clientid", "Client ID", "kind.client_id", k.client_id, (v) => onChange({ ...k, client_id: v }), "1234.apps.example.com")}
+      <div className="grid gap-1.5">
+        <Label htmlFor="a-scopes">Scopes</Label>
+        <Input id="a-scopes" className="font-mono" value={scopesText} onChange={(e) => onScopes(e.target.value)} placeholder="read:users email" spellCheck={false} />
+        <p className="text-xs text-muted-foreground">Separated by spaces. Leave empty for the provider's default.</p>
+      </div>
+      {k.type === "oauth2_client_credentials" &&
+        field("a-aud", "Audience (optional)", "kind.audience", k.audience ?? "", (v) => onChange({ ...k, audience: v }), "https://api.example.com")}
+      <div className="grid gap-1.5">
+        <Label htmlFor="a-clientauth">Send the client secret</Label>
+        <Select value={k.client_auth} onValueChange={(v) => onChange({ ...k, client_auth: v as OAuthClientAuth })}>
+          <SelectTrigger id="a-clientauth" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="body">In the request body (most providers)</SelectItem>
+            <SelectItem value="basic">As HTTP Basic auth</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {k.type === "oauth2_authorization_code" && (
+        <div className="grid gap-1.5">
+          <Label>Redirect URL to register with the provider</Label>
+          <CopyBlock code={oauthRedirectUri()} label="Copy redirect URL" inline />
+          <p className="text-xs text-muted-foreground">
+            After saving, click Connect in the list and sign in. mcp-forge keeps the tokens (encrypted) and refreshes them.
+          </p>
+        </div>
+      )}
+    </>
   );
 }

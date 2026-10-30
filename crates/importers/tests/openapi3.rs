@@ -340,3 +340,58 @@ fn large_real_spec() {
         "only {supported}/{total} supported"
     );
 }
+
+#[test]
+fn oauth2_schemes_suggest_oauth_configs() {
+    use forge_core::AuthKind;
+    let doc = json!({
+        "openapi": "3.0.3",
+        "info": { "title": "t", "version": "1" },
+        "paths": {},
+        "components": { "securitySchemes": {
+            "signin": { "type": "oauth2", "flows": {
+                "implicit": { "authorizationUrl": "https://a.example.com/implicit", "scopes": {} },
+                "authorizationCode": {
+                    "authorizationUrl": "https://a.example.com/authorize",
+                    "tokenUrl": "https://a.example.com/token",
+                    "scopes": { "read": "Read", "write": "Write" }
+                }
+            }},
+            "machine": { "type": "oauth2", "flows": {
+                "clientCredentials": { "tokenUrl": "https://a.example.com/token", "scopes": {} }
+            }},
+            "implicitOnly": { "type": "oauth2", "flows": {
+                "implicit": { "authorizationUrl": "https://a.example.com/implicit", "scopes": {} }
+            }}
+        }}
+    });
+    let imported = import(&doc, &Options::default()).unwrap();
+    let by_name = |n: &str| {
+        imported
+            .info
+            .security_schemes
+            .iter()
+            .find(|s| s.name == n)
+            .unwrap()
+            .suggested
+            .clone()
+            .unwrap()
+    };
+    let AuthKind::OAuth2AuthorizationCode {
+        auth_url,
+        token_url,
+        scopes,
+        ..
+    } = by_name("signin")
+    else {
+        panic!("authorization code suggested");
+    };
+    assert_eq!(auth_url, "https://a.example.com/authorize");
+    assert_eq!(token_url, "https://a.example.com/token");
+    assert_eq!(scopes, ["read", "write"]);
+    assert!(matches!(
+        by_name("machine"),
+        AuthKind::OAuth2ClientCredentials { .. }
+    ));
+    assert_eq!(by_name("implicitOnly"), AuthKind::Bearer);
+}

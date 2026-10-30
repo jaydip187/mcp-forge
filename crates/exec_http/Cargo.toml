@@ -7,15 +7,19 @@ publish = false
 
 [dependencies]
 forge-core.workspace = true
+chrono.workspace = true
 jaq-core.workspace = true
 jaq-json.workspace = true
 jaq-std.workspace = true
 keyring.workspace = true
 reqwest.workspace = true
+ring.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+url.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 wiremock.workspace = true

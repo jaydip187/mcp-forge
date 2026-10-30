@@ -9,6 +9,7 @@ pub mod config;
 mod import;
 pub mod login;
 mod mcp_http;
+pub mod oauth;
 mod reimport;
 pub mod security;
 
@@ -43,6 +44,8 @@ pub struct AppState {
     pub data_dir: Option<PathBuf>,
     /// Setup code and sign-in backoff for UI accounts.
     pub login: Arc<login::Login>,
+    /// Started OAuth "Connect" flows for upstream APIs.
+    pub oauth_flows: Arc<oauth::OAuthFlows>,
     mcp: Arc<mcp_http::McpServices>,
 }
 
@@ -56,6 +59,7 @@ impl AppState {
             security: Security::default(),
             data_dir: None,
             login: Arc::default(),
+            oauth_flows: Arc::default(),
             mcp: Arc::default(),
         }
     }
@@ -87,9 +91,11 @@ pub fn app(state: AppState) -> Router {
                 .merge(reimport::router())
                 .merge(calls::router())
                 .merge(approvals::router())
+                .merge(oauth::api_router())
                 .merge(login::router()),
         )
         .route("/mcp/{slug}", any(mcp_http::handle))
+        .merge(oauth::callback_router())
         .fallback(assets::serve)
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

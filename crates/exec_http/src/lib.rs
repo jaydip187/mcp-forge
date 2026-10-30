@@ -5,6 +5,7 @@
 //! reported URL, error messages and response bodies.
 
 mod args;
+pub mod oauth;
 mod secrets;
 pub mod shape;
 
@@ -72,6 +73,8 @@ impl HttpOutcome {
 pub struct HttpExecutor {
     client: reqwest::Client,
     secrets: Arc<dyn SecretResolver>,
+    /// OAuth2 access tokens (shared by clones).
+    tokens: oauth::TokenCache,
 }
 
 impl HttpExecutor {
@@ -94,7 +97,15 @@ impl HttpExecutor {
             .user_agent(concat!("mcp-forge/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("reqwest client config is static");
-        Self { client, secrets }
+        Self {
+            client,
+            secrets,
+            tokens: oauth::TokenCache::default(),
+        }
+    }
+
+    pub fn tokens(&self) -> &oauth::TokenCache {
+        &self.tokens
     }
 
     /// Executes `spec` with `args`. Upstream 4xx/5xx are returned as `Ok`
@@ -103,6 +114,29 @@ impl HttpExecutor {
         &self,
         spec: &HttpSpec,
         auth: Option<&AuthConfig>,
+        args: &Map<String, Value>,
+    ) -> Result<HttpOutcome, ExecError> {
+        self.execute_inner(spec, auth, None, args).await
+    }
+
+    /// Like [`execute`](Self::execute) for OAuth2 configs: `token` is the
+    /// access token to send as a bearer token.
+    pub async fn execute_with_token(
+        &self,
+        spec: &HttpSpec,
+        auth: &AuthConfig,
+        token: &str,
+        args: &Map<String, Value>,
+    ) -> Result<HttpOutcome, ExecError> {
+        self.execute_inner(spec, Some(auth), Some(token), args)
+            .await
+    }
+
+    async fn execute_inner(
+        &self,
+        spec: &HttpSpec,
+        auth: Option<&AuthConfig>,
+        oauth_token: Option<&str>,
         args: &Map<String, Value>,
     ) -> Result<HttpOutcome, ExecError> {
         let derived = spec.derive_input();
@@ -199,7 +233,16 @@ impl HttpExecutor {
 
         // Auth.
         let mut secrets_used = Vec::new();
-        if let Some(cfg) = auth {
+        if let Some(cfg) = auth.filter(|c| c.kind.is_oauth()) {
+            let token = oauth_token.ok_or_else(|| {
+                ExecError::Config(format!(
+                    "auth config `{}` needs an OAuth access token",
+                    cfg.name
+                ))
+            })?;
+            headers.insert(AUTHORIZATION, sensitive(&format!("Bearer {token}"))?);
+            secrets_used.push(token.to_owned());
+        } else if let Some(cfg) = auth {
             let secret = self.resolve_secret(cfg).await?;
             match &cfg.kind {
                 AuthKind::Bearer => {
@@ -210,6 +253,8 @@ impl HttpExecutor {
                     headers.insert(AUTHORIZATION, sensitive(&format!("Basic {token}"))?);
                     secrets_used.push(token);
                 }
+                AuthKind::OAuth2ClientCredentials { .. }
+                | AuthKind::OAuth2AuthorizationCode { .. } => unreachable!("handled above"),
                 AuthKind::ApiKey { location, name } => match location {
                     ApiKeyLocation::Header => {
                         let n = HeaderName::from_bytes(name.as_bytes()).map_err(|_| {

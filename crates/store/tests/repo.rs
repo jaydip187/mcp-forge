@@ -960,3 +960,77 @@ async fn call_log_lists_filters_and_prunes() {
         Err(StoreError::NotFound(_))
     ));
 }
+
+#[tokio::test]
+async fn oauth_tokens_are_encrypted_and_follow_their_config() {
+    use chrono::{SubsecRound, Utc};
+    use forge_store::OAuthToken;
+    let s = store().await;
+    let p = s.create_project(&project("OAuth")).await.unwrap();
+    let mut input: AuthConfigInput = serde_json::from_value(json!({
+        "name": "google",
+        "kind": {
+            "type": "oauth2_authorization_code",
+            "auth_url": "https://accounts.example.com/o/auth",
+            "token_url": "https://oauth.example.com/token",
+            "client_id": "cid",
+            "scopes": ["email"]
+        },
+        "secret_ref": "env:GOOGLE_SECRET"
+    }))
+    .unwrap();
+    let cfg = s.create_auth_config(p.id, &input).await.unwrap();
+    assert!(s.get_oauth_token(cfg.id).await.unwrap().is_none());
+
+    let t = Utc::now().trunc_subsecs(3);
+    let token = OAuthToken {
+        access_token: "ya29.secret-access".into(),
+        refresh_token: Some("1//secret-refresh".into()),
+        expires_at: Some(t + chrono::Duration::hours(1)),
+        scope: Some("email".into()),
+        connected_at: t,
+        connected_by: Some("alice".into()),
+    };
+    s.put_oauth_token(cfg.id, &token).await.unwrap();
+    assert_eq!(
+        s.get_oauth_token(cfg.id).await.unwrap(),
+        Some(token.clone())
+    );
+
+    // Not readable from the database file.
+    let (access, refresh): (String, String) = sqlx::query_as(
+        "SELECT access_token, refresh_token FROM oauth_tokens WHERE auth_config_id = ?",
+    )
+    .bind(cfg.id.to_string())
+    .fetch_one(s.pool())
+    .await
+    .unwrap();
+    assert!(!access.contains("secret-access") && !refresh.contains("secret-refresh"));
+
+    let status = s.list_oauth_status(p.id).await.unwrap();
+    assert_eq!(status.len(), 1);
+    assert_eq!(status[0].auth_config_id, cfg.id);
+    assert!(status[0].can_refresh);
+    assert_eq!(status[0].connected_by.as_deref(), Some("alice"));
+
+    // Renaming keeps the connection; changing the endpoints drops it.
+    input.name = "google2".into();
+    s.update_auth_config(p.id, cfg.id, &input).await.unwrap();
+    assert!(s.get_oauth_token(cfg.id).await.unwrap().is_some());
+    input.kind = serde_json::from_value(json!({
+        "type": "oauth2_authorization_code",
+        "auth_url": "https://accounts.example.com/o/auth",
+        "token_url": "https://oauth.example.com/token",
+        "client_id": "another-client"
+    }))
+    .unwrap();
+    s.update_auth_config(p.id, cfg.id, &input).await.unwrap();
+    assert!(s.get_oauth_token(cfg.id).await.unwrap().is_none());
+
+    s.put_oauth_token(cfg.id, &token).await.unwrap();
+    s.delete_auth_config(p.id, cfg.id).await.unwrap();
+    assert!(
+        s.get_oauth_token(cfg.id).await.unwrap().is_none(),
+        "cascade"
+    );
+}

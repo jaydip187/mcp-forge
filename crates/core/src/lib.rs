@@ -18,7 +18,7 @@ mod validate;
 
 pub use args::check_args;
 pub use audit::{AuditEntry, AuditOutcome};
-pub use auth::{ApiKeyLocation, AuthConfig, AuthConfigInput, AuthKind};
+pub use auth::{ApiKeyLocation, AuthConfig, AuthConfigInput, AuthKind, OAuthClientAuth};
 pub use calls::{
     is_secret_name, logged_arguments, logged_error, ApprovalDecision, ApprovalRecord, CallEntry,
     CallStatus, MAX_CALLS_PER_PROJECT, MAX_LOGGED_ARGS_CHARS, MAX_LOGGED_ERROR_CHARS, REDACTED,
