@@ -5,7 +5,10 @@
 //! - Sessions live in an `HttpOnly`, `SameSite=Strict` cookie holding a random
 //!   token; the store keeps only its SHA-256. They end after 7 idle days or
 //!   30 days in all, on sign-out, or when the password changes.
-//! - Failed attempts back off per username and per client address.
+//! - The cookie name carries the server's port, so servers on different
+//!   localhost ports (cookies ignore ports) don't sign each other out.
+//! - Failed attempts back off per username and per client address; the
+//!   backoff is stored, so a restart doesn't reset it.
 //! - Accounts are also managed offline with `mcp-forge user …`.
 
 mod limiter;
@@ -13,7 +16,6 @@ mod password;
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
-use std::time::Instant;
 
 use argon2::password_hash::rand_core::{OsRng, RngCore};
 use axum::extract::{ConnectInfo, FromRequestParts, State};
@@ -38,6 +40,7 @@ use limiter::Limiter;
 pub use password::{check_password, check_username, hash_password};
 use password::{verify_dummy, verify_password};
 
+/// Session cookie name when the port isn't known (tests, embedding).
 pub const SESSION_COOKIE: &str = "mcp_forge_session";
 /// Required on state-changing `/api` calls made with the session cookie.
 /// Browsers only send custom headers cross-origin after a CORS preflight,
@@ -83,8 +86,14 @@ pub struct CurrentUser {
     pub token_hash: String,
 }
 
+/// Session cookie name for a server listening on `port`.
+pub fn cookie_name(port: u16) -> String {
+    format!("{SESSION_COOKIE}_{port}")
+}
+
 pub struct Login {
     setup_code: Mutex<Option<String>>,
+    cookie: String,
     users: Limiter,
     addrs: Limiter,
 }
@@ -93,6 +102,7 @@ impl Default for Login {
     fn default() -> Self {
         Self {
             setup_code: Mutex::default(),
+            cookie: SESSION_COOKIE.to_owned(),
             users: Limiter::new(USER_FREE_ATTEMPTS),
             addrs: Limiter::new(ADDR_FREE_ATTEMPTS),
         }
@@ -100,6 +110,18 @@ impl Default for Login {
 }
 
 impl Login {
+    /// Sessions use the cookie name for `port` (see [`cookie_name`]).
+    pub fn for_port(port: u16) -> Self {
+        Self {
+            cookie: cookie_name(port),
+            ..Self::default()
+        }
+    }
+
+    pub fn cookie(&self) -> &str {
+        &self.cookie
+    }
+
     /// The one-time code for creating the first account, while there is no
     /// account. Generated (and logged) on first call.
     pub async fn setup_code(&self, store: &Store) -> Result<Option<String>, StoreError> {
@@ -136,28 +158,42 @@ impl Login {
         *self.setup_code.lock().expect("setup code lock") = Some(normalize_code(code));
     }
 
-    /// `Err(seconds)` to wait while any of `keys` is locked out.
-    fn check_limits(&self, keys: &[String]) -> Result<(), u64> {
-        let now = Instant::now();
-        for (limiter, key) in self.limiters(keys) {
-            limiter
-                .check(key, now)
-                .map_err(|wait| wait.as_secs().max(1))?;
+    /// Seconds to wait while any of `keys` is locked out.
+    async fn check_limits(
+        &self,
+        store: &Store,
+        keys: &[String],
+    ) -> Result<Option<u64>, StoreError> {
+        let now = Utc::now();
+        for key in keys {
+            let entry = store.get_backoff(key).await?;
+            if let Err(wait) = Limiter::check(entry.as_ref(), now) {
+                let secs = u64::try_from(wait.num_seconds()).unwrap_or(0);
+                return Ok(Some(secs.max(1)));
+            }
         }
+        Ok(None)
+    }
+
+    /// Two failures racing on one key may count once; each costs a password
+    /// hash, so that slack doesn't help an attacker.
+    async fn record_failure(&self, store: &Store, keys: &[String]) -> Result<(), StoreError> {
+        let now = Utc::now();
+        for (limiter, key) in self.limiters(keys) {
+            let entry = store.get_backoff(key).await?;
+            store.put_backoff(&limiter.fail(entry, key, now)).await?;
+        }
+        store
+            .prune_backoff(now - limiter::forget_after(), now)
+            .await?;
         Ok(())
     }
 
-    fn record_failure(&self, keys: &[String]) {
-        let now = Instant::now();
-        for (limiter, key) in self.limiters(keys) {
-            limiter.fail(key, now);
+    async fn record_success(&self, store: &Store, keys: &[String]) -> Result<(), StoreError> {
+        for key in keys {
+            store.delete_backoff(key).await?;
         }
-    }
-
-    fn record_success(&self, keys: &[String]) {
-        for (limiter, key) in self.limiters(keys) {
-            limiter.succeed(key);
-        }
+        Ok(())
     }
 
     /// Keys are `user:<name>` or `addr:<ip>`.
@@ -171,6 +207,11 @@ impl Login {
             (limiter, k.as_str())
         })
     }
+}
+
+/// Backoff key for a username (case-insensitive, like sign-in).
+pub fn user_key(username: &str) -> String {
+    format!("user:{}", username.to_lowercase())
 }
 
 /// Twelve characters from an unambiguous alphabet, as `XXXX-XXXX-XXXX` (60 bits).
@@ -233,9 +274,10 @@ pub fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
 /// The session's user, if the request carries a live session cookie.
 pub async fn authenticate(
     store: &Store,
+    cookie_name: &str,
     headers: &HeaderMap,
 ) -> Result<Option<CurrentUser>, StoreError> {
-    let Some(token) = cookie(headers, SESSION_COOKIE) else {
+    let Some(token) = cookie(headers, cookie_name) else {
         return Ok(None);
     };
     if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -259,13 +301,13 @@ pub async fn authenticate(
     }))
 }
 
-fn session_cookie(headers: &HeaderMap, token: &str, max_age: i64) -> HeaderValue {
+fn session_cookie(name: &str, headers: &HeaderMap, token: &str, max_age: i64) -> HeaderValue {
     // Behind a TLS-terminating proxy the cookie should only travel over HTTPS.
     let secure = headers
         .get("x-forwarded-proto")
         .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"https"));
     let value = format!(
-        "{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}{}",
+        "{name}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}{}",
         if secure { "; Secure" } else { "" }
     );
     HeaderValue::from_str(&value).expect("cookie is ASCII")
@@ -350,14 +392,21 @@ async fn start_session(
     let mut resp = (status, Json(json!({ "user": user }))).into_response();
     resp.headers_mut().insert(
         SET_COOKIE,
-        session_cookie(headers, &token, max_lifetime().num_seconds()),
+        session_cookie(
+            s.login.cookie(),
+            headers,
+            &token,
+            max_lifetime().num_seconds(),
+        ),
     );
     Ok(resp)
 }
 
 async fn status(State(s): State<AppState>, headers: HeaderMap) -> Result<Response, ApiError> {
     let setup_required = s.login.setup_code(&s.store).await?.is_some();
-    let user = authenticate(&s.store, &headers).await?.map(|c| c.user);
+    let user = authenticate(&s.store, s.login.cookie(), &headers)
+        .await?
+        .map(|c| c.user);
     Ok(Json(json!({
         "login_required": s.security.require_login,
         "setup_required": setup_required,
@@ -380,7 +429,7 @@ async fn setup(
     ApiJson(req): ApiJson<SetupReq>,
 ) -> Result<Response, ApiError> {
     let keys: Vec<String> = addr.key().into_iter().collect();
-    if let Err(wait) = s.login.check_limits(&keys) {
+    if let Some(wait) = s.login.check_limits(&s.store, &keys).await? {
         return Ok(too_many(wait));
     }
     if s.login.setup_code(&s.store).await?.is_none() {
@@ -392,7 +441,7 @@ async fn setup(
     check_username(&username).map_err(|m| invalid("username", m))?;
     check_password(&req.password).map_err(|m| invalid("password", m))?;
     if !s.login.take_setup_code(&req.code) {
-        s.login.record_failure(&keys);
+        s.login.record_failure(&s.store, &keys).await?;
         return Ok(error(
             StatusCode::FORBIDDEN,
             "invalid_setup_code",
@@ -407,7 +456,7 @@ async fn setup(
             return Err(e.into());
         }
     };
-    s.login.record_success(&keys);
+    s.login.record_success(&s.store, &keys).await?;
     tracing::info!(username = %user.username, "first account created");
     start_session(&s, &headers, user, StatusCode::CREATED).await
 }
@@ -425,9 +474,9 @@ async fn login(
     ApiJson(req): ApiJson<LoginReq>,
 ) -> Result<Response, ApiError> {
     let username = req.username.trim();
-    let mut keys = vec![format!("user:{}", username.to_lowercase())];
+    let mut keys = vec![user_key(username)];
     keys.extend(addr.key());
-    if let Err(wait) = s.login.check_limits(&keys) {
+    if let Some(wait) = s.login.check_limits(&s.store, &keys).await? {
         return Ok(too_many(wait));
     }
     let found = s.store.find_user_credentials(username).await?;
@@ -437,24 +486,26 @@ async fn login(
     };
     let ok = verify_blocking(req.password, phc).await;
     let Some(user) = user.filter(|_| ok) else {
-        s.login.record_failure(&keys);
+        s.login.record_failure(&s.store, &keys).await?;
         return Ok(error(
             StatusCode::UNAUTHORIZED,
             "invalid_credentials",
             "Wrong username or password.",
         ));
     };
-    s.login.record_success(&keys);
+    s.login.record_success(&s.store, &keys).await?;
     start_session(&s, &headers, user, StatusCode::OK).await
 }
 
 async fn logout(State(s): State<AppState>, headers: HeaderMap) -> Result<Response, ApiError> {
-    if let Some(token) = cookie(&headers, SESSION_COOKIE) {
+    if let Some(token) = cookie(&headers, s.login.cookie()) {
         s.store.delete_session(&token_hash(token)).await?;
     }
     let mut resp = StatusCode::NO_CONTENT.into_response();
-    resp.headers_mut()
-        .insert(SET_COOKIE, session_cookie(&headers, "", 0));
+    resp.headers_mut().insert(
+        SET_COOKIE,
+        session_cookie(s.login.cookie(), &headers, "", 0),
+    );
     Ok(resp)
 }
 
@@ -476,13 +527,13 @@ async fn change_password(
             "Sign in to change your password.",
         ));
     };
-    let keys = vec![format!("user:{}", current.user.username.to_lowercase())];
-    if let Err(wait) = s.login.check_limits(&keys) {
+    let keys = vec![user_key(&current.user.username)];
+    if let Some(wait) = s.login.check_limits(&s.store, &keys).await? {
         return Ok(too_many(wait));
     }
     let phc = s.store.password_hash(current.user.id).await?;
     if !verify_blocking(req.current_password, Some(phc)).await {
-        s.login.record_failure(&keys);
+        s.login.record_failure(&s.store, &keys).await?;
         return Err(invalid(
             "current_password",
             "doesn't match your current password".into(),
@@ -493,7 +544,7 @@ async fn change_password(
     s.store
         .set_password(current.user.id, &phc, Some(&current.token_hash))
         .await?;
-    s.login.record_success(&keys);
+    s.login.record_success(&s.store, &keys).await?;
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 

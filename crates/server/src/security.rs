@@ -96,7 +96,7 @@ pub async fn guard(State(state): State<AppState>, mut req: Request, next: Next) 
     if login::is_public(path) {
         return next.run(req).await;
     }
-    match login::authenticate(&state.store, req.headers()).await {
+    match login::authenticate(&state.store, state.login.cookie(), req.headers()).await {
         Ok(Some(user)) => {
             req.extensions_mut().insert(user);
             next.run(req).await

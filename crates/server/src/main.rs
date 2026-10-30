@@ -53,6 +53,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
     }
     let state = AppState::new(store, Arc::new(DefaultSecretResolver))
         .with_security(security)
+        .with_port(addr.port())
         .with_data_dir(data_dir);
     // Logs the one-time setup code when there is no account yet.
     state.login.setup_code(&state.store).await?;
@@ -195,6 +196,10 @@ async fn user(args: UserArgs) -> anyhow::Result<()> {
             let password = read_new_password(password_stdin)?;
             store
                 .set_password(user.id, &hash_password(&password), None)
+                .await?;
+            // Also lifts a sign-in lockout for the account.
+            store
+                .delete_backoff(&mcp_forge::login::user_key(&user.username))
                 .await?;
             eprintln!(
                 "Password changed for `{}`; all its sessions ended",
