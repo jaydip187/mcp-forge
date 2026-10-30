@@ -63,6 +63,12 @@ impl AppState {
         self
     }
 
+    /// Names the session cookie after the listening port.
+    pub fn with_port(mut self, port: u16) -> Self {
+        self.login = Arc::new(login::Login::for_port(port));
+        self
+    }
+
     pub fn with_data_dir(mut self, dir: PathBuf) -> Self {
         self.data_dir = Some(dir);
         self

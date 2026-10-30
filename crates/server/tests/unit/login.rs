@@ -1,5 +1,4 @@
 use super::*;
-use std::time::Duration as StdDuration;
 
 #[test]
 fn session_lifetime() {
@@ -50,24 +49,35 @@ fn setup_codes() {
 #[test]
 fn limiter_backs_off_then_forgives() {
     let l = Limiter::new(3);
-    let t = Instant::now();
+    let t = Utc::now();
+    let mut e = None;
     for _ in 0..2 {
-        l.fail("user:a", t);
+        e = Some(l.fail(e, "user:a", t));
     }
-    assert!(l.check("user:a", t).is_ok());
-    l.fail("user:a", t);
-    let wait = l.check("user:a", t).unwrap_err();
-    assert_eq!(wait, StdDuration::from_secs(30));
-    assert!(l.check("user:a", t + wait).is_ok(), "lock expires");
-    l.fail("user:a", t + wait);
+    assert!(Limiter::check(e.as_ref(), t).is_ok());
+    e = Some(l.fail(e, "user:a", t));
+    let wait = Limiter::check(e.as_ref(), t).unwrap_err();
+    assert_eq!(wait, Duration::seconds(30));
+    assert!(Limiter::check(e.as_ref(), t + wait).is_ok(), "lock expires");
+    e = Some(l.fail(e, "user:a", t + wait));
     assert_eq!(
-        l.check("user:a", t + wait).unwrap_err(),
-        StdDuration::from_secs(60),
+        Limiter::check(e.as_ref(), t + wait).unwrap_err(),
+        Duration::seconds(60),
         "doubles"
     );
-    assert!(l.check("user:b", t).is_ok(), "per key");
-    l.succeed("user:a");
-    assert!(l.check("user:a", t + wait).is_ok());
+    assert!(Limiter::check(None, t).is_ok(), "no entry, no lock");
+
+    let later = t + wait + Duration::hours(1);
+    let fresh = l.fail(e, "user:a", later);
+    assert_eq!(fresh.failures, 1, "old failures are forgotten");
+    assert!(Limiter::check(Some(&fresh), later).is_ok());
+}
+
+#[test]
+fn cookie_name_carries_the_port() {
+    assert_eq!(cookie_name(7410), "mcp_forge_session_7410");
+    assert_eq!(Login::for_port(7499).cookie(), "mcp_forge_session_7499");
+    assert_eq!(Login::default().cookie(), SESSION_COOKIE);
 }
 
 #[test]

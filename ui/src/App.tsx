@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ChevronRightIcon, LayoutGridIcon, PlusIcon } from "lucide-react";
 
 import { api, ApiError, auth, setUnauthorizedHandler } from "@/api";
@@ -6,6 +6,7 @@ import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserMenu } from "@/components/UserMenu";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Sidebar,
   SidebarContent,
@@ -126,11 +127,18 @@ function Shell({ info, user, onSignedOut }: { info: ServerInfo; user: User | nul
 
 /** Where you are: Projects › project › section. */
 function Breadcrumbs({ route }: { route: Route }) {
-  const { projects } = useProjects();
-  const crumbs: { label: string; href?: string }[] = [{ label: "Projects", href: href.home() }];
+  const { projects, error } = useProjects();
+  const crumbs: { label: ReactNode; href?: string }[] = [{ label: "Projects", href: href.home() }];
   if (route.name !== "home") {
     const project = projects?.find((p) => p.id === route.projectId);
-    crumbs.push({ label: project?.name ?? "Project", href: href.project(route.projectId) });
+    // Placeholder while the project list loads, so the name doesn't flash in.
+    const label =
+      projects || error ? (
+        (project?.name ?? "Project")
+      ) : (
+        <Skeleton className="inline-block h-4 w-24 align-middle" aria-label="Loading project" />
+      );
+    crumbs.push({ label, href: href.project(route.projectId) });
     switch (route.name) {
       case "project":
         crumbs.push({ label: SECTION[route.tab] });

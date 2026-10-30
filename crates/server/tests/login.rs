@@ -1,10 +1,11 @@
 //! Stage 13: first-run setup, sign-in, sessions, CSRF header and backoff.
+//! Stage 15: port-scoped cookie name, backoff surviving a restart.
 
 use std::sync::Arc;
 
 use forge_exec_http::MapSecretResolver;
 use forge_store::Store;
-use mcp_forge::login::{hash_password, token_hash, CSRF_HEADER, SESSION_COOKIE};
+use mcp_forge::login::{cookie_name, hash_password, token_hash, CSRF_HEADER, SESSION_COOKIE};
 use mcp_forge::{AppState, Security};
 use reqwest::header::{COOKIE, RETRY_AFTER, SET_COOKIE};
 use reqwest::{Client, Response, StatusCode};
@@ -21,7 +22,11 @@ struct Server {
 
 impl Server {
     async fn start(security: Security) -> Self {
-        let store = Store::open_in_memory().await.unwrap();
+        Self::on_store(Store::open_in_memory().await.unwrap(), security).await
+    }
+
+    /// A fresh server process (new in-memory state) over an existing store.
+    async fn on_store(store: Store, security: Security) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let state =
@@ -394,4 +399,72 @@ async fn admin_token_still_opens_api_and_guards_mcp() {
     // The UI shell stays public; it shows the sign-in screen.
     let r = s.get("/", None).send().await.unwrap();
     assert_eq!(r.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn backoff_survives_a_restart() {
+    let s = Server::with_user("alice").await;
+    for _ in 0..5 {
+        s.login("alice", "wrong password").await;
+    }
+    assert_eq!(
+        s.login("alice", PASSWORD).await.status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    let restarted = Server::on_store(s.state.store.clone(), Security::default()).await;
+    assert_eq!(
+        restarted.login("alice", PASSWORD).await.status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+}
+
+#[tokio::test]
+async fn session_cookie_is_named_after_the_port() {
+    let store = Store::open_in_memory().await.unwrap();
+    store
+        .create_user("alice", &hash_password(PASSWORD))
+        .await
+        .unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let state = AppState::new(store, Arc::new(MapSecretResolver::default())).with_port(addr.port());
+    tokio::spawn(mcp_forge::serve(listener, state, std::future::pending()));
+    let http = Client::new();
+    let base = format!("http://{addr}");
+
+    let r = http
+        .post(format!("{base}/api/auth/login"))
+        .header(CSRF_HEADER, "1")
+        .json(&json!({ "username": "alice", "password": PASSWORD }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let name = cookie_name(addr.port());
+    let c = set_cookie(&r);
+    let token = c
+        .strip_prefix(&format!("{name}="))
+        .expect("port-scoped cookie")
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+
+    let me = |cookie: String| {
+        http.get(format!("{base}/api/projects"))
+            .header(COOKIE, cookie)
+            .send()
+    };
+    assert_eq!(
+        me(format!("{name}={token}")).await.unwrap().status(),
+        StatusCode::OK
+    );
+    // Another port's cookie (here: the unscoped name) is ignored.
+    assert_eq!(
+        me(format!("{SESSION_COOKIE}={token}"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
 }

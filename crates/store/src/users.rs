@@ -235,3 +235,85 @@ impl Store {
         Ok(done.rows_affected())
     }
 }
+
+/// Sign-in backoff for one key (`user:<name>` or `addr:<ip>`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Backoff {
+    pub key: String,
+    pub failures: u32,
+    pub last_failure_at: DateTime<Utc>,
+    pub locked_until: Option<DateTime<Utc>>,
+}
+
+#[derive(sqlx::FromRow)]
+struct BackoffRow {
+    key: String,
+    failures: i64,
+    last_failure_at: DateTime<Utc>,
+    locked_until: Option<DateTime<Utc>>,
+}
+
+impl From<BackoffRow> for Backoff {
+    fn from(r: BackoffRow) -> Self {
+        Backoff {
+            key: r.key,
+            failures: u32::try_from(r.failures).unwrap_or(u32::MAX),
+            last_failure_at: r.last_failure_at,
+            locked_until: r.locked_until,
+        }
+    }
+}
+
+impl Store {
+    pub async fn get_backoff(&self, key: &str) -> Result<Option<Backoff>, StoreError> {
+        let row = sqlx::query_as::<_, BackoffRow>(
+            "SELECT key, failures, last_failure_at, locked_until FROM login_backoff WHERE key = ?",
+        )
+        .bind(key)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(Backoff::from))
+    }
+
+    pub async fn put_backoff(&self, b: &Backoff) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO login_backoff (key, failures, last_failure_at, locked_until) \
+             VALUES (?, ?, ?, ?) \
+             ON CONFLICT (key) DO UPDATE SET failures = excluded.failures, \
+             last_failure_at = excluded.last_failure_at, locked_until = excluded.locked_until",
+        )
+        .bind(&b.key)
+        .bind(i64::from(b.failures))
+        .bind(b.last_failure_at)
+        .bind(b.locked_until)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_backoff(&self, key: &str) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM login_backoff WHERE key = ?")
+            .bind(key)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Removes entries whose last failure is before `before` and that are no
+    /// longer locked at `now`.
+    pub async fn prune_backoff(
+        &self,
+        before: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> Result<u64, StoreError> {
+        let done = sqlx::query(
+            "DELETE FROM login_backoff WHERE last_failure_at < ? \
+             AND (locked_until IS NULL OR locked_until < ?)",
+        )
+        .bind(before)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        Ok(done.rows_affected())
+    }
+}

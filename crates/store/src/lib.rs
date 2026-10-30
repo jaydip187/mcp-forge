@@ -13,7 +13,7 @@ mod users;
 pub use audit::MAX_AUDIT_PAGE;
 pub use bundle::{BundleReport, BundleTool, ConflictPolicy};
 pub use specs::{NewSpec, ReimportResult, SpecRecord};
-pub use users::{Session, User};
+pub use users::{Backoff, Session, User};
 
 use std::path::{Path, PathBuf};
 use std::str::FromStr;

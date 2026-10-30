@@ -1,5 +1,5 @@
 use forge_core::{AuthConfigInput, ProjectInput, Source, ToolInput, ToolKind};
-use forge_store::{Store, StoreError};
+use forge_store::{Backoff, Store, StoreError};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -777,4 +777,50 @@ async fn purge_drops_old_and_idle_sessions() {
     let removed = s.purge_sessions(created + hour, created).await.unwrap();
     assert_eq!(removed, 1);
     assert!(s.find_session("active").await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn backoff_round_trips_and_prunes() {
+    use chrono::{Duration, SubsecRound, Utc};
+    let s = store().await;
+    let t = Utc::now().trunc_subsecs(3);
+    let locked = Backoff {
+        key: "user:alice".into(),
+        failures: 6,
+        last_failure_at: t,
+        locked_until: Some(t + Duration::seconds(60)),
+    };
+    s.put_backoff(&locked).await.unwrap();
+    assert_eq!(
+        s.get_backoff("user:alice").await.unwrap(),
+        Some(locked.clone())
+    );
+
+    let stale = Backoff {
+        key: "addr:10.0.0.1".into(),
+        failures: 1,
+        last_failure_at: t - Duration::hours(2),
+        locked_until: None,
+    };
+    s.put_backoff(&stale).await.unwrap();
+    let updated = Backoff {
+        failures: 7,
+        ..locked.clone()
+    };
+    s.put_backoff(&updated).await.unwrap();
+    assert_eq!(
+        s.get_backoff("user:alice").await.unwrap().unwrap().failures,
+        7
+    );
+
+    // Old and unlocked goes; recent or still locked stays.
+    assert_eq!(s.prune_backoff(t - Duration::hours(1), t).await.unwrap(), 1);
+    assert!(s.get_backoff("addr:10.0.0.1").await.unwrap().is_none());
+    assert_eq!(
+        s.prune_backoff(t + Duration::seconds(1), t).await.unwrap(),
+        0
+    );
+
+    s.delete_backoff("user:alice").await.unwrap();
+    assert!(s.get_backoff("user:alice").await.unwrap().is_none());
 }

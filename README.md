@@ -249,10 +249,13 @@ mcp-forge gives AI agents real access to your APIs and data, so it is built to f
   password resets and removal: `mcp-forge user …` on the server.
 - Passwords are hashed with argon2id (8–256 characters). A wrong username and a wrong password get
   the same answer in the same time. After 5 failed attempts for a username (20 per client address)
-  sign-in backs off, from 30 seconds doubling to 15 minutes.
+  sign-in backs off, from 30 seconds doubling to 15 minutes; the backoff is stored, so restarting
+  the server doesn't reset it.
 - The session is a random 256-bit token in an `HttpOnly`, `SameSite=Strict` cookie (`Secure` behind
   an HTTPS proxy that sets `X-Forwarded-Proto`); only its SHA-256 is stored. Sessions end after
   7 days idle or 30 days in all, on sign-out, or when the password changes (other sessions only).
+  The cookie name includes the port (`mcp_forge_session_7410`), so servers on different ports
+  keep separate sign-ins.
 - State-changing API calls with the cookie must carry an `X-Mcp-Forge` header, which other web
   pages can't add without a CORS preflight that the server never grants.
 - `/mcp` and stdio are unchanged: MCP clients can't sign in, so `/mcp` stays open on loopback and
@@ -365,7 +368,8 @@ authenticate to `/api` with the admin token (`Authorization: Bearer <token>`).
 - **Lost the setup code**: it's printed again on every start until the first account exists. Or
   create the account directly: `mcp-forge user add <name>`.
 - **Forgot a password**: on the server, `mcp-forge user passwd <name>`.
-- **"Too many failed attempts"**: wait for the time shown, or reset the password with the CLI.
+- **"Too many failed attempts"**: wait for the time shown (the lockout survives restarts), or
+  reset the password with `mcp-forge user passwd <name>`, which also lifts it.
 - **Port 7410 in use**: `mcp-forge serve --bind 127.0.0.1:7420`.
 
 ## Building from source
