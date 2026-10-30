@@ -23,6 +23,7 @@ and to spec URLs you import on purpose. No telemetry.
 - [Connect Claude and other MCP clients](#connect-claude-and-other-mcp-clients)
 - [Secrets](#secrets)
 - [Databases](#databases)
+- [Call log](#call-log)
 - [Security model](#security-model)
 - [Docker](#docker)
 - [CLI reference](#cli-reference)
@@ -228,6 +229,24 @@ Every write:
 - can be tried first with `dry_run: true`, which reports the row count and undoes the change;
 - is listed on the **Audit** tab: tool, agent or test console, SQL, values, rows, and whether it was
   committed, undone or failed.
+
+## Call log
+
+Each project's **Calls** tab lists every tool call, from agents and from the test console: when,
+which tool, OK or error (with the upstream HTTP status), how long it took, the MCP client's name
+and version (or the signed-in user for the console), the arguments, and the error text the agent
+was given. Above the list: call count, error rate, median and 95th-percentile time, calls per hour
+or day, and a per-tool breakdown for the last 24 hours, 7 days or 30 days.
+
+- Argument values whose names look secret (`password`, `token`, `api_key`, `authorization`,
+  `cookie`, …) are stored as `[redacted]`. Arguments are cut to 4 000 characters and error text to
+  1 000.
+- Calls to tools that don't exist (or are hidden) are recorded as *Unknown tool*.
+- Calls are kept for 30 days by default (**Settings → Call log**, up to 365). Setting 0 stops
+  recording and clears the log within the hour. Each project keeps at most 100 000 calls.
+- The log is separate from the audit log, which records SQL writes in detail.
+- API: `GET /api/projects/{id}/calls?tool=&status=&origin=&before=&limit=`,
+  `GET /api/projects/{id}/calls/{call_id}` and `GET /api/projects/{id}/calls/summary?window=24h|7d|30d`.
 
 ## Security model
 

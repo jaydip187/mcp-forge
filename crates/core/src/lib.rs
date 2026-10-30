@@ -6,6 +6,7 @@
 mod args;
 mod audit;
 mod auth;
+mod calls;
 mod db;
 mod overrides;
 mod project;
@@ -18,6 +19,10 @@ mod validate;
 pub use args::check_args;
 pub use audit::{AuditEntry, AuditOutcome};
 pub use auth::{ApiKeyLocation, AuthConfig, AuthConfigInput, AuthKind};
+pub use calls::{
+    is_secret_name, logged_arguments, logged_error, CallEntry, CallStatus, MAX_CALLS_PER_PROJECT,
+    MAX_LOGGED_ARGS_CHARS, MAX_LOGGED_ERROR_CHARS, REDACTED,
+};
 pub use db::{
     is_valid_sql_param_name, AccessMode, ColumnMask, DbConnection, DbConnectionInput, Driver,
     SqlMode, SqlParam, SqlSpec, DEFAULT_ROW_LIMIT, DEFAULT_SQL_TIMEOUT_MS, MAX_ROW_LIMIT,
@@ -27,7 +32,10 @@ pub use overrides::{changed_fields, merge_overrides, OVERRIDABLE_FIELDS};
 pub use project::{slugify, Project, ProjectInput};
 pub use schema::{ArgBinding, ArgTarget, DerivedInput, BODY_ARG};
 pub use secret::{SecretRef, SecretResolver};
-pub use settings::{path_matches, Hidden, ProjectSettings, DEFAULT_MAX_RESPONSE_CHARS};
+pub use settings::{
+    path_matches, Hidden, ProjectSettings, DEFAULT_CALL_LOG_DAYS, DEFAULT_MAX_RESPONSE_CHARS,
+    MAX_CALL_LOG_DAYS,
+};
 pub use tool::{
     is_valid_param_name, path_placeholders, HttpMethod, HttpSpec, Overrides, ParamDef,
     ParamLocation, Source, ToolDef, ToolInput, ToolKind, DEFAULT_TIMEOUT_MS, MAX_TAGS,

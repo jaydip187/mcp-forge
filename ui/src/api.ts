@@ -1,5 +1,9 @@
 import type {
   AuditEntry,
+  CallEntry,
+  CallFilter,
+  CallSummary,
+  CallWindow,
   AuthConfig,
   AuthStatus,
   AuthConfigInput,
@@ -181,6 +185,14 @@ export const api = {
     request<DbConnection>("PUT", `${p(pid)}/db-connections/${id}`, { ...input, confirm_full_access: confirmFullAccess }),
   listAudit: (pid: string, before?: string) =>
     request<AuditEntry[]>("GET", `${p(pid)}/audit?limit=100${before ? `&before=${encodeURIComponent(before)}` : ""}`),
+  listCalls: (pid: string, filter: CallFilter, before?: string) => {
+    const q = new URLSearchParams({ limit: "100" });
+    for (const [k, v] of Object.entries(filter)) if (v) q.set(k, v);
+    if (before) q.set("before", before);
+    return request<CallEntry[]>("GET", `${p(pid)}/calls?${q}`);
+  },
+  callSummary: (pid: string, window: CallWindow) =>
+    request<CallSummary>("GET", `${p(pid)}/calls/summary?window=${window}`),
   deleteConnection: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/db-connections/${id}`),
   testConnection: (pid: string, id: string) =>
     request<ConnectionReport>("POST", `${p(pid)}/db-connections/${id}/test`, {}),

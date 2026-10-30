@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { href, type ProjectTab } from "@/lib/router";
 import { cn } from "@/lib/utils";
 import { AuditTab } from "@/pages/AuditTab";
+import { CallsTab } from "@/pages/CallsTab";
 import { AuthTab } from "@/pages/AuthTab";
 import { ConnectTab, mcpUrl } from "@/pages/ConnectTab";
 import { DatabasesTab } from "@/pages/DatabasesTab";
@@ -21,6 +22,7 @@ const SECTIONS: { tab: ProjectTab; label: string }[] = [
   { tab: "specs", label: "Specs" },
   { tab: "auth", label: "Auth" },
   { tab: "databases", label: "Databases" },
+  { tab: "calls", label: "Calls" },
   { tab: "audit", label: "Audit log" },
   { tab: "connect", label: "Connect" },
   { tab: "settings", label: "Settings" },
@@ -98,6 +100,7 @@ export function ProjectPage({ projectId, tab, info }: { projectId: string; tab: 
         {tab === "specs" && <SpecsTab projectId={project.id} />}
         {tab === "auth" && <AuthTab projectId={project.id} />}
         {tab === "databases" && <DatabasesTab projectId={project.id} />}
+        {tab === "calls" && <CallsTab projectId={project.id} />}
         {tab === "audit" && <AuditTab projectId={project.id} />}
         {tab === "connect" && <ConnectTab project={project} info={info} />}
         {tab === "settings" && <SettingsTab project={project} onSaved={setProject} />}

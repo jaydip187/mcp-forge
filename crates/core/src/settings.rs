@@ -8,6 +8,8 @@ use crate::validate::ValidationErrors;
 pub const DEFAULT_MAX_RESPONSE_CHARS: u32 = 50_000;
 pub const MIN_MAX_RESPONSE_CHARS: u32 = 500;
 pub const MAX_MAX_RESPONSE_CHARS: u32 = 2_000_000;
+pub const DEFAULT_CALL_LOG_DAYS: u32 = 30;
+pub const MAX_CALL_LOG_DAYS: u32 = 365;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -28,6 +30,8 @@ pub struct ProjectSettings {
     pub max_response_chars: u32,
     /// List only `search_tools` and `call_tool`; agents find tools by searching.
     pub tool_search: bool,
+    /// Days to keep the call log; 0 turns call logging off.
+    pub call_log_days: u32,
 }
 
 impl Default for ProjectSettings {
@@ -41,6 +45,7 @@ impl Default for ProjectSettings {
             strip_nulls: false,
             max_response_chars: DEFAULT_MAX_RESPONSE_CHARS,
             tool_search: false,
+            call_log_days: DEFAULT_CALL_LOG_DAYS,
         }
     }
 }
@@ -62,6 +67,12 @@ impl ProjectSettings {
             errs.push(
                 "max_response_chars",
                 format!("must be between {MIN_MAX_RESPONSE_CHARS} and {MAX_MAX_RESPONSE_CHARS}"),
+            );
+        }
+        if self.call_log_days > MAX_CALL_LOG_DAYS {
+            errs.push(
+                "call_log_days",
+                format!("must be between 0 and {MAX_CALL_LOG_DAYS}"),
             );
         }
         for (field, list) in [

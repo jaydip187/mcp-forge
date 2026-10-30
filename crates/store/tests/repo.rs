@@ -824,3 +824,138 @@ async fn backoff_round_trips_and_prunes() {
     s.delete_backoff("user:alice").await.unwrap();
     assert!(s.get_backoff("user:alice").await.unwrap().is_none());
 }
+
+fn call(
+    project_id: Uuid,
+    ts: chrono::DateTime<chrono::Utc>,
+    tool: &str,
+    status: forge_core::CallStatus,
+) -> forge_core::CallEntry {
+    forge_core::CallEntry {
+        id: Uuid::new_v4(),
+        project_id,
+        ts,
+        tool_id: None,
+        tool_name: tool.into(),
+        origin: "mcp".into(),
+        client: Some("claude-code 2.1".into()),
+        arguments: json!({ "owner": "rust-lang" }),
+        status,
+        duration_ms: 42,
+        response_chars: 10,
+        upstream_status: Some(200),
+        error: None,
+    }
+}
+
+#[tokio::test]
+async fn call_log_lists_filters_and_prunes() {
+    use chrono::{Duration, SubsecRound, Utc};
+    use forge_core::CallStatus;
+    use forge_store::CallFilter;
+    let s = store().await;
+    let p = s.create_project(&project("Calls")).await.unwrap();
+    let t = Utc::now().trunc_subsecs(3);
+    let a = call(p.id, t - Duration::days(40), "get_repo", CallStatus::Ok);
+    let b = call(
+        p.id,
+        t - Duration::minutes(2),
+        "get_repo",
+        CallStatus::Error,
+    );
+    let mut c = call(
+        p.id,
+        t - Duration::minutes(1),
+        "list_issues",
+        CallStatus::Ok,
+    );
+    c.origin = "console".into();
+    for e in [&a, &b, &c] {
+        s.append_call(e).await.unwrap();
+    }
+
+    let all = s
+        .list_calls(p.id, &CallFilter::default(), 100)
+        .await
+        .unwrap();
+    assert_eq!(
+        all,
+        [c.clone(), b.clone(), a.clone()],
+        "newest first, round-trips"
+    );
+    let f = |filter: CallFilter| {
+        let s = s.clone();
+        async move { s.list_calls(p.id, &filter, 100).await.unwrap() }
+    };
+    assert_eq!(
+        f(CallFilter {
+            tool: Some("get_repo".into()),
+            ..Default::default()
+        })
+        .await
+        .len(),
+        2
+    );
+    assert_eq!(
+        f(CallFilter {
+            status: Some(CallStatus::Error),
+            ..Default::default()
+        })
+        .await,
+        std::slice::from_ref(&b)
+    );
+    assert_eq!(
+        f(CallFilter {
+            origin: Some("console".into()),
+            ..Default::default()
+        })
+        .await,
+        std::slice::from_ref(&c)
+    );
+    assert_eq!(
+        f(CallFilter {
+            before: Some(c.ts),
+            ..Default::default()
+        })
+        .await,
+        [b.clone(), a.clone()]
+    );
+    assert_eq!(
+        s.list_calls(p.id, &CallFilter::default(), 1).await.unwrap(),
+        std::slice::from_ref(&c)
+    );
+    assert_eq!(s.get_call(p.id, b.id).await.unwrap(), b);
+    assert!(matches!(
+        s.get_call(p.id, Uuid::new_v4()).await,
+        Err(StoreError::NotFound(_))
+    ));
+
+    let stats = s.call_stats(p.id, t - Duration::hours(1)).await.unwrap();
+    assert_eq!(
+        stats
+            .iter()
+            .map(|r| r.tool_name.as_str())
+            .collect::<Vec<_>>(),
+        ["get_repo", "list_issues"]
+    );
+
+    // Default retention is 30 days; the cap keeps the newest.
+    assert_eq!(s.prune_call_logs(t).await.unwrap(), 1);
+    assert_eq!(
+        s.prune_calls(p.id, t - Duration::days(1), 1).await.unwrap(),
+        1
+    );
+    assert_eq!(
+        s.list_calls(p.id, &CallFilter::default(), 100)
+            .await
+            .unwrap(),
+        [c]
+    );
+
+    // Deleting the project drops its calls.
+    s.delete_project(p.id).await.unwrap();
+    assert!(matches!(
+        s.list_calls(p.id, &CallFilter::default(), 100).await,
+        Err(StoreError::NotFound(_))
+    ));
+}

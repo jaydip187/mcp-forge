@@ -4,6 +4,7 @@
 mod audit;
 mod auth;
 mod bundle;
+mod calls;
 mod connections;
 mod projects;
 mod specs;
@@ -12,6 +13,7 @@ mod users;
 
 pub use audit::MAX_AUDIT_PAGE;
 pub use bundle::{BundleReport, BundleTool, ConflictPolicy};
+pub use calls::{CallFilter, CallStat, MAX_CALL_PAGE};
 pub use specs::{NewSpec, ReimportResult, SpecRecord};
 pub use users::{Backoff, Session, User};
 
