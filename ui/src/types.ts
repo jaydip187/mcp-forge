@@ -19,6 +19,7 @@ export interface ProjectSettings {
   max_response_chars: number;
   tool_search: boolean;
   call_log_days: number;
+  approval_timeout_secs: number;
 }
 
 export interface Project {
@@ -83,6 +84,7 @@ export interface ToolInput {
   enabled: boolean;
   tags: string[];
   response_shape: string | null;
+  require_approval: boolean;
 }
 
 export type ToolSource =
@@ -315,7 +317,27 @@ export interface AuditEntry {
   error: string | null;
 }
 
-export type CallStatus = "ok" | "error" | "unknown_tool";
+export type CallStatus = "ok" | "error" | "unknown_tool" | "not_approved";
+
+export interface ApprovalRecord {
+  decision: "approved" | "denied" | "timed_out" | "cancelled";
+  decided_by: string | null;
+  wait_ms: number;
+}
+
+export interface PendingApproval {
+  id: string;
+  project_id: string;
+  project_name: string;
+  project_slug: string;
+  tool_id: string;
+  tool_name: string;
+  client: string | null;
+  arguments: Json;
+  created_at: string;
+  expires_at: string;
+  asked_client: boolean;
+}
 
 export interface CallEntry {
   id: string;
@@ -331,6 +353,7 @@ export interface CallEntry {
   response_chars: number;
   upstream_status: number | null;
   error: string | null;
+  approval: ApprovalRecord | null;
 }
 
 export type CallWindow = "24h" | "7d" | "30d";

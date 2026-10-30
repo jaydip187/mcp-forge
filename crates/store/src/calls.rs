@@ -1,5 +1,5 @@
 use chrono::{DateTime, Duration, Utc};
-use forge_core::{CallEntry, CallStatus, MAX_CALLS_PER_PROJECT};
+use forge_core::{ApprovalDecision, ApprovalRecord, CallEntry, CallStatus, MAX_CALLS_PER_PROJECT};
 use sqlx::QueryBuilder;
 use uuid::Uuid;
 
@@ -44,6 +44,9 @@ struct CallRow {
     response_chars: i64,
     upstream_status: Option<i64>,
     error: Option<String>,
+    approval: Option<String>,
+    approved_by: Option<String>,
+    approval_wait_ms: Option<i64>,
 }
 
 impl TryFrom<CallRow> for CallEntry {
@@ -64,17 +67,27 @@ impl TryFrom<CallRow> for CallEntry {
             response_chars: r.response_chars.max(0) as u64,
             upstream_status: r.upstream_status.and_then(|s| u16::try_from(s).ok()),
             error: r.error,
+            approval: r
+                .approval
+                .as_deref()
+                .and_then(ApprovalDecision::parse)
+                .map(|decision| ApprovalRecord {
+                    decision,
+                    decided_by: r.approved_by,
+                    wait_ms: r.approval_wait_ms.unwrap_or(0).max(0) as u64,
+                }),
         })
     }
 }
 
 const COLUMNS: &str = "id, project_id, ts, tool_id, tool_name, origin, client, arguments, status, \
-                       duration_ms, response_chars, upstream_status, error";
+                       duration_ms, response_chars, upstream_status, error, approval, approved_by, \
+                       approval_wait_ms";
 
 impl Store {
     pub async fn append_call(&self, e: &CallEntry) -> Result<(), StoreError> {
         sqlx::query(&format!(
-            "INSERT INTO call_log ({COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO call_log ({COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ))
         .bind(e.id.to_string())
         .bind(e.project_id.to_string())
@@ -89,6 +102,13 @@ impl Store {
         .bind(i64::try_from(e.response_chars).unwrap_or(i64::MAX))
         .bind(e.upstream_status.map(i64::from))
         .bind(&e.error)
+        .bind(e.approval.as_ref().map(|a| a.decision.as_str()))
+        .bind(e.approval.as_ref().and_then(|a| a.decided_by.clone()))
+        .bind(
+            e.approval
+                .as_ref()
+                .map(|a| i64::try_from(a.wait_ms).unwrap_or(i64::MAX)),
+        )
         .execute(&self.pool)
         .await?;
         Ok(())

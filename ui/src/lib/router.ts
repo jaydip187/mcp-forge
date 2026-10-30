@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 /** Hash routes, so the server never needs an SPA fallback. */
 export type Route =
   | { name: "home" }
+  | { name: "approvals" }
   | { name: "project"; projectId: string; tab: ProjectTab }
   | { name: "tool"; projectId: string; toolId: string | null; kind: "http" | "sql" }
   | { name: "import"; projectId: string }
@@ -14,6 +15,7 @@ const TABS: ProjectTab[] = ["tools", "specs", "auth", "databases", "calls", "aud
 export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   const [a, pid, b, tid, c] = parts;
+  if (a === "approvals") return { name: "approvals" };
   if (a === "p" && pid) {
     if (b === "tools" && tid) {
       if (tid === "new") return { name: "tool", projectId: pid, toolId: null, kind: "http" };
@@ -30,6 +32,7 @@ export function parseRoute(hash: string): Route {
 
 export const href = {
   home: () => "#/",
+  approvals: () => "#/approvals",
   project: (pid: string, tab: ProjectTab = "tools") =>
     tab === "tools" ? `#/p/${encodeURIComponent(pid)}` : `#/p/${encodeURIComponent(pid)}/${tab}`,
   tool: (pid: string, tid: string | null, kind: "http" | "sql" = "http") =>

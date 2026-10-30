@@ -7,12 +7,13 @@ use crate::tool::{Overrides, ToolDef, ToolInput, ToolKind};
 
 /// Fields that can be overridden, as recorded in `Overrides::fields`.
 /// Params are tracked as one unit (`kind.params`).
-pub const OVERRIDABLE_FIELDS: [&str; 12] = [
+pub const OVERRIDABLE_FIELDS: [&str; 13] = [
     "name",
     "description",
     "enabled",
     "tags",
     "response_shape",
+    "require_approval",
     "kind.method",
     "kind.base_url",
     "kind.path_template",
@@ -32,6 +33,7 @@ impl ToolDef {
             enabled: self.enabled,
             tags: self.tags.clone(),
             response_shape: self.response_shape.clone(),
+            require_approval: self.require_approval,
         }
     }
 }
@@ -45,6 +47,7 @@ fn field_value(t: &ToolInput, field: &str) -> Value {
             "enabled" => serde_json::to_value(t.enabled),
             "tags" => serde_json::to_value(&t.tags),
             "response_shape" => serde_json::to_value(&t.response_shape),
+            "require_approval" => serde_json::to_value(t.require_approval),
             _ => serde_json::to_value(&t.kind),
         };
         return v.expect("IR fields serialize");
@@ -55,6 +58,7 @@ fn field_value(t: &ToolInput, field: &str) -> Value {
         "enabled" => serde_json::to_value(t.enabled),
         "tags" => serde_json::to_value(&t.tags),
         "response_shape" => serde_json::to_value(&t.response_shape),
+        "require_approval" => serde_json::to_value(t.require_approval),
         "kind.method" => serde_json::to_value(h.method),
         "kind.base_url" => serde_json::to_value(&h.base_url),
         "kind.path_template" => serde_json::to_value(&h.path_template),
@@ -74,6 +78,7 @@ fn copy_field(from: &ToolInput, to: &mut ToolInput, field: &str) {
         "enabled" => to.enabled = from.enabled,
         "tags" => to.tags = from.tags.clone(),
         "response_shape" => to.response_shape = from.response_shape.clone(),
+        "require_approval" => to.require_approval = from.require_approval,
         _ => {}
     }
     let (ToolKind::Http(src), ToolKind::Http(dst)) = (&from.kind, &mut to.kind) else {

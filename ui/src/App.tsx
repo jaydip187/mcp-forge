@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ChevronRightIcon, LayoutGridIcon, PlusIcon } from "lucide-react";
+import { ChevronRightIcon, LayoutGridIcon, PlusIcon, ShieldCheckIcon } from "lucide-react";
 
 import { api, ApiError, auth, setUnauthorizedHandler } from "@/api";
 import { Logo } from "@/components/Logo";
@@ -18,6 +18,7 @@ import {
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSkeleton,
@@ -27,9 +28,11 @@ import {
 } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ApprovalsProvider, useApprovals } from "@/lib/approvals";
 import { ProjectsProvider, useProjects } from "@/lib/projects";
 import { href, useRoute, type ProjectTab, type Route } from "@/lib/router";
 import { cn } from "@/lib/utils";
+import { ApprovalsPage } from "@/pages/ApprovalsPage";
 import { Home } from "@/pages/Home";
 import { ImportPage } from "@/pages/ImportPage";
 import { ProjectPage } from "@/pages/ProjectPage";
@@ -83,7 +86,9 @@ export default function App() {
       )}
       {gate.state === "ready" && (
         <ProjectsProvider>
-          <Shell info={gate.info} user={gate.user} onSignedOut={() => setGate({ state: "login" })} />
+          <ApprovalsProvider>
+            <Shell info={gate.info} user={gate.user} onSignedOut={() => setGate({ state: "login" })} />
+          </ApprovalsProvider>
         </ProjectsProvider>
       )}
       <Toaster position="bottom-right" />
@@ -104,7 +109,7 @@ const SECTION: Record<ProjectTab, string> = {
 
 function Shell({ info, user, onSignedOut }: { info: ServerInfo; user: User | null; onSignedOut: () => void }) {
   const route = useRoute();
-  const activeProject = route.name === "home" ? null : route.projectId;
+  const activeProject = "projectId" in route ? route.projectId : null;
 
   return (
     <SidebarProvider>
@@ -129,8 +134,9 @@ function Shell({ info, user, onSignedOut }: { info: ServerInfo; user: User | nul
 /** Where you are: Projects › project › section. */
 function Breadcrumbs({ route }: { route: Route }) {
   const { projects, error } = useProjects();
-  const crumbs: { label: ReactNode; href?: string }[] = [{ label: "Projects", href: href.home() }];
-  if (route.name !== "home") {
+  const crumbs: { label: ReactNode; href?: string }[] =
+    route.name === "approvals" ? [{ label: "Approvals" }] : [{ label: "Projects", href: href.home() }];
+  if (route.name !== "home" && route.name !== "approvals") {
     const project = projects?.find((p) => p.id === route.projectId);
     // Placeholder while the project list loads, so the name doesn't flash in.
     const label =
@@ -188,6 +194,8 @@ function Page({ route, info }: { route: Route; info: ServerInfo }) {
   switch (route.name) {
     case "home":
       return <Home />;
+    case "approvals":
+      return <ApprovalsPage />;
     case "project":
       return <ProjectPage key={route.projectId} projectId={route.projectId} tab={route.tab} info={info} />;
     case "import":
@@ -213,6 +221,8 @@ function AppSidebar({
   onSignedOut: () => void;
 }) {
   const { projects } = useProjects();
+  const { pending } = useApprovals();
+  const route = useRoute();
   const { setOpenMobile } = useSidebar();
   // On phones the sidebar is a sheet; close it once a link is followed.
   const close = () => setOpenMobile(false);
@@ -232,12 +242,25 @@ function AppSidebar({
         <SidebarGroup>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton asChild isActive={activeProject === null}>
+              <SidebarMenuButton asChild isActive={route.name === "home"}>
                 <a href={href.home()} onClick={close}>
                   <LayoutGridIcon />
                   <span>All projects</span>
                 </a>
               </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild isActive={route.name === "approvals"}>
+                <a href={href.approvals()} onClick={close}>
+                  <ShieldCheckIcon />
+                  <span>Approvals</span>
+                </a>
+              </SidebarMenuButton>
+              {pending.length > 0 && (
+                <SidebarMenuBadge className="bg-warning/15 font-semibold text-warning" aria-label={`${pending.length} waiting`}>
+                  {pending.length}
+                </SidebarMenuBadge>
+              )}
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroup>

@@ -30,6 +30,9 @@ pub struct ToolDef {
     pub overrides: Overrides,
     /// jaq expression applied to responses (Stage 7).
     pub response_shape: Option<String>,
+    /// Agent calls wait for a person to approve them (Stage 17).
+    #[serde(default)]
+    pub require_approval: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -48,6 +51,8 @@ pub struct ToolInput {
     pub tags: Vec<String>,
     #[serde(default)]
     pub response_shape: Option<String>,
+    #[serde(default)]
+    pub require_approval: bool,
 }
 
 fn default_true() -> bool {

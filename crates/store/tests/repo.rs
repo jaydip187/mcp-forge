@@ -845,6 +845,7 @@ fn call(
         response_chars: 10,
         upstream_status: Some(200),
         error: None,
+        approval: None,
     }
 }
 

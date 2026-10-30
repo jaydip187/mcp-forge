@@ -14,6 +14,8 @@ export interface SqlForm {
   params: SqlParam[];
   /** jq expression, as typed. */
   responseShape: string;
+  /** `null` until the user flips the switch: then it follows the SQL. */
+  requireApproval: boolean | null;
 }
 
 export function newSqlForm(connectionId = ""): SqlForm {
@@ -27,6 +29,7 @@ export function newSqlForm(connectionId = ""): SqlForm {
     sql: "",
     params: [],
     responseShape: "",
+    requireApproval: null,
   };
 }
 
@@ -42,6 +45,7 @@ export function sqlFormFromTool(t: Tool): SqlForm {
     sql: t.kind.mode.type === "query" ? t.kind.mode.sql : "",
     params: t.kind.mode.type === "query" ? t.kind.mode.params : [],
     responseShape: t.response_shape ?? "",
+    requireApproval: t.require_approval,
   };
 }
 
@@ -106,6 +110,7 @@ export function buildSqlInput(form: SqlForm): SqlBuildResult {
       enabled: form.enabled,
       tags: splitTags(form.tagsText),
       response_shape: form.responseShape.trim() || null,
+      require_approval: form.requireApproval ?? (form.mode === "query" && looksLikeWrite(form.sql)),
       kind: {
         type: "sql",
         connection_id: form.connection_id,

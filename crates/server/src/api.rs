@@ -485,6 +485,7 @@ async fn add_exploration_tools(
             enabled: true,
             tags: vec!["database".into()],
             response_shape: None,
+            require_approval: false,
         };
         created.push(s.store.create_tool(project_id, &input).await?);
     }

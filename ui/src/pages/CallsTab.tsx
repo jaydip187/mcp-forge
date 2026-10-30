@@ -20,6 +20,14 @@ const STATUS: Record<CallStatus, { label: string; variant: "secondary" | "destru
   ok: { label: "OK", variant: "secondary" },
   error: { label: "Error", variant: "destructive" },
   unknown_tool: { label: "Unknown tool", variant: "outline" },
+  not_approved: { label: "Not approved", variant: "outline" },
+};
+
+const DECISION: Record<NonNullable<CallEntry["approval"]>["decision"], string> = {
+  approved: "Approved",
+  denied: "Denied",
+  timed_out: "Nobody answered in time",
+  cancelled: "Cancelled",
 };
 
 const WINDOWS: { value: CallWindow; label: string }[] = [
@@ -367,6 +375,7 @@ function Filters({ filter, setFilter, tools }: { filter: CallFilter; setFilter: 
           <SelectItem value="ok">OK</SelectItem>
           <SelectItem value="error">Error</SelectItem>
           <SelectItem value="unknown_tool">Unknown tool</SelectItem>
+          <SelectItem value="not_approved">Not approved</SelectItem>
         </SelectContent>
       </Select>
       <Select value={filter.origin ?? ALL} onValueChange={set("origin")}>
@@ -411,6 +420,15 @@ function CallSheet({ call: c, onClose }: { call: CallEntry | null; onClose: () =
                 <dd className="font-mono text-xs">{c.response_chars.toLocaleString()} characters</dd>
                 <dt className="text-muted-foreground">From</dt>
                 <dd className="text-xs">{origin(c)}</dd>
+                {c.approval && (
+                  <>
+                    <dt className="text-muted-foreground">Approval</dt>
+                    <dd className="text-xs">
+                      {DECISION[c.approval.decision]}
+                      {c.approval.decided_by && ` by ${c.approval.decided_by}`} · waited {ms(c.approval.wait_ms)}
+                    </dd>
+                  </>
+                )}
               </dl>
               <div className="space-y-1.5">
                 <h3 className="text-xs font-medium text-muted-foreground">Arguments</h3>

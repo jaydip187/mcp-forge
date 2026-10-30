@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ApprovalSwitch } from "@/components/ApprovalSwitch";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { href, navigate } from "@/lib/router";
@@ -42,8 +43,8 @@ export function SqlToolEditor({ projectId, tool }: { projectId: string; tool: To
   const built = useMemo(() => buildSqlInput(form), [form]);
   const dirty = useMemo(() => {
     if (!saved || !built.ok) return !saved;
-    const { name, description, enabled, tags, response_shape, kind } = saved;
-    return JSON.stringify(built.input) !== JSON.stringify({ name, description, enabled, tags, response_shape, kind });
+    const { name, description, enabled, tags, response_shape, require_approval, kind } = saved;
+    return JSON.stringify(built.input) !== JSON.stringify({ name, description, enabled, tags, response_shape, require_approval, kind });
   }, [saved, built]);
 
   const set = (patch: Partial<SqlForm>) => setForm({ ...form, ...patch });
@@ -155,6 +156,11 @@ export function SqlToolEditor({ projectId, tool }: { projectId: string; tool: To
               <Switch id="s-enabled" checked={form.enabled} onCheckedChange={(v) => set({ enabled: v })} />
               <Label htmlFor="s-enabled">Visible to agents</Label>
             </div>
+            <ApprovalSwitch
+              id="s-approval"
+              checked={form.requireApproval ?? (form.mode === "query" && looksLikeWrite(form.sql))}
+              onChange={(v) => set({ requireApproval: v })}
+            />
           </Section>
 
           {form.mode !== "query" && (

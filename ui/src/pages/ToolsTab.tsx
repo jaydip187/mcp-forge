@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { DatabaseIcon, FileJsonIcon, KeyRoundIcon, PlusIcon, WrenchIcon } from "lucide-react";
+import { DatabaseIcon, FileJsonIcon, KeyRoundIcon, PlusIcon, ShieldCheckIcon, WrenchIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
@@ -43,6 +43,7 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
         enabled,
         tags: t.tags,
         response_shape: t.response_shape,
+        require_approval: t.require_approval,
       });
       toast.success(enabled ? `${t.name} is now visible to agents` : `${t.name} is now hidden from agents`);
     } catch (e) {
@@ -111,6 +112,14 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
                   <span className="font-medium group-hover:underline">{t.name}</span>
                   {t.kind.type === "sql" && t.kind.mode.type === "query" && looksLikeWrite(t.kind.mode.sql) && (
                     <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">writes</span>
+                  )}
+                  {t.require_approval && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <ShieldCheckIcon className="size-3.5 text-warning" aria-label="Requires approval" />
+                      </TooltipTrigger>
+                      <TooltipContent>Agent calls wait for a person's approval</TooltipContent>
+                    </Tooltip>
                   )}
                   {t.kind.type === "http" && t.kind.auth_ref && (
                     <Tooltip>

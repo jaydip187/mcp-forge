@@ -23,6 +23,7 @@ and to spec URLs you import on purpose. No telemetry.
 - [Connect Claude and other MCP clients](#connect-claude-and-other-mcp-clients)
 - [Secrets](#secrets)
 - [Databases](#databases)
+- [Approvals](#approvals)
 - [Call log](#call-log)
 - [Security model](#security-model)
 - [Docker](#docker)
@@ -229,6 +230,24 @@ Every write:
 - can be tried first with `dry_run: true`, which reports the row count and undoes the change;
 - is listed on the **Audit** tab: tool, agent or test console, SQL, values, rows, and whether it was
   committed, undone or failed.
+
+## Approvals
+
+Turn on **Require approval** in a tool's editor and agent calls to it wait for a person before
+anything is sent. New tools start with it on when they can change things (HTTP `DELETE`, SQL that
+writes); imported tools start with it off.
+
+- The call shows up on the **Approvals** page (a badge in the sidebar counts waiting calls, and a
+  toast pops up in any open mcp-forge tab), with the tool, arguments and client. Approve runs it;
+  Deny refuses it.
+- Clients that support MCP form elicitation also get an Approve/Decline prompt in their own app.
+  Whichever answer comes first wins, and the other prompt closes.
+- Nobody answering within the project's timeout (**Settings → Approvals**, 300 seconds by default)
+  refuses the call. Refused calls never reach the API or database, and the agent is told why.
+- Test console runs don't wait. In `stdio` mode there's no web UI, so only clients with
+  elicitation can approve; others get a clear refusal.
+- Waiting calls live in memory: restarting the server refuses them. The call log records every
+  decision, who made it, and how long the call waited.
 
 ## Call log
 

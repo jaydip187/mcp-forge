@@ -16,6 +16,7 @@ struct ToolRow {
     source: String,
     overrides: String,
     response_shape: Option<String>,
+    require_approval: bool,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -34,6 +35,7 @@ impl TryFrom<ToolRow> for ToolDef {
             source: from_json(&r.source, "tool source")?,
             overrides: from_json(&r.overrides, "tool overrides")?,
             response_shape: r.response_shape,
+            require_approval: r.require_approval,
             created_at: r.created_at,
             updated_at: r.updated_at,
         })
@@ -41,7 +43,7 @@ impl TryFrom<ToolRow> for ToolDef {
 }
 
 const COLUMNS: &str = "id, project_id, name, description, kind, enabled, tags, source, overrides, \
-                       response_shape, created_at, updated_at";
+                       response_shape, require_approval, created_at, updated_at";
 
 fn name_taken(name: &str) -> impl FnOnce() -> String + '_ {
     move || format!("a tool named `{name}` already exists in this project")
@@ -60,6 +62,7 @@ pub(crate) fn new_tool_def(project_id: Uuid, input: &ToolInput, source: Source) 
         source,
         overrides: Overrides::default(),
         response_shape: input.response_shape.clone(),
+        require_approval: input.require_approval,
         created_at: ts,
         updated_at: ts,
     }
@@ -72,6 +75,7 @@ pub(crate) fn apply_input(tool: &mut ToolDef, input: &ToolInput) {
     tool.enabled = input.enabled;
     tool.tags = input.tags.clone();
     tool.response_shape = input.response_shape.clone();
+    tool.require_approval = input.require_approval;
     tool.updated_at = now();
 }
 
@@ -82,7 +86,7 @@ where
 {
     sqlx::query(
         "UPDATE tools SET name = ?, description = ?, kind = ?, auth_ref = ?, connection_ref = ?, enabled = ?, 
-         tags = ?, source = ?, overrides = ?, response_shape = ?, updated_at = ? 
+         tags = ?, source = ?, overrides = ?, response_shape = ?, require_approval = ?, updated_at = ? 
          WHERE project_id = ? AND id = ?",
     )
     .bind(&tool.name)
@@ -95,6 +99,7 @@ where
     .bind(to_json(&tool.source))
     .bind(to_json(&tool.overrides))
     .bind(&tool.response_shape)
+    .bind(tool.require_approval)
     .bind(tool.updated_at)
     .bind(tool.project_id.to_string())
     .bind(tool.id.to_string())
@@ -109,7 +114,7 @@ where
     E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
 {
     sqlx::query(
-        "INSERT INTO tools (id, project_id, name, description, kind, auth_ref, connection_ref,          enabled, tags, source, overrides, response_shape, created_at, updated_at)          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO tools (id, project_id, name, description, kind, auth_ref, connection_ref,          enabled, tags, source, overrides, response_shape, require_approval, created_at, updated_at)          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(tool.id.to_string())
     .bind(tool.project_id.to_string())
@@ -123,6 +128,7 @@ where
     .bind(to_json(&tool.source))
     .bind(to_json(&tool.overrides))
     .bind(&tool.response_shape)
+    .bind(tool.require_approval)
     .bind(tool.created_at)
     .bind(tool.updated_at)
     .execute(exec)
