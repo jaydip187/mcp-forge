@@ -101,10 +101,38 @@ export interface Tool extends ToolInput {
   updated_at: string;
 }
 
+export type OAuthClientAuth = "body" | "basic";
+
 export type AuthKind =
   | { type: "bearer" }
   | { type: "basic"; username: string }
-  | { type: "api_key"; location: "header" | "query"; name: string };
+  | { type: "api_key"; location: "header" | "query"; name: string }
+  | {
+      type: "oauth2_client_credentials";
+      token_url: string;
+      client_id: string;
+      scopes: string[];
+      audience?: string | null;
+      client_auth: OAuthClientAuth;
+    }
+  | {
+      type: "oauth2_authorization_code";
+      auth_url: string;
+      token_url: string;
+      client_id: string;
+      scopes: string[];
+      client_auth: OAuthClientAuth;
+    };
+
+/** A connected authorization-code config (tokens stay on the server). */
+export interface OAuthStatus {
+  auth_config_id: string;
+  connected_at: string;
+  connected_by: string | null;
+  expires_at: string | null;
+  scope: string | null;
+  can_refresh: boolean;
+}
 
 export interface AuthConfigInput {
   name: string;

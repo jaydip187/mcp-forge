@@ -341,3 +341,23 @@ describe("approval defaults", () => {
     expect(parseRoute("#/approvals")).toEqual({ name: "approvals" });
   });
 });
+
+describe("oauth auth configs", () => {
+  it("describes them and builds the redirect URL", async () => {
+    const { describeAuth, oauthRedirectUri } = await import("../pages/AuthTab");
+    expect(oauthRedirectUri("http://127.0.0.1:7410")).toBe("http://127.0.0.1:7410/oauth/callback");
+    expect(
+      describeAuth({
+        type: "oauth2_authorization_code",
+        auth_url: "https://accounts.example.com/auth",
+        token_url: "https://oauth.example.com/token",
+        client_id: "x",
+        scopes: [],
+        client_auth: "body",
+      }),
+    ).toBe("OAuth2 sign-in with accounts.example.com");
+    expect(
+      describeAuth({ type: "oauth2_client_credentials", token_url: "https://auth.example.com/t", client_id: "x", scopes: [], client_auth: "basic" }),
+    ).toBe("OAuth2 client credentials from auth.example.com");
+  });
+});

@@ -22,6 +22,7 @@ and to spec URLs you import on purpose. No telemetry.
 - [Quick start (5 minutes)](#quick-start-5-minutes)
 - [Connect Claude and other MCP clients](#connect-claude-and-other-mcp-clients)
 - [Secrets](#secrets)
+- [OAuth2 APIs](#oauth2-apis)
 - [Databases](#databases)
 - [Approvals](#approvals)
 - [Call log](#call-log)
@@ -180,6 +181,29 @@ mcp-forge serve
 
 Then on the **Auth** tab add *Bearer token* with reference `env:GITHUB_TOKEN`, and pick it in the
 tool's *Auth* field.
+
+## OAuth2 APIs
+
+For APIs that hand out tokens through OAuth2 (Google, Microsoft, Salesforce, Auth0, …), add an auth
+config of one of these types. The **client secret** is a reference like any other secret.
+
+- **OAuth2: sign in (authorization code)**, for acting as a person. Fill in the provider's
+  authorization URL, token URL, client ID and scopes, and register the redirect URL the form shows
+  (`http://127.0.0.1:7410/oauth/callback` by default) with the provider. Save, then click
+  **Connect** in the list: you sign in at the provider and come back to mcp-forge. PKCE is always
+  used.
+- **OAuth2: client credentials**, for service accounts (machine to machine): token URL, client ID,
+  scopes and an optional audience. No sign-in step.
+
+mcp-forge sends the access token as a bearer token, caches it until shortly before it expires, and
+refreshes it (from the refresh token, or a new client-credentials request). If the API still
+answers 401, it fetches a fresh token and retries once. Sign-in tokens are stored encrypted with a
+key in `secret.key` in the data directory (keep that file with the database; without it,
+connections must be redone). Changing a config's endpoints, client ID or scopes disconnects it.
+Tokens never appear in the UI, API responses, exports or logs.
+
+Importing an OpenAPI spec whose security scheme describes an OAuth2 authorization-code or
+client-credentials flow suggests the matching auth config.
 
 ## Databases
 

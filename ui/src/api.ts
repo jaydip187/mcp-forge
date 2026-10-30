@@ -4,6 +4,7 @@ import type {
   CallFilter,
   CallSummary,
   CallWindow,
+  OAuthStatus,
   PendingApproval,
   AuthConfig,
   AuthStatus,
@@ -178,6 +179,11 @@ export const api = {
   updateAuth: (pid: string, id: string, input: AuthConfigInput) =>
     request<AuthConfig>("PUT", `${p(pid)}/auth-configs/${id}`, input),
   deleteAuth: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/auth-configs/${id}`),
+
+  oauthStatus: (pid: string) => request<OAuthStatus[]>("GET", `${p(pid)}/oauth`),
+  oauthStart: (pid: string, id: string) =>
+    request<{ authorize_url: string; redirect_uri: string }>("POST", `${p(pid)}/auth-configs/${id}/oauth/start`, {}),
+  oauthDisconnect: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/auth-configs/${id}/oauth`),
 
   listConnections: (pid: string) => request<DbConnection[]>("GET", `${p(pid)}/db-connections`),
   createConnection: (pid: string, input: DbConnectionInput, confirmFullAccess = false) =>

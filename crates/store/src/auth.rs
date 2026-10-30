@@ -109,6 +109,8 @@ impl Store {
     ) -> Result<AuthConfig, StoreError> {
         input.validate()?;
         let mut cfg = self.get_auth_config(project_id, id).await?;
+        // Tokens belong to the old endpoints/client: drop them.
+        let reconnect = cfg.kind != input.kind;
         cfg.name = input.name.clone();
         cfg.kind = input.kind.clone();
         cfg.secret_ref = input.secret_ref.clone();
@@ -126,6 +128,9 @@ impl Store {
         .execute(&self.pool)
         .await
         .map_err(|e| on_unique(e, name_taken(&cfg.name)))?;
+        if reconnect {
+            self.delete_oauth_token(id).await?;
+        }
         Ok(cfg)
     }
 

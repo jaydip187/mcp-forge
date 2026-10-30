@@ -5,7 +5,9 @@ mod audit;
 mod auth;
 mod bundle;
 mod calls;
+mod cipher;
 mod connections;
+mod oauth;
 mod projects;
 mod specs;
 mod tools;
@@ -14,6 +16,7 @@ mod users;
 pub use audit::MAX_AUDIT_PAGE;
 pub use bundle::{BundleReport, BundleTool, ConflictPolicy};
 pub use calls::{CallFilter, CallStat, MAX_CALL_PAGE};
+pub use oauth::{OAuthStatus, OAuthToken};
 pub use specs::{NewSpec, ReimportResult, SpecRecord};
 pub use users::{Backoff, Session, User};
 
@@ -80,6 +83,8 @@ fn to_json<T: serde::Serialize>(v: &T) -> String {
 #[derive(Clone, Debug)]
 pub struct Store {
     pool: SqlitePool,
+    /// Encrypts stored OAuth tokens.
+    cipher: std::sync::Arc<cipher::Cipher>,
 }
 
 impl Store {
@@ -95,16 +100,20 @@ impl Store {
             .journal_mode(SqliteJournalMode::Wal)
             .foreign_keys(true)
             .busy_timeout(Duration::from_secs(5));
-        Self::connect(options).await
+        let cipher = cipher::Cipher::load_or_create(data_dir)?;
+        Self::connect(options, cipher).await
     }
 
     /// Opens a private in-memory database, mainly for tests.
     pub async fn open_in_memory() -> Result<Self, StoreError> {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")?.foreign_keys(true);
-        Self::connect(options).await
+        Self::connect(options, cipher::Cipher::ephemeral()).await
     }
 
-    async fn connect(options: SqliteConnectOptions) -> Result<Self, StoreError> {
+    async fn connect(
+        options: SqliteConnectOptions,
+        cipher: cipher::Cipher,
+    ) -> Result<Self, StoreError> {
         // A single connection keeps in-memory databases coherent; file-backed
         // stores get a small pool.
         let max = if options.get_filename() == Path::new(":memory:") {
@@ -118,7 +127,10 @@ impl Store {
             .await?;
         MIGRATOR.run(&pool).await?;
         tracing::debug!("store ready, migrations applied");
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            cipher: std::sync::Arc::new(cipher),
+        })
     }
 
     pub fn pool(&self) -> &SqlitePool {

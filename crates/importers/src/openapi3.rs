@@ -635,6 +635,47 @@ fn first_server_url(servers: &Value, source_url: Option<&str>) -> Option<String>
     Some(s.trim_end_matches('/').to_owned())
 }
 
+/// OAuth2 schemes: prefer the sign-in flow (authorization code), then
+/// client credentials; the client ID is left for the user.
+fn oauth2_suggestion(s: &Value) -> (String, Option<AuthKind>) {
+    let flow = |name: &str| s.pointer(&format!("/flows/{name}"));
+    let url = |f: &Value, k: &str| f.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+    let scopes = |f: &Value| -> Vec<String> {
+        f.get("scopes")
+            .and_then(Value::as_object)
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default()
+    };
+    if let Some(f) = flow("authorizationCode") {
+        return (
+            "OAuth 2 sign-in (authorization code)".into(),
+            Some(AuthKind::OAuth2AuthorizationCode {
+                auth_url: url(f, "authorizationUrl"),
+                token_url: url(f, "tokenUrl"),
+                client_id: String::new(),
+                scopes: scopes(f),
+                client_auth: Default::default(),
+            }),
+        );
+    }
+    if let Some(f) = flow("clientCredentials") {
+        return (
+            "OAuth 2 client credentials".into(),
+            Some(AuthKind::OAuth2ClientCredentials {
+                token_url: url(f, "tokenUrl"),
+                client_id: String::new(),
+                scopes: scopes(f),
+                audience: None,
+                client_auth: Default::default(),
+            }),
+        );
+    }
+    (
+        "OAuth 2 (no supported flow in the spec; paste an access token as a bearer token)".into(),
+        Some(AuthKind::Bearer),
+    )
+}
+
 fn security_schemes(doc: &Value) -> Vec<SecurityScheme> {
     let Some(schemes) = doc
         .pointer("/components/securitySchemes")
@@ -689,8 +730,10 @@ fn security_schemes(doc: &Value) -> Vec<SecurityScheme> {
                         None,
                     ),
                 },
-                "oauth2" | "openIdConnect" => (
-                    "OAuth 2 (paste an access token as a bearer token; no sign-in flow)".into(),
+                "oauth2" => oauth2_suggestion(s),
+                "openIdConnect" => (
+                    "OpenID Connect (use an OAuth2 auth config with the provider's endpoints)"
+                        .into(),
                     Some(AuthKind::Bearer),
                 ),
                 other => (format!("{other} (not supported)"), None),

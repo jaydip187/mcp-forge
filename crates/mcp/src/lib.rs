@@ -7,6 +7,7 @@
 //! 2026-07-28 clients.
 
 pub mod approvals;
+pub mod oauth;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -693,7 +694,10 @@ async fn execute(
         },
         None => None,
     };
-    let outcome = exec.http.execute(spec, auth.as_ref(), args).await;
+    let outcome = match auth.as_ref() {
+        Some(a) if a.kind.is_oauth() => oauth::execute(store, &exec.http, spec, a, args).await,
+        _ => exec.http.execute(spec, auth.as_ref(), args).await,
+    };
     Ok(ToolRun::from_outcome(outcome, tool, settings))
 }
 

@@ -125,6 +125,13 @@ impl Store {
                     .bind(cur.id.to_string())
                     .execute(&mut *tx)
                     .await?;
+                    if cur.kind != a.kind {
+                        // Tokens belong to the old endpoints/client.
+                        sqlx::query("DELETE FROM oauth_tokens WHERE auth_config_id = ?")
+                            .bind(cur.id.to_string())
+                            .execute(&mut *tx)
+                            .await?;
+                    }
                     report.auth_updated.push(a.name.clone());
                 }
                 None => {

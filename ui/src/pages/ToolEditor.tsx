@@ -56,8 +56,9 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
   const built = useMemo(() => (form ? buildToolInput(form, rows) : null), [form, rows]);
   const dirty = useMemo(() => {
     if (!saved || !built?.ok) return !saved;
-    const { name, description, enabled, response_shape, require_approval, kind } = saved;
-    return JSON.stringify(built.input) !== JSON.stringify({ name, description, enabled, response_shape, require_approval, kind });
+    // Same key order as buildToolInput, so equal tools stringify the same.
+    const { name, description, enabled, tags, response_shape, require_approval, kind } = saved;
+    return JSON.stringify(built.input) !== JSON.stringify({ name, description, enabled, tags, response_shape, require_approval, kind });
   }, [saved, built]);
 
   if (sqlTool) return <SqlToolEditor projectId={projectId} tool={sqlTool} />;
