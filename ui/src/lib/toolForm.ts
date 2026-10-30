@@ -16,6 +16,13 @@ export interface ToolForm {
   responseShape: string;
   /** Comma-separated, as typed. */
   tagsText: string;
+  /** `null` until the user flips the switch: then it follows the method. */
+  requireApproval: boolean | null;
+}
+
+/** New tools ask for approval by default when they delete things. */
+export function approvalDefault(method: HttpMethod): boolean {
+  return method === "DELETE";
 }
 
 /** Text state behind one param row (see ParamsEditor). */
@@ -41,6 +48,7 @@ export function newForm(): ToolForm {
     bodySchemaText: '{\n  "type": "object",\n  "properties": {}\n}',
     responseShape: "",
     tagsText: "",
+    requireApproval: null,
   };
 }
 
@@ -59,6 +67,7 @@ export function formFromTool(t: Tool): ToolForm {
     bodySchemaText: t.kind.body_schema ? JSON.stringify(t.kind.body_schema, null, 2) : newForm().bodySchemaText,
     responseShape: t.response_shape ?? "",
     tagsText: t.tags.join(", "),
+    requireApproval: t.require_approval,
   };
 }
 
@@ -114,6 +123,7 @@ export function buildToolInput(form: ToolForm, rows: RowText[]): BuildResult {
       enabled: form.enabled,
       tags: splitTags(form.tagsText),
       response_shape: form.responseShape.trim() || null,
+      require_approval: form.requireApproval ?? approvalDefault(form.method),
       kind: {
         type: "http",
         method: form.method,

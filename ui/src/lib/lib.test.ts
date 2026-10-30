@@ -198,6 +198,7 @@ describe("visibility", () => {
     max_response_chars: 50000,
     tool_search: false,
     call_log_days: 30,
+    approval_timeout_secs: 300,
     ...s,
   });
   const tool = (method: string, path: string, tags: string[], enabled = true) =>
@@ -316,5 +317,27 @@ describe("ms", () => {
 describe("calls route", () => {
   it("parses the calls tab", () => {
     expect(parseRoute("#/p/abc/calls")).toEqual({ name: "project", projectId: "abc", tab: "calls" });
+  });
+});
+
+describe("approval defaults", () => {
+  it("asks for approval by default only for DELETE", async () => {
+    const { approvalDefault } = await import("./toolForm");
+    expect(approvalDefault("DELETE")).toBe(true);
+    expect(approvalDefault("GET")).toBe(false);
+    expect(approvalDefault("POST")).toBe(false);
+  });
+
+  it("follows the method until the switch is flipped", async () => {
+    const { buildToolInput, newForm } = await import("./toolForm");
+    const form = { ...newForm(), name: "x", method: "DELETE" as const, base_url: "https://api.test", path_template: "/x" };
+    const built = buildToolInput(form, []);
+    expect(built.ok && built.input.require_approval).toBe(true);
+    const off = buildToolInput({ ...form, requireApproval: false }, []);
+    expect(off.ok && off.input.require_approval).toBe(false);
+  });
+
+  it("parses the approvals route", () => {
+    expect(parseRoute("#/approvals")).toEqual({ name: "approvals" });
   });
 });

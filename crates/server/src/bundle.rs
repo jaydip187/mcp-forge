@@ -119,6 +119,9 @@ fn tidy(tool: &mut Value) {
     if obj.get("description").and_then(Value::as_str) == Some("") {
         obj.remove("description");
     }
+    if obj.get("require_approval") == Some(&Value::Bool(false)) {
+        obj.remove("require_approval");
+    }
     if obj
         .get("tags")
         .and_then(Value::as_array)

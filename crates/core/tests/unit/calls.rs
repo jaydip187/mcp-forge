@@ -55,9 +55,27 @@ fn errors_are_cut() {
 
 #[test]
 fn status_round_trips() {
-    for s in [CallStatus::Ok, CallStatus::Error, CallStatus::UnknownTool] {
+    for s in [
+        CallStatus::Ok,
+        CallStatus::Error,
+        CallStatus::UnknownTool,
+        CallStatus::NotApproved,
+    ] {
         assert_eq!(CallStatus::parse(s.as_str()), Some(s));
         assert_eq!(serde_json::to_value(s).unwrap(), json!(s.as_str()));
     }
     assert_eq!(CallStatus::parse("nope"), None);
+}
+
+#[test]
+fn approval_decision_round_trips() {
+    for d in [
+        ApprovalDecision::Approved,
+        ApprovalDecision::Denied,
+        ApprovalDecision::TimedOut,
+        ApprovalDecision::Cancelled,
+    ] {
+        assert_eq!(ApprovalDecision::parse(d.as_str()), Some(d));
+        assert_eq!(serde_json::to_value(d).unwrap(), json!(d.as_str()));
+    }
 }

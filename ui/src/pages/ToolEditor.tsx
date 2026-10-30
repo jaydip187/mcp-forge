@@ -11,12 +11,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ApprovalSwitch } from "@/components/ApprovalSwitch";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { href, navigate } from "@/lib/router";
 import { listLabels } from "@/lib/fields";
 import { syncPathParams } from "@/lib/template";
-import { buildToolInput, formFromTool, newForm, paramIndex, type ToolForm } from "@/lib/toolForm";
+import { approvalDefault, buildToolInput, formFromTool, newForm, paramIndex, type ToolForm } from "@/lib/toolForm";
 import { ParamsEditor, toRow, type ParamRow } from "@/pages/ParamsEditor";
 import { SqlToolEditor } from "@/pages/SqlToolEditor";
 import { TestConsole } from "@/pages/TestConsole";
@@ -55,8 +56,8 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
   const built = useMemo(() => (form ? buildToolInput(form, rows) : null), [form, rows]);
   const dirty = useMemo(() => {
     if (!saved || !built?.ok) return !saved;
-    const { name, description, enabled, response_shape, kind } = saved;
-    return JSON.stringify(built.input) !== JSON.stringify({ name, description, enabled, response_shape, kind });
+    const { name, description, enabled, response_shape, require_approval, kind } = saved;
+    return JSON.stringify(built.input) !== JSON.stringify({ name, description, enabled, response_shape, require_approval, kind });
   }, [saved, built]);
 
   if (sqlTool) return <SqlToolEditor projectId={projectId} tool={sqlTool} />;
@@ -173,6 +174,11 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
               <Switch id="t-enabled" checked={form.enabled} onCheckedChange={(v) => set({ enabled: v })} />
               <Label htmlFor="t-enabled">Visible to agents</Label>
             </div>
+            <ApprovalSwitch
+              id="t-approval"
+              checked={form.requireApproval ?? approvalDefault(form.method)}
+              onChange={(v) => set({ requireApproval: v })}
+            />
           </Section>
 
           <Section title="Request" description="Use {name} in the path for values the agent fills in.">

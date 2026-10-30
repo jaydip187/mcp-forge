@@ -481,6 +481,7 @@ fn build_operation(
         }),
         enabled: true,
         response_shape: None,
+        require_approval: false,
     };
 
     if base_url.is_empty() {

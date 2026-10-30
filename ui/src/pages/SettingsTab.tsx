@@ -78,6 +78,8 @@ export function SettingsTab({ project, onSaved }: { project: Project; onSaved: (
 
       <CallLogCard project={project} onSaved={onSaved} />
 
+      <ApprovalsCard project={project} onSaved={onSaved} />
+
       <BundleCard project={project} onImported={reload} />
 
       <Card className="border-destructive/40">
@@ -223,6 +225,7 @@ function CurationCard({ project, onSaved }: { project: Project; onSaved: (p: Pro
     max_response_chars: Number(maxChars),
     tool_search: toolSearch,
     call_log_days: st.call_log_days,
+    approval_timeout_secs: st.approval_timeout_secs,
   };
   const dirty = JSON.stringify(next) !== JSON.stringify(st);
 
@@ -344,6 +347,57 @@ function CallLogCard({ project, onSaved }: { project: Project; onSaved: (p: Proj
               <p className="text-xs text-muted-foreground">
                 Up to 365. 0 stops recording and clears the log within the hour. Each project keeps at most 100 000 calls.
               </p>
+            )}
+          </div>
+          <Button type="submit" className="w-fit" disabled={!dirty}>
+            Save
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ApprovalsCard({ project, onSaved }: { project: Project; onSaved: (p: Project) => void }) {
+  const st = project.settings;
+  const [secs, setSecs] = useState(String(st.approval_timeout_secs));
+  const [err, setErr] = useState<unknown>(null);
+  const dirty = secs !== String(st.approval_timeout_secs);
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    try {
+      onSaved(await api.updateSettings(project.id, { ...st, approval_timeout_secs: Number(secs) }));
+      setErr(null);
+      toast.success("Approval timeout saved");
+    } catch (e) {
+      setErr(e);
+      if (!(e instanceof ApiError && e.fields.length)) toast.error(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Approvals</CardTitle>
+        <CardDescription>Tools with Require approval on make agent calls wait for a person.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={save} className="grid gap-4">
+          <div className="grid max-w-xs gap-1.5">
+            <Label htmlFor="c-approval">Wait for an answer (seconds)</Label>
+            <Input
+              id="c-approval"
+              value={secs}
+              onChange={(e) => setSecs(e.target.value)}
+              inputMode="numeric"
+              className="font-mono"
+              aria-invalid={!!fieldError(err, "approval_timeout_secs")}
+            />
+            {fieldError(err, "approval_timeout_secs") ? (
+              <p className="text-xs text-destructive">{fieldError(err, "approval_timeout_secs")}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">10 to 3600. Calls nobody approves in time aren't run.</p>
             )}
           </div>
           <Button type="submit" className="w-fit" disabled={!dirty}>

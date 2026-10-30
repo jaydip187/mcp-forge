@@ -24,6 +24,50 @@ pub enum CallStatus {
     Error,
     /// The tool doesn't exist or is hidden from agents.
     UnknownTool,
+    /// The tool needs approval and didn't get it (denied, timed out, cancelled).
+    NotApproved,
+}
+
+/// How an approval request ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalDecision {
+    Approved,
+    Denied,
+    /// Nobody answered within the project's timeout.
+    TimedOut,
+    /// The server shut down or the client went away while waiting.
+    Cancelled,
+}
+
+impl ApprovalDecision {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ApprovalDecision::Approved => "approved",
+            ApprovalDecision::Denied => "denied",
+            ApprovalDecision::TimedOut => "timed_out",
+            ApprovalDecision::Cancelled => "cancelled",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "approved" => Some(ApprovalDecision::Approved),
+            "denied" => Some(ApprovalDecision::Denied),
+            "timed_out" => Some(ApprovalDecision::TimedOut),
+            "cancelled" => Some(ApprovalDecision::Cancelled),
+            _ => None,
+        }
+    }
+}
+
+/// The approval step of a call that needed one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalRecord {
+    pub decision: ApprovalDecision,
+    /// Who answered: a signed-in user, `admin token`, or the MCP client.
+    pub decided_by: Option<String>,
+    pub wait_ms: u64,
 }
 
 impl CallStatus {
@@ -32,6 +76,7 @@ impl CallStatus {
             CallStatus::Ok => "ok",
             CallStatus::Error => "error",
             CallStatus::UnknownTool => "unknown_tool",
+            CallStatus::NotApproved => "not_approved",
         }
     }
 
@@ -40,6 +85,7 @@ impl CallStatus {
             "ok" => Some(CallStatus::Ok),
             "error" => Some(CallStatus::Error),
             "unknown_tool" => Some(CallStatus::UnknownTool),
+            "not_approved" => Some(CallStatus::NotApproved),
             _ => None,
         }
     }
@@ -69,6 +115,9 @@ pub struct CallEntry {
     pub upstream_status: Option<u16>,
     /// Start of the error text for failed calls.
     pub error: Option<String>,
+    /// Set when the tool needed approval.
+    #[serde(default)]
+    pub approval: Option<ApprovalRecord>,
 }
 
 /// Whether an argument name looks like it holds a secret.

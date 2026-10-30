@@ -4,6 +4,7 @@ import type {
   CallFilter,
   CallSummary,
   CallWindow,
+  PendingApproval,
   AuthConfig,
   AuthStatus,
   AuthConfigInput,
@@ -191,6 +192,9 @@ export const api = {
     if (before) q.set("before", before);
     return request<CallEntry[]>("GET", `${p(pid)}/calls?${q}`);
   },
+  listApprovals: () => request<PendingApproval[]>("GET", "/approvals"),
+  approve: (id: string) => request<void>("POST", `/approvals/${id}/approve`, {}),
+  deny: (id: string) => request<void>("POST", `/approvals/${id}/deny`, {}),
   callSummary: (pid: string, window: CallWindow) =>
     request<CallSummary>("GET", `${p(pid)}/calls/summary?window=${window}`),
   deleteConnection: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/db-connections/${id}`),

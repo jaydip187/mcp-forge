@@ -20,8 +20,8 @@ pub use args::check_args;
 pub use audit::{AuditEntry, AuditOutcome};
 pub use auth::{ApiKeyLocation, AuthConfig, AuthConfigInput, AuthKind};
 pub use calls::{
-    is_secret_name, logged_arguments, logged_error, CallEntry, CallStatus, MAX_CALLS_PER_PROJECT,
-    MAX_LOGGED_ARGS_CHARS, MAX_LOGGED_ERROR_CHARS, REDACTED,
+    is_secret_name, logged_arguments, logged_error, ApprovalDecision, ApprovalRecord, CallEntry,
+    CallStatus, MAX_CALLS_PER_PROJECT, MAX_LOGGED_ARGS_CHARS, MAX_LOGGED_ERROR_CHARS, REDACTED,
 };
 pub use db::{
     is_valid_sql_param_name, AccessMode, ColumnMask, DbConnection, DbConnectionInput, Driver,
@@ -33,8 +33,9 @@ pub use project::{slugify, Project, ProjectInput};
 pub use schema::{ArgBinding, ArgTarget, DerivedInput, BODY_ARG};
 pub use secret::{SecretRef, SecretResolver};
 pub use settings::{
-    path_matches, Hidden, ProjectSettings, DEFAULT_CALL_LOG_DAYS, DEFAULT_MAX_RESPONSE_CHARS,
-    MAX_CALL_LOG_DAYS,
+    path_matches, Hidden, ProjectSettings, DEFAULT_APPROVAL_TIMEOUT_SECS, DEFAULT_CALL_LOG_DAYS,
+    DEFAULT_MAX_RESPONSE_CHARS, MAX_APPROVAL_TIMEOUT_SECS, MAX_CALL_LOG_DAYS,
+    MIN_APPROVAL_TIMEOUT_SECS,
 };
 pub use tool::{
     is_valid_param_name, path_placeholders, HttpMethod, HttpSpec, Overrides, ParamDef,

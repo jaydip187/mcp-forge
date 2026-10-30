@@ -10,6 +10,9 @@ pub const MIN_MAX_RESPONSE_CHARS: u32 = 500;
 pub const MAX_MAX_RESPONSE_CHARS: u32 = 2_000_000;
 pub const DEFAULT_CALL_LOG_DAYS: u32 = 30;
 pub const MAX_CALL_LOG_DAYS: u32 = 365;
+pub const DEFAULT_APPROVAL_TIMEOUT_SECS: u32 = 300;
+pub const MIN_APPROVAL_TIMEOUT_SECS: u32 = 10;
+pub const MAX_APPROVAL_TIMEOUT_SECS: u32 = 3_600;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -32,6 +35,8 @@ pub struct ProjectSettings {
     pub tool_search: bool,
     /// Days to keep the call log; 0 turns call logging off.
     pub call_log_days: u32,
+    /// How long an agent's call waits for a person's approval.
+    pub approval_timeout_secs: u32,
 }
 
 impl Default for ProjectSettings {
@@ -46,6 +51,7 @@ impl Default for ProjectSettings {
             max_response_chars: DEFAULT_MAX_RESPONSE_CHARS,
             tool_search: false,
             call_log_days: DEFAULT_CALL_LOG_DAYS,
+            approval_timeout_secs: DEFAULT_APPROVAL_TIMEOUT_SECS,
         }
     }
 }
@@ -73,6 +79,16 @@ impl ProjectSettings {
             errs.push(
                 "call_log_days",
                 format!("must be between 0 and {MAX_CALL_LOG_DAYS}"),
+            );
+        }
+        if !(MIN_APPROVAL_TIMEOUT_SECS..=MAX_APPROVAL_TIMEOUT_SECS)
+            .contains(&self.approval_timeout_secs)
+        {
+            errs.push(
+                "approval_timeout_secs",
+                format!(
+                    "must be between {MIN_APPROVAL_TIMEOUT_SECS} and {MAX_APPROVAL_TIMEOUT_SECS}"
+                ),
             );
         }
         for (field, list) in [

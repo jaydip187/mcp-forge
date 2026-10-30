@@ -6,28 +6,36 @@
 //! initialize-based sessions and through `subscriptions/listen` for
 //! 2026-07-28 clients.
 
+pub mod approvals;
+
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use std::collections::HashMap;
 
 use forge_core::{
-    logged_arguments, logged_error, AuditEntry, CallEntry, CallStatus, DbConnection, HttpMethod,
-    ProjectSettings, SecretResolver, SqlMode, SqlSpec, ToolDef, ToolKind,
+    logged_arguments, logged_error, ApprovalDecision, ApprovalRecord, AuditEntry, CallEntry,
+    CallStatus, DbConnection, HttpMethod, ProjectSettings, SecretResolver, SqlMode, SqlSpec,
+    ToolDef, ToolKind,
 };
 use forge_exec_http::shape::{shape_body, ShapeOptions};
 use forge_exec_http::{ExecError, HttpExecutor, HttpOutcome};
 use forge_exec_sql::{SqlError, SqlExecutor, SqlOutcome};
 use forge_store::{Store, StoreError};
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
-    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig, SubscriptionFilter,
-    Tool, ToolAnnotations,
+    CallToolRequestParams, CallToolResponse, CallToolResult, ClientResult, ContentBlock,
+    ElicitRequest, ElicitRequestParams, ElicitationAction, ElicitationSchema, Implementation,
+    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig, ServerRequest,
+    SubscriptionFilter, Tool, ToolAnnotations,
 };
-use rmcp::service::{NotificationContext, RequestContext, SubscriptionContext};
+use rmcp::service::{
+    ElicitationMode, NotificationContext, Peer, PeerRequestOptions, RequestContext,
+    SubscriptionContext,
+};
 use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceExt};
 use serde_json::{json, Map, Value};
 use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 /// Upstream error bodies are cut to this many characters in tool results.
@@ -67,6 +75,8 @@ impl ChangeBus {
 pub struct Executors {
     pub http: HttpExecutor,
     pub sql: SqlExecutor,
+    /// Calls waiting for a person's approval, shared with the web UI.
+    pub approvals: approvals::Approvals,
 }
 
 impl Executors {
@@ -74,6 +84,7 @@ impl Executors {
         Self {
             http: HttpExecutor::new(secrets.clone()),
             sql: SqlExecutor::new(secrets),
+            approvals: approvals::Approvals::default(),
         }
     }
 }
@@ -145,6 +156,8 @@ impl ForgeMcp {
         args: &Map<String, Value>,
         settings: &ProjectSettings,
         caller: &Caller,
+        peer: &Peer<RoleServer>,
+        ct: &CancellationToken,
     ) -> Result<CallToolResult, ErrorData> {
         let conns = self.connections().await?;
         let tool = match self.store.get_tool_by_name(self.project_id, name).await {
@@ -164,6 +177,7 @@ impl ForgeMcp {
                     response_chars: 0,
                     upstream_status: None,
                     error: Some(format!("unknown tool `{name}`")),
+                    approval: None,
                 };
                 log_call(&self.store, settings, &entry).await;
                 return Err(ErrorData::invalid_params(
@@ -173,7 +187,36 @@ impl ForgeMcp {
             }
             Err(e) => return Err(internal(e)),
         };
-        let run = run_tool(&self.store, &self.exec, &tool, args, settings, caller)
+        let mut caller = caller.clone();
+        if tool.require_approval {
+            match self
+                .await_approval(&tool, args, settings, &caller, peer, ct)
+                .await
+            {
+                Ok(record) => caller.approval = Some(record),
+                Err((record, text)) => {
+                    let entry = CallEntry {
+                        id: Uuid::new_v4(),
+                        project_id: self.project_id,
+                        ts: chrono::Utc::now(),
+                        tool_id: Some(tool.id),
+                        tool_name: tool.name.clone(),
+                        origin: caller.origin.to_owned(),
+                        client: caller.client.clone(),
+                        arguments: logged_arguments(args),
+                        status: CallStatus::NotApproved,
+                        duration_ms: record.wait_ms,
+                        response_chars: text.chars().count() as u64,
+                        upstream_status: None,
+                        error: Some(logged_error(&text)),
+                        approval: Some(record),
+                    };
+                    log_call(&self.store, settings, &entry).await;
+                    return Ok(result(true, text));
+                }
+            }
+        }
+        let run = run_tool(&self.store, &self.exec, &tool, args, settings, &caller)
             .await
             .map_err(internal)?;
         tracing::info!(
@@ -187,6 +230,137 @@ impl ForgeMcp {
             "tool call"
         );
         Ok(result(run.is_error, run.text))
+    }
+
+    /// Waits for a person to approve a call: asks the client (form
+    /// elicitation) and lists it in the web UI; the first answer wins.
+    /// `Ok` when approved, else the record and the text for the agent.
+    async fn await_approval(
+        &self,
+        tool: &ToolDef,
+        args: &Map<String, Value>,
+        settings: &ProjectSettings,
+        caller: &Caller,
+        peer: &Peer<RoleServer>,
+        ct: &CancellationToken,
+    ) -> Result<ApprovalRecord, (ApprovalRecord, String)> {
+        use approvals::{Decision, PendingApproval};
+        let started = Instant::now();
+        let approvals = &self.exec.approvals;
+        let can_elicit = peer
+            .supported_elicitation_modes()
+            .contains(&ElicitationMode::Form);
+        if !approvals.has_ui() && !can_elicit {
+            let record = ApprovalRecord {
+                decision: ApprovalDecision::Cancelled,
+                decided_by: None,
+                wait_ms: 0,
+            };
+            return Err((record, approvals::NO_WAY_TO_APPROVE.into()));
+        }
+        let id = Uuid::new_v4();
+        let now = chrono::Utc::now();
+        let timeout_secs = settings.approval_timeout_secs;
+        let arguments = logged_arguments(args);
+        let mut rx = approvals.open(PendingApproval {
+            id,
+            project_id: self.project_id,
+            tool_id: tool.id,
+            tool_name: tool.name.clone(),
+            client: caller.client.clone(),
+            arguments: arguments.clone(),
+            created_at: now,
+            expires_at: now + chrono::Duration::seconds(i64::from(timeout_secs)),
+            asked_client: can_elicit,
+        });
+        // Older protocols only: 2026-07-28 forbids server-to-client requests,
+        // so those clients get an error here and rely on the web UI.
+        let mut handle = if can_elicit {
+            let params = ElicitRequestParams::FormElicitationParams {
+                meta: None,
+                message: format!(
+                    "mcp-forge: allow the tool `{}` to run with these arguments?\n{}\n\n\
+                     Accept to run it, decline to refuse.",
+                    tool.name,
+                    serde_json::to_string_pretty(&arguments).expect("JSON serializes")
+                ),
+                requested_schema: confirm_schema(),
+            };
+            match peer
+                .send_cancellable_request(
+                    ServerRequest::ElicitRequest(ElicitRequest::new(params)),
+                    PeerRequestOptions::no_options(),
+                )
+                .await
+            {
+                Ok(h) => Some(h),
+                Err(e) => {
+                    tracing::warn!(error = %e, "could not ask the client for approval");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let client_label = caller.client.clone().or_else(|| Some("MCP client".into()));
+        let mut elicit_open = handle.is_some();
+        let sleep = tokio::time::sleep(Duration::from_secs(u64::from(timeout_secs)));
+        tokio::pin!(sleep);
+        let decision = loop {
+            tokio::select! {
+                biased;
+                d = &mut rx => break d.unwrap_or(Decision {
+                    decision: ApprovalDecision::Cancelled,
+                    by: None,
+                }),
+                answer = async {
+                    match handle.as_mut() {
+                        Some(h) => (&mut h.rx).await,
+                        None => std::future::pending().await,
+                    }
+                }, if elicit_open => {
+                    elicit_open = false;
+                    let decision = match answer {
+                        Ok(Ok(ClientResult::ElicitResult(r))) => Some(match r.action {
+                            ElicitationAction::Accept => ApprovalDecision::Approved,
+                            _ => ApprovalDecision::Denied,
+                        }),
+                        // The client failed to ask; keep waiting for the web UI.
+                        _ => (!approvals.has_ui()).then_some(ApprovalDecision::Cancelled),
+                    };
+                    if let Some(d) = decision {
+                        approvals.decide(id, d, client_label.clone());
+                    }
+                }
+                () = &mut sleep => {
+                    approvals.decide(id, ApprovalDecision::TimedOut, None);
+                }
+                () = ct.cancelled() => {
+                    approvals.decide(id, ApprovalDecision::Cancelled, None);
+                }
+            }
+        };
+        if let Some(h) = handle.filter(|_| elicit_open) {
+            // Answered elsewhere: close the client's prompt.
+            let _ = h.cancel(Some("answered in mcp-forge".into())).await;
+        }
+        let record = ApprovalRecord {
+            decision: decision.decision,
+            decided_by: decision.by.clone(),
+            wait_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        };
+        tracing::info!(
+            tool = %tool.name,
+            decision = record.decision.as_str(),
+            by = record.decided_by.as_deref().unwrap_or("-"),
+            "approval"
+        );
+        if record.decision == ApprovalDecision::Approved {
+            Ok(record)
+        } else {
+            let text = approvals::not_approved_text(&decision, timeout_secs);
+            Err((record, text))
+        }
     }
 
     async fn search(
@@ -369,6 +543,8 @@ pub struct Caller {
     pub origin: &'static str,
     /// MCP client as `name version`, or the signed-in user.
     pub client: Option<String>,
+    /// Set once a person approved the call.
+    pub approval: Option<ApprovalRecord>,
 }
 
 impl Caller {
@@ -376,6 +552,7 @@ impl Caller {
         Self {
             origin: "mcp",
             client,
+            approval: None,
         }
     }
 
@@ -383,8 +560,18 @@ impl Caller {
         Self {
             origin: "console",
             client: user,
+            approval: None,
         }
     }
+}
+
+/// Schema for an approval prompt: nothing to fill in, the client's
+/// Accept/Decline is the answer.
+fn confirm_schema() -> ElicitationSchema {
+    ElicitationSchema::builder()
+        .title("Approve tool call")
+        .build()
+        .expect("a schema without required fields builds")
 }
 
 /// Appends to the call log unless the project turned it off. A failed
@@ -434,6 +621,7 @@ pub async fn run_tool(
             _ => None,
         },
         error: run.is_error.then(|| logged_error(&run.text)),
+        approval: caller.approval.clone(),
     };
     log_call(store, settings, &entry).await;
     Ok(run)
@@ -838,6 +1026,7 @@ impl ServerHandler for ForgeMcp {
             .or_else(|| context.peer.peer_info().map(|i| i.client_info.clone()))
             .map(|c| format!("{} {}", c.name, c.version));
         let caller = Caller::mcp(client);
+        let (peer, ct) = (&context.peer, &context.ct);
         let args = request.arguments.unwrap_or_default();
         let settings = self.settings().await?;
         let name: &str = request.name.as_ref();
@@ -854,10 +1043,13 @@ impl ServerHandler for ForgeMcp {
                 }
                 Some(inner) => match args.get("arguments") {
                     None | Some(Value::Null) => {
-                        self.call_named(inner, &Map::new(), &settings, &caller)
+                        self.call_named(inner, &Map::new(), &settings, &caller, peer, ct)
                             .await
                     }
-                    Some(Value::Object(m)) => self.call_named(inner, m, &settings, &caller).await,
+                    Some(Value::Object(m)) => {
+                        self.call_named(inner, m, &settings, &caller, peer, ct)
+                            .await
+                    }
                     Some(_) => Ok(result(
                         true,
                         "Invalid arguments:\n- `arguments`: expected object".into(),
@@ -865,7 +1057,8 @@ impl ServerHandler for ForgeMcp {
                 },
             }
         } else {
-            self.call_named(name, &args, &settings, &caller).await
+            self.call_named(name, &args, &settings, &caller, peer, ct)
+                .await
         };
         res.map(Into::into)
     }
@@ -942,7 +1135,7 @@ pub enum StdioError {
 /// polling the store every `poll` and announced as list changes.
 pub async fn serve_stdio(
     store: Store,
-    exec: Executors,
+    mut exec: Executors,
     slug: &str,
     poll: Duration,
 ) -> Result<(), StdioError> {
@@ -958,6 +1151,8 @@ pub async fn serve_stdio(
         changes.clone(),
         poll,
     ));
+    // No web UI in this process: approvals can only come from the client.
+    exec.approvals = approvals::Approvals::without_ui();
     let handler = ForgeMcp::new(store, project.id, exec, changes);
     tracing::info!(project = slug, "serving MCP over stdio");
     let running = handler

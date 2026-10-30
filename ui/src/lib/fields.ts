@@ -4,6 +4,7 @@ const LABELS: Record<string, string> = {
   description: "description",
   enabled: "visibility",
   response_shape: "response shape",
+  require_approval: "approval",
   "kind.method": "method",
   "kind.base_url": "base URL",
   "kind.path_template": "path",
