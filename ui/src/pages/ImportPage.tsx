@@ -14,9 +14,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { pathMatcher } from "@/lib/glob";
 import { href, navigate } from "@/lib/router";
+import { specKindLabel } from "@/lib/specKind";
 import { splitTemplate } from "@/lib/template";
 import { describeAuth } from "@/pages/AuthTab";
 import { METHODS, type AuthConfig, type HttpMethod, type ImportOperation, type ImportPreview } from "@/types";
@@ -42,6 +44,7 @@ export function ImportPage({ projectId }: { projectId: string }) {
   const [busy, setBusy] = useState<"reading" | "fetching" | "previewing" | "importing" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState("");
+  const [pasted, setPasted] = useState("");
   const [auths, setAuths] = useState<AuthConfig[]>([]);
   const [authRef, setAuthRef] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -80,7 +83,22 @@ export function ImportPage({ projectId }: { projectId: string }) {
       const content = await file.text();
       setBusy("previewing");
       const pv = await api.previewOpenApi(projectId, { content });
-      adopt(pv, { content, filename: file.name, sourceUrl: null }, false);
+      // Postman, HAR and curl come back converted (no secrets): import that.
+      adopt(pv, { content: pv.content ?? content, filename: file.name, sourceUrl: null }, false);
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function previewPasted(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy("previewing");
+    try {
+      const pv = await api.previewOpenApi(projectId, { content: pasted });
+      adopt(pv, { content: pv.content ?? pasted, filename: null, sourceUrl: null }, false);
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -179,8 +197,8 @@ export function ImportPage({ projectId }: { projectId: string }) {
     <div className="space-y-6">
       <PageHeader
         back={{ href: href.project(projectId), label: "Tools" }}
-        title="Import from an API spec"
-        description="Turn the operations in an OpenAPI 3.0, 3.1 or Swagger 2.0 spec into tools. You pick which ones; nothing is created until you import."
+        title="Import tools"
+        description="Turn an OpenAPI 3.0/3.1 or Swagger 2.0 spec, a Postman collection, a HAR file from your browser, or curl commands into tools. You pick which ones; nothing is created until you import."
       />
 
       <Card>
@@ -190,22 +208,40 @@ export function ImportPage({ projectId }: { projectId: string }) {
             {source
               ? source.filename
                 ? `Loaded ${source.filename}.`
-                : `Fetched from ${source.sourceUrl}.`
-              : "JSON or YAML. A URL is fetched once, when you press Fetch."}
+                : source.sourceUrl
+                  ? `Fetched from ${source.sourceUrl}.`
+                  : "From pasted text."
+              : "Postman, HAR and curl are converted first, keeping no cookies, tokens or example values."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="file">
             <TabsList>
               <TabsTrigger value="file">Upload a file</TabsTrigger>
+              <TabsTrigger value="paste">Paste</TabsTrigger>
               <TabsTrigger value="url">From a URL</TabsTrigger>
             </TabsList>
             <TabsContent value="file" className="pt-3">
               <Label htmlFor="spec-file" className="flex w-fit cursor-pointer items-center gap-2 rounded-lg border border-dashed px-4 py-3 text-sm hover:bg-muted/60 has-focus-visible:ring-2 has-focus-visible:ring-ring">
                 <UploadIcon className="size-4" />
-                {busy === "reading" || busy === "previewing" ? "Reading…" : "Choose a .json or .yaml spec"}
-                <input id="spec-file" type="file" accept=".json,.yaml,.yml,application/json,application/yaml,text/yaml" className="sr-only" onChange={loadFile} disabled={busy !== null} />
+                {busy === "reading" || busy === "previewing" ? "Reading…" : "Choose a spec, Postman collection (.json) or HAR file"}
+                <input id="spec-file" type="file" accept=".json,.yaml,.yml,.har,application/json,application/yaml,text/yaml" className="sr-only" onChange={loadFile} disabled={busy !== null} />
               </Label>
+            </TabsContent>
+            <TabsContent value="paste" className="pt-3">
+              <form onSubmit={previewPasted} className="grid gap-2">
+                <Textarea
+                  value={pasted}
+                  onChange={(e) => setPasted(e.target.value)}
+                  placeholder={"curl https://api.example.com/v1/users/42 -H 'Authorization: Bearer …'\n\nOne or more curl commands, or a spec / collection as JSON or YAML."}
+                  className="min-h-36 font-mono text-xs"
+                  aria-label="Pasted curl commands or spec"
+                  spellCheck={false}
+                />
+                <Button type="submit" className="w-fit" disabled={busy !== null || !pasted.trim()}>
+                  {busy === "previewing" ? "Reading…" : "Preview"}
+                </Button>
+              </form>
             </TabsContent>
             <TabsContent value="url" className="pt-3">
               <form onSubmit={fetchUrl} className="flex flex-col gap-2 sm:flex-row">
@@ -232,7 +268,7 @@ export function ImportPage({ projectId }: { projectId: string }) {
                 {preview.info.title} {preview.info.api_version && <span className="font-normal text-muted-foreground">v{preview.info.api_version}</span>}
               </CardTitle>
               <CardDescription>
-                {preview.info.kind === "swagger2" ? "Swagger 2.0" : `OpenAPI ${preview.info.openapi}`}. {preview.operations.length} operations.
+                {specKindLabel(preview.info.kind, preview.info.openapi)}. {preview.operations.length} operations.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 lg:grid-cols-2">

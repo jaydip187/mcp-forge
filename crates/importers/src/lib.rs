@@ -3,8 +3,14 @@
 //! - [`openapi3`]: OpenAPI 3.0 and 3.1 (JSON or YAML).
 //!
 //! - [`swagger2`]: Swagger 2.0, converted to OpenAPI 3.0 and imported by the same code.
+//! - [`postman`], [`har`], [`curl`]: converted to OpenAPI 3.0 without secrets
+//!   (see [`convert`]), then imported the same way.
 
+pub mod convert;
+pub mod curl;
+pub mod har;
 pub mod openapi3;
+pub mod postman;
 mod refs;
 pub mod swagger2;
 
@@ -33,7 +39,45 @@ pub fn import_any(
         imported.info.kind = "swagger2".into();
         return Ok(imported);
     }
-    openapi3::import(doc, opts)
+    let mut imported = openapi3::import(doc, opts)?;
+    if let Some(origin) = doc
+        .pointer("/info")
+        .and_then(|i| i.get(convert::ORIGIN_KEY))
+        .and_then(Value::as_str)
+    {
+        imported.info.kind = origin.to_owned();
+    }
+    Ok(imported)
+}
+
+/// Imports any supported text: OpenAPI 3.x or Swagger 2.0 (JSON/YAML), a
+/// Postman collection, a HAR file, or curl commands. For the converted
+/// formats the second value is the OpenAPI document (no secrets) to keep
+/// instead of the original.
+pub fn import_text(
+    text: &str,
+    opts: &openapi3::Options,
+) -> Result<(openapi3::Imported, Option<String>), ImportError> {
+    let (doc, converted) = if curl::is_curl(text) {
+        (curl::to_openapi3(text)?, true)
+    } else {
+        let doc = parse_document(text).map_err(|e| match e {
+            ImportError::Parse(m) => ImportError::Parse(format!(
+                "{m}. Expected an OpenAPI or Swagger spec, a Postman collection, a HAR file, or curl commands."
+            )),
+            other => other,
+        })?;
+        if postman::is_postman(&doc) {
+            (postman::to_openapi3(&doc)?, true)
+        } else if har::is_har(&doc) {
+            (har::to_openapi3(&doc)?, true)
+        } else {
+            (doc, false)
+        }
+    };
+    let imported = import_any(&doc, opts)?;
+    let text = converted.then(|| serde_json::to_string_pretty(&doc).expect("JSON serializes"));
+    Ok((imported, text))
 }
 
 /// Parses JSON or YAML into a JSON value. YAML keys that aren't strings

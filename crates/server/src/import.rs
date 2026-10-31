@@ -11,7 +11,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use forge_core::{ToolKind, ValidationErrors};
 use forge_importers::openapi3::{self, BuiltOperation, Imported};
-use forge_importers::{import_any, parse_document, unique_name, ImportError};
+use forge_importers::{import_text, unique_name, ImportError};
 use forge_store::{NewSpec, SpecRecord, StoreError};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -64,7 +64,7 @@ async fn preview(
             ))
         }
     };
-    let imported = run_import(&content, req.base_url, source_url.clone())?;
+    let (imported, converted) = run_import(&content, req.base_url, source_url.clone())?;
     let existing = s.store.tool_names(project_id).await?;
     let names = assign_names(&imported.operations, &existing);
     let operations: Vec<Value> = imported
@@ -80,8 +80,8 @@ async fn preview(
         "info": imported.info,
         "operations": operations,
         "any_auth": imported.operations.iter().any(|o| o.needs_auth),
-        // Echoed back only when fetched, so the client can send it with the commit.
-        "content": source_url.as_ref().map(|_| &content),
+        // Sent back when fetched or converted: the client commits this text.
+        "content": converted.as_ref().or(source_url.as_ref().map(|_| &content)),
         "source_url": source_url,
     })))
 }
@@ -118,7 +118,7 @@ async fn commit(
         ));
     }
     let base_url_opt = req.base_url.clone().filter(|b| !b.trim().is_empty());
-    let imported = run_import(&req.content, req.base_url, req.source_url.clone())?;
+    let (imported, converted) = run_import(&req.content, req.base_url, req.source_url.clone())?;
     let existing = s.store.tool_names(project_id).await?;
     let names = assign_names(&imported.operations, &existing);
     let by_key: HashMap<&str, &BuiltOperation> = imported
@@ -169,7 +169,8 @@ async fn commit(
         version: imported.info.api_version.clone(),
         source_url: req.source_url,
         filename: req.filename,
-        raw: req.content,
+        // A HAR or curl original can hold cookies and tokens: keep the conversion.
+        raw: converted.unwrap_or(req.content),
         options: json!({ "base_url": base_url_opt, "auth_ref": req.auth_ref }),
     };
     let (record, created) = s.store.import_tools(project_id, &spec, &tools).await?;
@@ -185,14 +186,16 @@ async fn list_specs(
     Ok(Json(s.store.list_specs(project_id).await?))
 }
 
+/// Imports any supported text. For Postman, HAR and curl the second value
+/// is the converted OpenAPI document (no secrets), which is what gets
+/// stored and sent back to the client, never the original.
 pub(crate) fn run_import(
     content: &str,
     base_url: Option<String>,
     source_url: Option<String>,
-) -> Result<Imported, ApiError> {
-    let doc = parse_document(content).map_err(import_error)?;
-    import_any(
-        &doc,
+) -> Result<(Imported, Option<String>), ApiError> {
+    import_text(
+        content,
         &openapi3::Options {
             base_url,
             source_url,

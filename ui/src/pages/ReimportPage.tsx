@@ -49,7 +49,10 @@ export function ReimportPage({ projectId, specId }: { projectId: string; specId:
     setError(null);
     try {
       const pv = await api.previewReimport(projectId, specId, { content: src.content, ...opts });
-      const nextSource = opts.url ? { content: pv.content ?? undefined, sourceUrl: pv.source_url, label: opts.url } : src;
+      // Fetched content, or the conversion of a Postman/HAR/curl upload, is what gets committed.
+      const nextSource = opts.url
+        ? { content: pv.content ?? undefined, sourceUrl: pv.source_url, label: opts.url }
+        : { ...src, content: pv.content ?? src.content };
       setPreview(pv);
       setSource(nextSource);
       setBaseUrl(pv.base_url ?? "");
@@ -134,7 +137,7 @@ export function ReimportPage({ projectId, specId }: { projectId: string; specId:
             <TabsContent value="file" className="pt-3">
               <Label htmlFor="re-file" className="flex w-fit cursor-pointer items-center gap-2 rounded-lg border border-dashed px-4 py-3 text-sm hover:bg-muted/60 has-focus-visible:ring-2 has-focus-visible:ring-ring">
                 <UploadIcon className="size-4" /> Choose the updated spec
-                <input id="re-file" type="file" accept=".json,.yaml,.yml" className="sr-only" onChange={onFile} disabled={busy} />
+                <input id="re-file" type="file" accept=".json,.yaml,.yml,.har" className="sr-only" onChange={onFile} disabled={busy} />
               </Label>
             </TabsContent>
             <TabsContent value="url" className="pt-3">
