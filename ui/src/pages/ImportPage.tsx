@@ -44,6 +44,8 @@ export function ImportPage({ projectId }: { projectId: string }) {
   const [busy, setBusy] = useState<"reading" | "fetching" | "previewing" | "importing" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState("");
+  /** What the URL points at: a spec to download, or a GraphQL endpoint to introspect. */
+  const [urlKind, setUrlKind] = useState<"spec" | "graphql">("spec");
   const [pasted, setPasted] = useState("");
   const [auths, setAuths] = useState<AuthConfig[]>([]);
   const [authRef, setAuthRef] = useState<string | null>(null);
@@ -111,7 +113,10 @@ export function ImportPage({ projectId }: { projectId: string }) {
     setError(null);
     setBusy("fetching");
     try {
-      const pv = await api.previewOpenApi(projectId, { url: url.trim() });
+      const pv = await api.previewOpenApi(
+        projectId,
+        urlKind === "graphql" ? { url: url.trim(), graphql: true, auth_ref: authRef } : { url: url.trim() },
+      );
       adopt(pv, { content: pv.content ?? "", filename: null, sourceUrl: pv.source_url }, false);
     } catch (err) {
       setError(errorText(err));
@@ -163,7 +168,9 @@ export function ImportPage({ projectId }: { projectId: string }) {
   const tags = useMemo(() => [...new Set(preview?.operations.flatMap((o) => o.tags) ?? [])].sort(), [preview]);
   const visible = useMemo(() => {
     if (!preview) return [];
-    const match = pathMatcher(glob);
+    // GraphQL operations are matched by name ("query user"), not path globs.
+    const match =
+      preview.info.kind === "graphql" ? (k: string) => k.toLowerCase().includes(glob.trim().toLowerCase()) : pathMatcher(glob);
     return preview.operations.filter(
       (o) => (tag === "all" || o.tags.includes(tag)) && (methods.size === 0 || methods.has(o.method)) && match(o.path),
     );
@@ -171,6 +178,7 @@ export function ImportPage({ projectId }: { projectId: string }) {
   const visibleSupported = visible.filter((o) => o.supported);
   const allVisibleSelected = visibleSupported.length > 0 && visibleSupported.every((o) => selected.has(o.key));
   const someVisibleSelected = visibleSupported.some((o) => selected.has(o.key));
+  const graphql = preview?.info.kind === "graphql";
   const baseChanged = preview !== null && baseUrl.trim() !== (preview.operations[0]?.base_url ?? preview.info.base_url ?? "");
 
   function toggleVisible(on: boolean) {
@@ -198,7 +206,7 @@ export function ImportPage({ projectId }: { projectId: string }) {
       <PageHeader
         back={{ href: href.project(projectId), label: "Tools" }}
         title="Import tools"
-        description="Turn an OpenAPI 3.0/3.1 or Swagger 2.0 spec, a Postman collection, a HAR file from your browser, or curl commands into tools. You pick which ones; nothing is created until you import."
+        description="Turn an OpenAPI 3.0/3.1 or Swagger 2.0 spec, a Postman collection, a HAR file from your browser, curl commands or a GraphQL schema into tools. You pick which ones; nothing is created until you import."
       />
 
       <Card>
@@ -244,11 +252,52 @@ export function ImportPage({ projectId }: { projectId: string }) {
               </form>
             </TabsContent>
             <TabsContent value="url" className="pt-3">
-              <form onSubmit={fetchUrl} className="flex flex-col gap-2 sm:flex-row">
-                <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://api.example.com/openapi.json" className="font-mono" aria-label="Spec URL" type="url" required />
-                <Button type="submit" disabled={busy !== null || !url.trim()}>
-                  {busy === "fetching" ? "Fetching…" : "Fetch spec"}
-                </Button>
+              <form onSubmit={fetchUrl} className="grid gap-3">
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Select value={urlKind} onValueChange={(v) => setUrlKind(v as "spec" | "graphql")}>
+                    <SelectTrigger className="sm:w-56" aria-label="What the URL points at">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="spec">A spec or collection file</SelectItem>
+                      <SelectItem value="graphql">A GraphQL endpoint</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    placeholder={urlKind === "graphql" ? "https://api.example.com/graphql" : "https://api.example.com/openapi.json"}
+                    className="font-mono"
+                    aria-label={urlKind === "graphql" ? "GraphQL endpoint" : "Spec URL"}
+                    type="url"
+                    required
+                  />
+                  <Button type="submit" disabled={busy !== null || !url.trim()}>
+                    {busy === "fetching" ? "Fetching…" : urlKind === "graphql" ? "Read schema" : "Fetch spec"}
+                  </Button>
+                </div>
+                {urlKind === "graphql" && (
+                  <div className="grid gap-1.5 sm:max-w-md">
+                    <Label htmlFor="imp-gql-auth">Auth for the schema request</Label>
+                    <Select value={authRef ?? "none"} onValueChange={(v) => setAuthRef(v === "none" ? null : v)}>
+                      <SelectTrigger id="imp-gql-auth" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No auth</SelectItem>
+                        {auths.map((a) => (
+                          <SelectItem key={a.id} value={a.id}>
+                            {a.name}: {describeAuth(a.kind)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Asks the endpoint for its schema (an introspection query). If the API turns that off, upload or paste
+                      its schema file instead.
+                    </p>
+                  </div>
+                )}
               </form>
             </TabsContent>
           </Tabs>
@@ -273,15 +322,19 @@ export function ImportPage({ projectId }: { projectId: string }) {
             </CardHeader>
             <CardContent className="grid gap-4 lg:grid-cols-2">
               <div className="grid gap-1.5">
-                <Label htmlFor="imp-base">Base URL</Label>
+                <Label htmlFor="imp-base">{graphql ? "Endpoint" : "Base URL"}</Label>
                 <div className="flex gap-2">
-                  <Input id="imp-base" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.example.com/v1" className="font-mono" />
+                  <Input id="imp-base" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={graphql ? "https://api.example.com/graphql" : "https://api.example.com/v1"} className="font-mono" />
                   <Button type="button" variant="outline" onClick={() => void applyBaseUrl()} disabled={busy !== null || !baseChanged}>
                     Apply
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {preview.info.base_url
+                  {graphql
+                    ? preview.info.base_url
+                      ? "Where the tools send their queries. Change it to point at another environment."
+                      : "A schema file doesn't say where the API is. Enter its GraphQL endpoint."
+                    : preview.info.base_url
                     ? "From the spec's servers. Change it to point at another environment."
                     : preview.info.servers.length
                       ? `The spec's server (${preview.info.servers[0]}) is relative. Enter the full URL.`
@@ -339,6 +392,7 @@ export function ImportPage({ projectId }: { projectId: string }) {
                   </SelectContent>
                 </Select>
               </div>
+              {!graphql && (
               <div className="grid gap-1">
                 <span className="text-xs text-muted-foreground" id="f-methods">
                   Methods
@@ -365,11 +419,12 @@ export function ImportPage({ projectId }: { projectId: string }) {
                   ))}
                 </div>
               </div>
+              )}
               <div className="grid min-w-56 flex-1 gap-1">
                 <Label htmlFor="f-path" className="text-xs text-muted-foreground">
-                  Path
+                  {graphql ? "Operation" : "Path"}
                 </Label>
-                <Input id="f-path" value={glob} onChange={(e) => setGlob(e.target.value)} placeholder="/repos/*/*/issues or /pets/**" className="font-mono" />
+                <Input id="f-path" value={glob} onChange={(e) => setGlob(e.target.value)} placeholder={graphql ? "user, or mutation" : "/repos/*/*/issues or /pets/**"} className="font-mono" />
               </div>
             </div>
 
@@ -416,12 +471,21 @@ function OperationRow({ op, checked, onChange }: { op: ImportOperation; checked:
       <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer">
         <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
           <span className="inline-flex min-w-0 items-baseline gap-2 font-mono text-sm">
-            <MethodLabel method={op.method} className="w-[4.5em] shrink-0" />
-            <span className="break-all">
-              {splitTemplate(op.path).map((s, i) =>
-                s.kind === "text" ? <span key={i}>{s.text}</span> : <span key={i} className="text-primary">{`{${s.name}}`}</span>,
-              )}
-            </span>
+            {op.kind === "graphql" ? (
+              <>
+                <GraphqlOpLabel path={op.path} />
+                <span className="break-all">{op.path.split(" ").slice(1).join(" ")}</span>
+              </>
+            ) : (
+              <>
+                <MethodLabel method={op.method} className="w-[4.5em] shrink-0" />
+                <span className="break-all">
+                  {splitTemplate(op.path).map((s, i) =>
+                    s.kind === "text" ? <span key={i}>{s.text}</span> : <span key={i} className="text-primary">{`{${s.name}}`}</span>,
+                  )}
+                </span>
+              </>
+            )}
           </span>
           <span className="font-mono text-xs text-muted-foreground">{op.name}</span>
           {op.deprecated && <Badge variant="outline">Deprecated</Badge>}
@@ -454,5 +518,15 @@ function OperationRow({ op, checked, onChange }: { op: ImportOperation; checked:
         )}
       </span>
     </li>
+  );
+}
+
+/** `query` or `mutation`, in the method column of an operation row. */
+export function GraphqlOpLabel({ path }: { path: string }) {
+  const mutation = path.startsWith("mutation ");
+  return (
+    <span className={`w-[4.5em] shrink-0 text-xs font-semibold ${mutation ? "text-m-delete" : "text-m-get"}`}>
+      {mutation ? "mutation" : "query"}
+    </span>
   );
 }

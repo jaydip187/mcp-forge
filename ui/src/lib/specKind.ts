@@ -9,6 +9,8 @@ export function specKindLabel(kind: string, openapi?: string): string {
       return "HAR capture";
     case "curl":
       return "curl commands";
+    case "graphql":
+      return "GraphQL schema";
     default:
       return openapi ? `OpenAPI ${openapi}` : "OpenAPI 3";
   }

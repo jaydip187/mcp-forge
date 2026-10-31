@@ -11,6 +11,7 @@ export function hiddenReason(tool: Tool, s: ProjectSettings): HiddenReason | nul
   // SQL query tools only read; path filters only concern HTTP tools.
   const http = tool.kind.type === "http" ? tool.kind : null;
   if (s.read_only && http && !READ_METHODS.has(http.method)) return "read_only";
+  if (s.read_only && tool.kind.type === "graphql" && tool.kind.operation === "mutation") return "read_only";
   const lower = (xs: string[]) => xs.map((x) => x.toLowerCase());
   const tags = lower(tool.tags);
   const hasTag = (list: string[]) => lower(list).some((t) => tags.includes(t));

@@ -392,5 +392,69 @@ describe("spec kinds", () => {
     expect(specKindLabel("postman")).toBe("Postman collection");
     expect(specKindLabel("har")).toBe("HAR capture");
     expect(specKindLabel("curl")).toBe("curl commands");
+    expect(specKindLabel("graphql")).toBe("GraphQL schema");
+  });
+});
+
+describe("graphql form", () => {
+  const doc = `# the user
+query User($login: String!, $first: Int = 10 $tags: [ String! ]) {
+  user(login: $login) { name }
+}`;
+
+  it("reads the operation header", async () => {
+    const { declaredVariables, operationNameOf, operationOf } = await import("./graphqlForm");
+    expect(operationOf(doc)).toBe("query");
+    expect(operationOf("mutation Follow($id: ID!) { follow(id: $id) { ok } }")).toBe("mutation");
+    expect(operationOf("{ viewer { login } }")).toBe("query");
+    expect(operationNameOf(doc)).toBe("User");
+    expect(operationNameOf("{ viewer { login } }")).toBeNull();
+    expect(declaredVariables(doc)).toEqual([
+      { name: "login", graphql_type: "String!" },
+      { name: "first", graphql_type: "Int" },
+      { name: "tags", graphql_type: "[String!]" },
+    ]);
+  });
+
+  it("keeps descriptions and drops stale schemas when syncing", async () => {
+    const { syncGraphqlVars } = await import("./graphqlForm");
+    const synced = syncGraphqlVars(doc, [
+      { name: "login", graphql_type: "String!", description: "GitHub login", schema: { type: "string", minLength: 1 } },
+      { name: "first", graphql_type: "Float", description: "How many", schema: { type: "number" } },
+      { name: "gone", graphql_type: "ID", description: "" },
+    ]);
+    expect(synced).toEqual([
+      { name: "login", graphql_type: "String!", description: "GitHub login", schema: { type: "string", minLength: 1 } },
+      { name: "first", graphql_type: "Int", description: "How many", schema: null },
+      { name: "tags", graphql_type: "[String!]", description: "" },
+    ]);
+  });
+
+  it("builds the payload; mutations need approval by default", async () => {
+    const { buildGraphqlInput, newGraphqlForm } = await import("./graphqlForm");
+    const form = { ...newGraphqlForm(), name: "follow", endpoint: " https://api.example.com/graphql ", document: "mutation Follow($id: ID!) { follow(id: $id) { ok } }" };
+    const r = buildGraphqlInput(form);
+    if (!r.ok || r.input.kind.type !== "graphql") throw new Error("expected a GraphQL payload");
+    expect(r.input.require_approval).toBe(true);
+    expect(r.input.kind).toEqual({
+      type: "graphql",
+      endpoint: "https://api.example.com/graphql",
+      operation: "mutation",
+      document: form.document,
+      operation_name: "Follow",
+      variables: [{ name: "id", graphql_type: "ID!", description: "" }],
+      auth_ref: null,
+      timeout_ms: 30000,
+    });
+    expect(buildGraphqlInput({ ...form, timeout: "soon" }).ok).toBe(false);
+  });
+
+  it("routes and hides mutations in read-only projects", async () => {
+    const { hiddenReason } = await import("./visibility");
+    expect(parseRoute("#/p/x/tools/new-graphql")).toEqual({ name: "tool", projectId: "x", toolId: null, kind: "graphql" });
+    const mutation = { enabled: true, tags: [], kind: { type: "graphql", operation: "mutation" } } as unknown as Tool;
+    const s = { read_only: true, include_tags: [], exclude_tags: [], include_paths: [], exclude_paths: [] } as unknown as ProjectSettings;
+    expect(hiddenReason(mutation, s)).toBe("read_only");
+    expect(hiddenReason({ ...mutation, kind: { type: "graphql", operation: "query" } } as unknown as Tool, s)).toBeNull();
   });
 });

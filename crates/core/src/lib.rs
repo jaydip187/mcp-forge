@@ -8,6 +8,7 @@ mod audit;
 mod auth;
 mod calls;
 mod db;
+mod graphql;
 mod overrides;
 mod project;
 mod schema;
@@ -28,6 +29,7 @@ pub use db::{
     SqlMode, SqlParam, SqlSpec, DEFAULT_ROW_LIMIT, DEFAULT_SQL_TIMEOUT_MS, MAX_ROW_LIMIT,
     PATTERN_ARG, SQL_ARG, SQL_PARAM_TYPES, TABLE_ARG,
 };
+pub use graphql::{schema_for_type, GraphqlOperation, GraphqlSpec, GraphqlVar};
 pub use overrides::{changed_fields, merge_overrides, OVERRIDABLE_FIELDS};
 pub use project::{slugify, Project, ProjectInput};
 pub use schema::{ArgBinding, ArgTarget, DerivedInput, BODY_ARG};

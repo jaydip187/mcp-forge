@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { api, ApiError } from "@/api";
 import { PageHeader } from "@/components/PageHeader";
 import { MethodLabel } from "@/components/RequestLine";
+import { GraphqlOpLabel } from "@/pages/ImportPage";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -222,8 +223,17 @@ export function ReimportPage({ projectId, specId }: { projectId: string; specId:
                 />
                 <label htmlFor={`add-${o.key}`} className="min-w-0 flex-1 text-sm">
                   <span className="inline-flex items-baseline gap-2 font-mono">
-                    <MethodLabel method={o.method} />
-                    <span className="break-all">{o.path}</span>
+                    {o.kind === "graphql" ? (
+                      <>
+                        <GraphqlOpLabel path={o.path} />
+                        <span className="break-all">{o.path.split(" ").slice(1).join(" ")}</span>
+                      </>
+                    ) : (
+                      <>
+                        <MethodLabel method={o.method} />
+                        <span className="break-all">{o.path}</span>
+                      </>
+                    )}
                   </span>
                   <span className="ml-2 font-mono text-xs text-muted-foreground">{o.name}</span>
                   {!o.supported && <span className="block text-destructive">{o.warnings[0]}</span>}

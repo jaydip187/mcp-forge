@@ -19,6 +19,7 @@ import { listLabels } from "@/lib/fields";
 import { syncPathParams } from "@/lib/template";
 import { approvalDefault, buildToolInput, formFromTool, newForm, paramIndex, type ToolForm } from "@/lib/toolForm";
 import { ParamsEditor, toRow, type ParamRow } from "@/pages/ParamsEditor";
+import { GraphqlToolEditor } from "@/pages/GraphqlToolEditor";
 import { SqlToolEditor } from "@/pages/SqlToolEditor";
 import { TestConsole } from "@/pages/TestConsole";
 import { describeAuth } from "@/pages/AuthTab";
@@ -34,15 +35,16 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [sqlTool, setSqlTool] = useState<Tool | null>(null);
+  // SQL and GraphQL tools have their own editors.
+  const [otherTool, setOtherTool] = useState<Tool | null>(null);
 
   useEffect(() => {
     api.listAuth(projectId).then(setAuths, () => {});
     if (!toolId) return;
     api.getTool(projectId, toolId).then(
       (t) => {
-        if (t.kind.type === "sql") {
-          setSqlTool(t);
+        if (t.kind.type !== "http") {
+          setOtherTool(t);
           return;
         }
         setSaved(t);
@@ -61,7 +63,8 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
     return JSON.stringify(built.input) !== JSON.stringify({ name, description, enabled, tags, response_shape, require_approval, kind });
   }, [saved, built]);
 
-  if (sqlTool) return <SqlToolEditor projectId={projectId} tool={sqlTool} />;
+  if (otherTool?.kind.type === "sql") return <SqlToolEditor projectId={projectId} tool={otherTool} />;
+  if (otherTool) return <GraphqlToolEditor projectId={projectId} tool={otherTool} />;
   if (loadErr)
     return (
       <Alert variant="destructive">

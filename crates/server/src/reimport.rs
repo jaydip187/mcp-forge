@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use axum::extract::{DefaultBodyLimit, State};
 use axum::routing::post;
 use axum::{Json, Router};
-use forge_core::{changed_fields, merge_overrides, ToolDef, ToolInput, ToolKind, ValidationErrors};
+use forge_core::{changed_fields, merge_overrides, ToolDef, ToolInput, ValidationErrors};
 use forge_importers::openapi3::{BuiltOperation, Imported};
 use forge_importers::unique_name;
 use forge_store::{NewSpec, SpecRecord};
@@ -83,9 +83,7 @@ fn plan<'a>(
         }
         let mut base = op.tool.clone();
         if op.needs_auth || !any_auth {
-            if let ToolKind::Http(h) = &mut base.kind {
-                h.auth_ref = auth_ref;
-            }
+            base.kind.set_auth_ref(auth_ref);
         }
         let mut merged = merge_overrides(&tool.input(), &tool.overrides, &base);
         if merged.name != tool.name || taken.contains(&merged.name) {
@@ -154,6 +152,17 @@ async fn resolve_inputs(
     let spec = s.store.get_spec(project_id, spec_id).await?;
     let (content, source_url, fetched) = match (content, url) {
         (Some(c), _) if !c.trim().is_empty() => (c, None, false),
+        // A GraphQL schema is fetched by introspecting the endpoint again,
+        // with the auth config the tools use.
+        (_, Some(u)) if !u.trim().is_empty() && spec.kind == "graphql" => {
+            let auth = spec
+                .options
+                .get("auth_ref")
+                .and_then(Value::as_str)
+                .and_then(|a| Uuid::parse_str(a).ok());
+            let doc = crate::import::introspect(s, project_id, u.trim(), auth).await?;
+            (doc, Some(u.trim().to_owned()), true)
+        }
         (_, Some(u)) if !u.trim().is_empty() => {
             (fetch_spec(u.trim()).await?, Some(u.trim().to_owned()), true)
         }
@@ -319,9 +328,7 @@ async fn commit(
                 let mut t = op.tool.clone();
                 t.name = (*name).clone();
                 if op.needs_auth || !imported.operations.iter().any(|o| o.needs_auth) {
-                    if let ToolKind::Http(h) = &mut t.kind {
-                        h.auth_ref = inp.auth_ref;
-                    }
+                    t.kind.set_auth_ref(inp.auth_ref);
                 }
                 inserts.push((t, op.op_id()));
             }

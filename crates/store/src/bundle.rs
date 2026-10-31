@@ -201,22 +201,22 @@ impl Store {
         let mut resolved = Vec::with_capacity(tools.len());
         for (i, bt) in tools.iter().enumerate() {
             let mut t = bt.input.clone();
+            let auth_ref = match &bt.auth {
+                None => None,
+                Some(name) => match auth_ids.get(name) {
+                    Some(id) => Some(*id),
+                    None => {
+                        errs.push(
+                            format!("tools[{i}].auth"),
+                            format!("no auth config named `{name}`"),
+                        );
+                        None
+                    }
+                },
+            };
             match &mut t.kind {
-                ToolKind::Http(h) => {
-                    h.auth_ref = match &bt.auth {
-                        None => None,
-                        Some(name) => match auth_ids.get(name) {
-                            Some(id) => Some(*id),
-                            None => {
-                                errs.push(
-                                    format!("tools[{i}].auth"),
-                                    format!("no auth config named `{name}`"),
-                                );
-                                None
-                            }
-                        },
-                    };
-                }
+                ToolKind::Http(h) => h.auth_ref = auth_ref,
+                ToolKind::Graphql(g) => g.auth_ref = auth_ref,
                 ToolKind::Sql(s) => match bt.connection.as_ref().and_then(|n| conn_ids.get(n)) {
                     Some(id) => s.connection_id = *id,
                     None => errs.push(
