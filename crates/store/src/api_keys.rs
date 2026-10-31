@@ -89,14 +89,15 @@ pub fn key_hash(key: &str) -> String {
         .collect()
 }
 
-fn new_key() -> String {
+/// `prefix` + 32 random bytes as URL-safe base64 (no padding).
+pub(crate) fn random_secret(prefix: &str) -> String {
     let mut bytes = [0u8; 32];
     SystemRandom::new()
         .fill(&mut bytes)
         .expect("system randomness");
     // URL-safe base64 without padding.
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut out = String::from(KEY_PREFIX);
+    let mut out = String::from(prefix);
     let mut acc: u32 = 0;
     let mut bits = 0;
     for b in bytes {
@@ -161,7 +162,7 @@ impl Store {
         let ts = now();
         input.validate(ts)?;
         self.ensure_project(project_id).await?;
-        let secret = new_key();
+        let secret = random_secret(KEY_PREFIX);
         let key = ApiKey {
             id: Uuid::new_v4(),
             project_id,

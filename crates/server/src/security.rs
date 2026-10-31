@@ -152,6 +152,44 @@ async fn mcp_access(state: &AppState, mut req: Request, next: Next) -> Response 
             );
         }
     };
+    let www = format!(
+        "Bearer resource_metadata=\"{}\"",
+        crate::authz::resource_metadata_url(req.headers(), &slug)
+    );
+    let deny = |message: &str| {
+        let mut resp = error(StatusCode::UNAUTHORIZED, "unauthorized", message);
+        if let Ok(v) = www.parse() {
+            resp.headers_mut().insert(WWW_AUTHENTICATE, v);
+        }
+        resp
+    };
+    let internal = || {
+        error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal",
+            "internal error; see server logs",
+        )
+    };
+    // Signed in through mcp-forge's OAuth server.
+    if let Some(token) = bearer
+        .as_deref()
+        .filter(|b| b.starts_with(forge_store::ACCESS_PREFIX))
+    {
+        return match (state.store.find_oauth_access(token).await, project) {
+            (Ok(Some(g)), Some(p)) if g.project_id == p.id => {
+                req.extensions_mut().insert(forge_mcp::KeyScope {
+                    name: format!("{} (sign-in)", g.client_name),
+                    tools: None,
+                });
+                next.run(req).await
+            }
+            (Err(e), _) => {
+                tracing::error!(error = %e, "looking up OAuth token");
+                internal()
+            }
+            _ => deny("the access token is unknown, expired, revoked or for another project"),
+        };
+    }
     if let Some(secret) = bearer
         .as_deref()
         .filter(|b| b.starts_with(forge_store::KEY_PREFIX))
@@ -160,11 +198,7 @@ async fn mcp_access(state: &AppState, mut req: Request, next: Next) -> Response 
             Ok(k) => k,
             Err(e) => {
                 tracing::error!(error = %e, "looking up access key");
-                return error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "internal",
-                    "internal error; see server logs",
-                );
+                return internal();
             }
         };
         return match (key, project) {
@@ -175,29 +209,22 @@ async fn mcp_access(state: &AppState, mut req: Request, next: Next) -> Response 
                 });
                 next.run(req).await
             }
-            (Some(k), Some(p)) if k.project_id == p.id => {
-                unauthorized_key("this access key has expired")
-            }
-            _ => unauthorized_key("unknown access key, or a key for another project"),
+            (Some(k), Some(p)) if k.project_id == p.id => deny("this access key has expired"),
+            _ => deny("unknown access key, or a key for another project"),
         };
     }
     if state.security.admin_token.is_some() {
-        return unauthorized_token();
+        return deny(
+            "sign in, or send an access key or the admin token as `Authorization: Bearer …`",
+        );
     }
     if project.is_some_and(|p| p.settings.require_key) {
-        return unauthorized_key(
-            "this project needs an access key (send `Authorization: Bearer mcpf_…`)",
+        return deny(
+            "this project needs sign-in or an access key (`Authorization: Bearer mcpf_…`)",
         );
     }
     // Unknown slugs fall through to the handler's 404.
     next.run(req).await
-}
-
-fn unauthorized_key(message: &str) -> Response {
-    let mut resp = error(StatusCode::UNAUTHORIZED, "unauthorized", message);
-    resp.headers_mut()
-        .insert(WWW_AUTHENTICATE, "Bearer".parse().expect("static header"));
-    resp
 }
 
 fn unauthorized_token() -> Response {

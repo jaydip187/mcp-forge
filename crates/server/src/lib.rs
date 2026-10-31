@@ -4,6 +4,7 @@ pub mod api;
 mod api_keys;
 mod approvals;
 mod assets;
+pub mod authz;
 pub mod bundle;
 pub mod calls;
 pub mod config;
@@ -47,6 +48,8 @@ pub struct AppState {
     pub login: Arc<login::Login>,
     /// Started OAuth "Connect" flows for upstream APIs.
     pub oauth_flows: Arc<oauth::OAuthFlows>,
+    /// Sign-in requests and codes of mcp-forge's own OAuth server (`/mcp`).
+    pub authz: Arc<authz::Authz>,
     mcp: Arc<mcp_http::McpServices>,
 }
 
@@ -61,6 +64,7 @@ impl AppState {
             data_dir: None,
             login: Arc::default(),
             oauth_flows: Arc::default(),
+            authz: Arc::default(),
             mcp: Arc::default(),
         }
     }
@@ -94,10 +98,12 @@ pub fn app(state: AppState) -> Router {
                 .merge(approvals::router())
                 .merge(oauth::api_router())
                 .merge(api_keys::router())
+                .merge(authz::api_router())
                 .merge(login::router()),
         )
         .route("/mcp/{slug}", any(mcp_http::handle))
         .merge(oauth::callback_router())
+        .merge(authz::public_router())
         .fallback(assets::serve)
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

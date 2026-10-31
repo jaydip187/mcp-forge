@@ -33,6 +33,7 @@ import { ProjectsProvider, useProjects } from "@/lib/projects";
 import { href, useRoute, type ProjectTab, type Route } from "@/lib/router";
 import { cn } from "@/lib/utils";
 import { ApprovalsPage } from "@/pages/ApprovalsPage";
+import { ConsentPage } from "@/pages/ConsentPage";
 import { Home } from "@/pages/Home";
 import { ImportPage } from "@/pages/ImportPage";
 import { ProjectPage } from "@/pages/ProjectPage";
@@ -124,7 +125,7 @@ function Shell({ info, user, onSignedOut }: { info: ServerInfo; user: User | nul
           </div>
         </header>
         <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-          <Page route={route} info={info} />
+          <Page route={route} info={info} user={user} />
         </main>
       </SidebarInset>
     </SidebarProvider>
@@ -135,8 +136,12 @@ function Shell({ info, user, onSignedOut }: { info: ServerInfo; user: User | nul
 function Breadcrumbs({ route }: { route: Route }) {
   const { projects, error } = useProjects();
   const crumbs: { label: ReactNode; href?: string }[] =
-    route.name === "approvals" ? [{ label: "Approvals" }] : [{ label: "Projects", href: href.home() }];
-  if (route.name !== "home" && route.name !== "approvals") {
+    route.name === "approvals"
+      ? [{ label: "Approvals" }]
+      : route.name === "consent"
+        ? [{ label: "Connect an app" }]
+        : [{ label: "Projects", href: href.home() }];
+  if (route.name !== "home" && route.name !== "approvals" && route.name !== "consent") {
     const project = projects?.find((p) => p.id === route.projectId);
     // Placeholder while the project list loads, so the name doesn't flash in.
     const label =
@@ -190,12 +195,14 @@ function Breadcrumbs({ route }: { route: Route }) {
   );
 }
 
-function Page({ route, info }: { route: Route; info: ServerInfo }) {
+function Page({ route, info, user }: { route: Route; info: ServerInfo; user: User | null }) {
   switch (route.name) {
     case "home":
       return <Home />;
     case "approvals":
       return <ApprovalsPage />;
+    case "consent":
+      return <ConsentPage requestId={route.requestId} user={user} />;
     case "project":
       return <ProjectPage key={route.projectId} projectId={route.projectId} tab={route.tab} info={info} />;
     case "import":

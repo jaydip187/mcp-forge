@@ -1,5 +1,7 @@
 import type {
   ApiKey,
+  ConnectedApp,
+  ConsentInfo,
   ApiKeyInput,
   AuditEntry,
   CallEntry,
@@ -182,6 +184,11 @@ export const api = {
     request<AuthConfig>("PUT", `${p(pid)}/auth-configs/${id}`, input),
   deleteAuth: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/auth-configs/${id}`),
 
+  oauthRequest: (id: string) => request<ConsentInfo>("GET", `/oauth/requests/${encodeURIComponent(id)}`),
+  oauthApprove: (id: string) => request<{ redirect: string }>("POST", `/oauth/requests/${encodeURIComponent(id)}/approve`, {}),
+  oauthDeny: (id: string) => request<{ redirect: string }>("POST", `/oauth/requests/${encodeURIComponent(id)}/deny`, {}),
+  listConnectedApps: (pid: string) => request<ConnectedApp[]>("GET", `${p(pid)}/connected-apps`),
+  disconnectApp: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/connected-apps/${id}`),
   listKeys: (pid: string) => request<ApiKey[]>("GET", `${p(pid)}/api-keys`),
   createKey: (pid: string, input: ApiKeyInput) =>
     request<{ key: ApiKey; secret: string }>("POST", `${p(pid)}/api-keys`, input),

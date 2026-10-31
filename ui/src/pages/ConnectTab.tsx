@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { fieldError } from "@/lib/projects";
 import { buildSnippets } from "@/lib/snippets";
-import type { ApiKey, Project, ServerInfo, Tool } from "@/types";
+import type { ApiKey, ConnectedApp, Project, ServerInfo, Tool } from "@/types";
 
 export function mcpUrl(slug: string): string {
   return `${window.location.origin}/mcp/${slug}`;
@@ -78,6 +78,7 @@ export function ConnectTab({ project, info, onSaved }: { project: Project; info:
         </div>
       </div>
       <KeysCard project={project} keys={keys} onChanged={loadKeys} onSaved={onSaved} />
+      <ConnectedAppsCard project={project} />
     </div>
   );
 }
@@ -311,5 +312,63 @@ function NewKeyForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+/** Apps connected by signing in (OAuth), e.g. claude.ai custom connectors. */
+function ConnectedAppsCard({ project }: { project: Project }) {
+  const [apps, setApps] = useState<ConnectedApp[] | null>(null);
+  const load = useCallback(async () => setApps(await api.listConnectedApps(project.id)), [project.id]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function disconnect(a: ConnectedApp) {
+    try {
+      await api.disconnectApp(project.id, a.id);
+      toast.success(`Disconnected ${a.client_name}`);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Connected apps</CardTitle>
+        <CardDescription>
+          Apps that support MCP sign-in (claude.ai custom connectors, MCP Inspector and others) need only the URL{" "}
+          <code className="font-mono text-xs">{mcpUrl(project.slug)}</code>: they open a sign-in page here, and you
+          approve them. The app must be able to reach this server, for example through an HTTPS reverse proxy.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {apps === null ? null : apps.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No apps connected yet.</p>
+        ) : (
+          <ul className="divide-y overflow-hidden rounded-xl border">
+            {apps.map((a) => (
+              <li key={a.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <p className="font-medium">{a.client_name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Connected {new Date(a.created_at).toLocaleString()}
+                    {a.approved_by && ` by ${a.approved_by}`}
+                    {" · "}
+                    {a.last_used_at ? `last used ${new Date(a.last_used_at).toLocaleString()}` : "not used yet"}
+                    {" · "}
+                    signed in until {new Date(a.refresh_expires_at).toLocaleDateString()} (renewed when used)
+                  </p>
+                </div>
+                <Button size="sm" variant="ghost" className="text-destructive" onClick={() => void disconnect(a)}>
+                  Disconnect
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }
