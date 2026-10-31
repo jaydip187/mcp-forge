@@ -7,12 +7,14 @@ use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use forge_core::ApprovalDecision;
 use forge_mcp::approvals::PendingApproval;
+use forge_store::Access;
 use forge_store::StoreError;
 use serde::Serialize;
 use uuid::Uuid;
 
 use crate::api::{ApiError, ApiPath};
 use crate::login::CurrentUser;
+use crate::permissions;
 use crate::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -30,31 +32,50 @@ struct Listed {
     project_slug: String,
 }
 
-/// Oldest first. Calls of deleted projects are left out (they time out).
-async fn list(State(s): State<AppState>) -> Result<Json<Vec<Listed>>, ApiError> {
+/// Oldest first, only projects the user can write to. Calls of deleted
+/// projects are left out (they time out).
+async fn list(
+    State(s): State<AppState>,
+    user: Option<Extension<CurrentUser>>,
+) -> Result<Json<Vec<Listed>>, ApiError> {
     let pending = s.exec.approvals.list();
     if pending.is_empty() {
         return Ok(Json(vec![]));
     }
+    let user = user.map(|Extension(u)| u);
     let projects = s.store.list_projects().await?;
-    Ok(Json(
-        pending
-            .into_iter()
-            .filter_map(|p| {
-                let project = projects.iter().find(|x| x.id == p.project_id)?;
-                Some(Listed {
-                    project_name: project.name.clone(),
-                    project_slug: project.slug.clone(),
-                    pending: p,
-                })
-            })
-            .collect(),
-    ))
+    let mut out = vec![];
+    for p in pending {
+        let Some(project) = projects.iter().find(|x| x.id == p.project_id) else {
+            continue;
+        };
+        if permissions::access(&s.store, user.as_ref(), project.id).await? != Some(Access::Write) {
+            continue;
+        }
+        out.push(Listed {
+            project_name: project.name.clone(),
+            project_slug: project.slug.clone(),
+            pending: p,
+        });
+    }
+    Ok(Json(out))
 }
 
-fn decider(user: Option<Extension<CurrentUser>>) -> String {
+/// Answering needs write on the call's project.
+async fn ensure_write(s: &AppState, user: Option<&CurrentUser>, id: Uuid) -> Result<(), ApiError> {
+    let Some(p) = s.exec.approvals.get(id) else {
+        return Err(ApiError::Store(StoreError::NotFound("pending approval")));
+    };
+    if permissions::access(&s.store, user, p.project_id).await? == Some(Access::Write) {
+        Ok(())
+    } else {
+        Err(ApiError::Forbidden)
+    }
+}
+
+fn decider(user: Option<CurrentUser>) -> String {
     match user {
-        Some(Extension(u)) => u.user.username,
+        Some(u) => u.user.username,
         // The admin token was used, or sign-in is off.
         None => "web UI".into(),
     }
@@ -79,6 +100,8 @@ async fn approve(
     user: Option<Extension<CurrentUser>>,
     ApiPath(id): ApiPath<Uuid>,
 ) -> Result<StatusCode, ApiError> {
+    let user = user.map(|Extension(u)| u);
+    ensure_write(&s, user.as_ref(), id).await?;
     answer(&s, id, ApprovalDecision::Approved, decider(user))
 }
 
@@ -87,5 +110,7 @@ async fn deny(
     user: Option<Extension<CurrentUser>>,
     ApiPath(id): ApiPath<Uuid>,
 ) -> Result<StatusCode, ApiError> {
+    let user = user.map(|Extension(u)| u);
+    ensure_write(&s, user.as_ref(), id).await?;
     answer(&s, id, ApprovalDecision::Denied, decider(user))
 }

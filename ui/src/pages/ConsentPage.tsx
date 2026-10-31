@@ -22,7 +22,9 @@ export function ConsentPage({ requestId, user }: { requestId: string; user: User
         setError(
           e instanceof ApiError && e.status === 404
             ? "This sign-in request is unknown, already answered or older than 10 minutes. Start again from the app."
-            : String(e),
+            : e instanceof ApiError && e.status === 403
+              ? "Connecting apps to this project needs write access to it. Ask an admin, or sign in with another account."
+              : String(e),
         ),
       );
   }, [requestId]);

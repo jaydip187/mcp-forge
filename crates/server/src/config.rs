@@ -53,6 +53,9 @@ pub enum UserAction {
         /// Read the password from the first line of stdin instead of prompting.
         #[arg(long)]
         password_stdin: bool,
+        /// `admin` (everything) or `member` (only projects granted in the web UI).
+        #[arg(long, default_value = "admin", value_parser = ["admin", "member"])]
+        role: String,
     },
     /// Set a new password; signs the account out everywhere.
     Passwd {

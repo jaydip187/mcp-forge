@@ -407,10 +407,25 @@ async fn status(State(s): State<AppState>, headers: HeaderMap) -> Result<Respons
     let user = authenticate(&s.store, s.login.cookie(), &headers)
         .await?
         .map(|c| c.user);
+    // Members' per-project access, so the UI can hide what they can't do.
+    let access = match &user {
+        Some(u) if u.role == forge_store::Role::Member => {
+            let map: serde_json::Map<String, serde_json::Value> = s
+                .store
+                .user_access(u.id)
+                .await?
+                .into_iter()
+                .map(|(p, a)| (p.to_string(), json!(a)))
+                .collect();
+            serde_json::Value::Object(map)
+        }
+        _ => serde_json::Value::Null,
+    };
     Ok(Json(json!({
         "login_required": s.security.require_login,
         "setup_required": setup_required,
         "user": user,
+        "access": access,
     }))
     .into_response())
 }

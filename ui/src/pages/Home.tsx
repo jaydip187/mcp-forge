@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { usePermissions } from "@/lib/permissions";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fieldError, useProjects } from "@/lib/projects";
@@ -15,6 +16,7 @@ import { href, navigate } from "@/lib/router";
 import { slugify } from "@/lib/template";
 
 export function Home() {
+  const { isAdmin } = usePermissions();
   const { projects, error, reload } = useProjects();
   const nameRef = useRef<HTMLInputElement>(null);
 
@@ -77,7 +79,11 @@ export function Home() {
           )}
         </section>
 
-        <CreateProject nameRef={nameRef} onCreated={reload} />
+        {isAdmin ? (
+          <CreateProject nameRef={nameRef} onCreated={reload} />
+        ) : (
+          <p className="text-sm text-muted-foreground">Projects you've been given access to are listed here. Ask an admin for more.</p>
+        )}
       </div>
     </div>
   );

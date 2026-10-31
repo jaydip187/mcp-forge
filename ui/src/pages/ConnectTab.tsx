@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { WriteGuard } from "@/lib/permissions";
 import { fieldError } from "@/lib/projects";
 import { buildSnippets } from "@/lib/snippets";
 import type { ApiKey, ConnectedApp, Project, ServerInfo, Tool } from "@/types";
@@ -77,8 +78,10 @@ export function ConnectTab({ project, info, onSaved }: { project: Project; info:
           ))}
         </div>
       </div>
-      <KeysCard project={project} keys={keys} onChanged={loadKeys} onSaved={onSaved} />
-      <ConnectedAppsCard project={project} />
+      <WriteGuard projectId={project.id}>
+        <KeysCard project={project} keys={keys} onChanged={loadKeys} onSaved={onSaved} />
+        <ConnectedAppsCard project={project} />
+      </WriteGuard>
     </div>
   );
 }

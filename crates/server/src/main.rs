@@ -177,13 +177,19 @@ async fn user(args: UserArgs) -> anyhow::Result<()> {
         UserAction::Add {
             username,
             password_stdin,
+            role,
         } => {
             check_username(&username).map_err(|m| anyhow::anyhow!("username {m}"))?;
+            let role = if role == "member" {
+                forge_store::Role::Member
+            } else {
+                forge_store::Role::Admin
+            };
             let password = read_new_password(password_stdin)?;
             let user = store
-                .create_user(&username, &hash_password(&password))
+                .create_user_as(&username, &hash_password(&password), role)
                 .await?;
-            eprintln!("Created account `{}`", user.username);
+            eprintln!("Created {} account `{}`", role.as_str(), user.username);
         }
         UserAction::Passwd {
             username,
@@ -209,8 +215,9 @@ async fn user(args: UserArgs) -> anyhow::Result<()> {
         UserAction::List => {
             for u in store.list_users().await? {
                 println!(
-                    "{}\tcreated {}",
+                    "{}\t{}\tcreated {}",
                     u.username,
+                    u.role.as_str(),
                     u.created_at.format("%Y-%m-%d %H:%M UTC")
                 );
             }

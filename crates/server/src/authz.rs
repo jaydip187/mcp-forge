@@ -471,14 +471,32 @@ async fn authorize(
 
 // ---- consent (web UI) --------------------------------------------------------
 
+/// Approving an app for a project needs write on it.
+async fn ensure_write(
+    s: &AppState,
+    user: Option<&Extension<CurrentUser>>,
+    project_id: Uuid,
+) -> Result<(), ApiError> {
+    let user = user.map(|Extension(u)| u);
+    if crate::permissions::access(&s.store, user, project_id).await?
+        == Some(forge_store::Access::Write)
+    {
+        Ok(())
+    } else {
+        Err(ApiError::Forbidden)
+    }
+}
+
 async fn consent_info(
     State(s): State<AppState>,
+    user: Option<Extension<CurrentUser>>,
     ApiPath(id): ApiPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     let r = s
         .authz
         .request(&id)
         .ok_or(ApiError::Store(StoreError::NotFound("sign-in request")))?;
+    ensure_write(&s, user.as_ref(), r.project_id).await?;
     let project = s.store.get_project(r.project_id).await?;
     let redirect_host = url::Url::parse(&r.redirect_uri)
         .ok()
@@ -505,6 +523,11 @@ async fn approve(
     user: Option<Extension<CurrentUser>>,
     ApiPath(id): ApiPath<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let pending = s
+        .authz
+        .request(&id)
+        .ok_or(ApiError::Store(StoreError::NotFound("sign-in request")))?;
+    ensure_write(&s, user.as_ref(), pending.project_id).await?;
     let r = s
         .authz
         .take_request(&id)
@@ -537,8 +560,14 @@ async fn approve(
 async fn deny(
     State(s): State<AppState>,
     headers: HeaderMap,
+    user: Option<Extension<CurrentUser>>,
     ApiPath(id): ApiPath<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let pending = s
+        .authz
+        .request(&id)
+        .ok_or(ApiError::Store(StoreError::NotFound("sign-in request")))?;
+    ensure_write(&s, user.as_ref(), pending.project_id).await?;
     let r = s
         .authz
         .take_request(&id)

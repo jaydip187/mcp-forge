@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { DownloadIcon, UploadIcon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -12,12 +12,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { splitTags } from "@/lib/toolForm";
+import { usePermissions } from "@/lib/permissions";
 import { fieldError, useProjects } from "@/lib/projects";
 import { href, navigate } from "@/lib/router";
-import type { Project, ProjectSettings } from "@/types";
+import type { Project, ProjectPerson, ProjectSettings } from "@/types";
 
 export function SettingsTab({ project, onSaved }: { project: Project; onSaved: (p: Project) => void }) {
   const { reload } = useProjects();
+  const { isAdmin } = usePermissions();
   const [name, setName] = useState(project.name);
   const [slug, setSlug] = useState(project.slug);
   const [err, setErr] = useState<unknown>(null);
@@ -82,6 +84,9 @@ export function SettingsTab({ project, onSaved }: { project: Project; onSaved: (
 
       <BundleCard project={project} onImported={reload} />
 
+      <PeopleCard project={project} />
+
+      {isAdmin && (
       <Card className="border-destructive/40">
         <CardHeader>
           <CardTitle>Delete project</CardTitle>
@@ -104,6 +109,7 @@ export function SettingsTab({ project, onSaved }: { project: Project; onSaved: (
           )}
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }
@@ -404,6 +410,46 @@ function ApprovalsCard({ project, onSaved }: { project: Project; onSaved: (p: Pr
             Save
           </Button>
         </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Who can see this project. Access is managed on the Users page. */
+function PeopleCard({ project }: { project: Project }) {
+  const { isAdmin } = usePermissions();
+  const [people, setPeople] = useState<ProjectPerson[] | null>(null);
+  useEffect(() => {
+    void api.projectPeople(project.id).then(setPeople);
+  }, [project.id]);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>People</CardTitle>
+        <CardDescription>
+          Who can open this project in mcp-forge. Admins see every project.{" "}
+          {isAdmin ? (
+            <a href={href.users()} className="underline underline-offset-2">
+              Manage access on the Users page.
+            </a>
+          ) : (
+            "An admin manages access."
+          )}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {people && (
+          <ul className="divide-y rounded-xl border">
+            {people.map((p) => (
+              <li key={p.user.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                <span className="font-medium">{p.user.username}</span>
+                <span className="text-xs text-muted-foreground">
+                  {p.access === null ? "Admin" : p.access === "write" ? "Can change" : "Can view"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </CardContent>
     </Card>
   );

@@ -22,7 +22,7 @@ pub use calls::{CallFilter, CallStat, MAX_CALL_PAGE};
 pub use mcp_oauth::{IssuedTokens, OAuthClient, OAuthGrant, ACCESS_PREFIX, REFRESH_PREFIX};
 pub use oauth::{OAuthStatus, OAuthToken};
 pub use specs::{NewSpec, ReimportResult, SpecRecord};
-pub use users::{Backoff, Session, User};
+pub use users::{Access, Backoff, ProjectPerson, Role, Session, User};
 
 use std::path::{Path, PathBuf};
 use std::str::FromStr;

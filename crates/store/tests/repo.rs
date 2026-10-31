@@ -746,6 +746,12 @@ async fn sessions_follow_their_user() {
     assert!(s.find_session("tok-a").await.unwrap().is_none());
 
     s.create_session("tok-c", u.id).await.unwrap();
+    // The last admin can't be removed; with a second one, alice can.
+    assert!(matches!(
+        s.delete_user("Alice").await,
+        Err(StoreError::Conflict(_))
+    ));
+    s.create_user("bob", "h").await.unwrap();
     s.delete_user("Alice").await.unwrap();
     assert!(s.find_session("tok-c").await.unwrap().is_none());
     assert!(matches!(
