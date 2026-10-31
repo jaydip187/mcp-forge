@@ -1289,6 +1289,7 @@ dependencies = [
  "forge-exec-http",
  "forge-exec-sql",
  "forge-store",
+ "http",
  "rmcp",
  "serde",
  "serde_json",

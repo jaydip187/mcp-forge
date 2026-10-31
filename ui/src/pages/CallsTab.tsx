@@ -37,7 +37,8 @@ const WINDOWS: { value: CallWindow; label: string }[] = [
 ];
 
 function origin(c: CallEntry): string {
-  return c.origin === "mcp" ? (c.client ?? "agent") : `test console${c.client ? ` · ${c.client}` : ""}`;
+  if (c.origin === "console") return `test console${c.client ? ` · ${c.client}` : ""}`;
+  return `${c.client ?? "agent"}${c.api_key ? ` · key ${c.api_key}` : ""}`;
 }
 
 /** Every tool call, from agents and the test console: a summary, then the calls themselves. */

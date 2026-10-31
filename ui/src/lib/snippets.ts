@@ -8,15 +8,21 @@ export interface Snippet {
 }
 
 const TOKEN_PLACEHOLDER = "<your-admin-token>";
+const KEY_PLACEHOLDER = "<your-access-key>";
 
 /** Single quotes are literal in both POSIX shells and PowerShell, so Windows paths survive as-is. */
 function shellQuote(s: string): string {
   return /^[A-Za-z0-9_./:@=-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
 }
 
-/** Client configuration snippets for one project. Never embeds the real token. */
-export function buildSnippets(slug: string, mcpUrl: string, info: ServerInfo): Snippet[] {
-  const headers = info.auth_required ? { Authorization: `Bearer ${TOKEN_PLACEHOLDER}` } : undefined;
+/**
+ * Client configuration snippets for one project. Never embeds a real token
+ * or key. With `useKey` (the project has access keys or requires one) the
+ * HTTP snippets carry an access-key placeholder.
+ */
+export function buildSnippets(slug: string, mcpUrl: string, info: ServerInfo, useKey = false): Snippet[] {
+  const placeholder = useKey ? KEY_PLACEHOLDER : TOKEN_PLACEHOLDER;
+  const headers = info.auth_required || useKey ? { Authorization: `Bearer ${placeholder}` } : undefined;
   const exe = info.exe ?? "mcp-forge";
   const stdioArgs = ["stdio", "--project", slug, ...(info.data_dir ? ["--data-dir", info.data_dir] : [])];
 
@@ -29,7 +35,7 @@ export function buildSnippets(slug: string, mcpUrl: string, info: ServerInfo): S
     "claude mcp add --transport http",
     shellQuote(slug),
     shellQuote(mcpUrl),
-    ...(headers ? ["--header", shellQuote(`Authorization: Bearer ${TOKEN_PLACEHOLDER}`)] : []),
+    ...(headers ? ["--header", shellQuote(`Authorization: Bearer ${placeholder}`)] : []),
   ].join(" ");
   const claudeStdio = ["claude mcp add", shellQuote(slug), "--", shellQuote(exe), ...stdioArgs.map(shellQuote)].join(" ");
 

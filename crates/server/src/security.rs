@@ -79,7 +79,10 @@ pub async fn guard(State(state): State<AppState>, mut req: Request, next: Next) 
     if bearer_ok {
         return next.run(req).await;
     }
-    if is_mcp || !sec.require_login {
+    if is_mcp {
+        return mcp_access(&state, req, next).await;
+    }
+    if !sec.require_login {
         if sec.admin_token.is_some() {
             return unauthorized_token();
         }
@@ -115,6 +118,86 @@ pub async fn guard(State(state): State<AppState>, mut req: Request, next: Next) 
             )
         }
     }
+}
+
+/// `/mcp/{slug}` without the admin token: an access key for that project
+/// lets the request in (with its tool list attached); without one, the
+/// project must not require a key and the server must not require the
+/// admin token.
+async fn mcp_access(state: &AppState, mut req: Request, next: Next) -> Response {
+    let slug = req
+        .uri()
+        .path()
+        .strip_prefix("/mcp/")
+        .unwrap_or("")
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .to_owned();
+    let bearer = req
+        .headers()
+        .get(AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .map(str::to_owned);
+    let project = match state.store.get_project_by_slug(&slug).await {
+        Ok(p) => Some(p),
+        Err(forge_store::StoreError::NotFound(_)) => None,
+        Err(e) => {
+            tracing::error!(error = %e, "resolving MCP project");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                "internal error; see server logs",
+            );
+        }
+    };
+    if let Some(secret) = bearer
+        .as_deref()
+        .filter(|b| b.starts_with(forge_store::KEY_PREFIX))
+    {
+        let key = match state.store.find_api_key(secret).await {
+            Ok(k) => k,
+            Err(e) => {
+                tracing::error!(error = %e, "looking up access key");
+                return error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal",
+                    "internal error; see server logs",
+                );
+            }
+        };
+        return match (key, project) {
+            (Some(k), Some(p)) if k.project_id == p.id && !k.expired(chrono::Utc::now()) => {
+                req.extensions_mut().insert(forge_mcp::KeyScope {
+                    name: k.name,
+                    tools: k.tools,
+                });
+                next.run(req).await
+            }
+            (Some(k), Some(p)) if k.project_id == p.id => {
+                unauthorized_key("this access key has expired")
+            }
+            _ => unauthorized_key("unknown access key, or a key for another project"),
+        };
+    }
+    if state.security.admin_token.is_some() {
+        return unauthorized_token();
+    }
+    if project.is_some_and(|p| p.settings.require_key) {
+        return unauthorized_key(
+            "this project needs an access key (send `Authorization: Bearer mcpf_…`)",
+        );
+    }
+    // Unknown slugs fall through to the handler's 404.
+    next.run(req).await
+}
+
+fn unauthorized_key(message: &str) -> Response {
+    let mut resp = error(StatusCode::UNAUTHORIZED, "unauthorized", message);
+    resp.headers_mut()
+        .insert(WWW_AUTHENTICATE, "Bearer".parse().expect("static header"));
+    resp
 }
 
 fn unauthorized_token() -> Response {

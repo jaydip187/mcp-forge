@@ -1,4 +1,6 @@
 import type {
+  ApiKey,
+  ApiKeyInput,
   AuditEntry,
   CallEntry,
   CallFilter,
@@ -180,6 +182,10 @@ export const api = {
     request<AuthConfig>("PUT", `${p(pid)}/auth-configs/${id}`, input),
   deleteAuth: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/auth-configs/${id}`),
 
+  listKeys: (pid: string) => request<ApiKey[]>("GET", `${p(pid)}/api-keys`),
+  createKey: (pid: string, input: ApiKeyInput) =>
+    request<{ key: ApiKey; secret: string }>("POST", `${p(pid)}/api-keys`, input),
+  deleteKey: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/api-keys/${id}`),
   oauthStatus: (pid: string) => request<OAuthStatus[]>("GET", `${p(pid)}/oauth`),
   oauthStart: (pid: string, id: string) =>
     request<{ authorize_url: string; redirect_uri: string }>("POST", `${p(pid)}/auth-configs/${id}/oauth/start`, {}),

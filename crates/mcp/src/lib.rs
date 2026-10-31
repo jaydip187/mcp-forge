@@ -125,8 +125,13 @@ impl ForgeMcp {
             .settings)
     }
 
-    /// Enabled tools that pass the project's filters.
-    async fn exposed_tools(&self, settings: &ProjectSettings) -> Result<Vec<ToolDef>, ErrorData> {
+    /// Enabled tools that pass the project's filters and the access key's
+    /// tool list.
+    async fn exposed_tools(
+        &self,
+        settings: &ProjectSettings,
+        key: Option<&KeyScope>,
+    ) -> Result<Vec<ToolDef>, ErrorData> {
         let tools = self
             .store
             .list_tools(self.project_id)
@@ -135,7 +140,7 @@ impl ForgeMcp {
         let conns = self.connections().await?;
         Ok(tools
             .into_iter()
-            .filter(|t| exposed(settings, t, &conns))
+            .filter(|t| exposed(settings, t, &conns) && key.is_none_or(|k| k.allows(&t.name)))
             .collect())
     }
 
@@ -162,7 +167,7 @@ impl ForgeMcp {
     ) -> Result<CallToolResult, ErrorData> {
         let conns = self.connections().await?;
         let tool = match self.store.get_tool_by_name(self.project_id, name).await {
-            Ok(t) if exposed(settings, &t, &conns) => t,
+            Ok(t) if exposed(settings, &t, &conns) && caller.allows(&t.name) => t,
             Ok(_) | Err(StoreError::NotFound(_)) => {
                 let entry = CallEntry {
                     id: Uuid::new_v4(),
@@ -179,6 +184,7 @@ impl ForgeMcp {
                     upstream_status: None,
                     error: Some(format!("unknown tool `{name}`")),
                     approval: None,
+                    api_key: caller.key_name(),
                 };
                 log_call(&self.store, settings, &entry).await;
                 return Err(ErrorData::invalid_params(
@@ -211,6 +217,7 @@ impl ForgeMcp {
                         upstream_status: None,
                         error: Some(logged_error(&text)),
                         approval: Some(record),
+                        api_key: caller.key_name(),
                     };
                     log_call(&self.store, settings, &entry).await;
                     return Ok(result(true, text));
@@ -368,6 +375,7 @@ impl ForgeMcp {
         &self,
         args: &Map<String, Value>,
         settings: &ProjectSettings,
+        key: Option<&KeyScope>,
     ) -> Result<CallToolResult, ErrorData> {
         let Some(query) = args.get("query").and_then(Value::as_str) else {
             return Ok(result(
@@ -381,7 +389,7 @@ impl ForgeMcp {
             .map_or(DEFAULT_SEARCH_LIMIT, |l| {
                 (l as usize).clamp(1, MAX_SEARCH_LIMIT)
             });
-        let tools = self.exposed_tools(settings).await?;
+        let tools = self.exposed_tools(settings, key).await?;
         let conns = self.connections().await?;
         let hits = search_tools(&tools, query, limit);
         if hits.is_empty() {
@@ -546,6 +554,33 @@ pub struct Caller {
     pub client: Option<String>,
     /// Set once a person approved the call.
     pub approval: Option<ApprovalRecord>,
+    /// The access key the call came in with (HTTP only).
+    pub key: Option<KeyScope>,
+}
+
+/// What an access key lets a connection see and call. The server attaches
+/// it to each `/mcp` request (as an extension of the HTTP request).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyScope {
+    pub name: String,
+    /// `None` = every tool agents can see.
+    pub tools: Option<Vec<String>>,
+}
+
+impl KeyScope {
+    pub fn allows(&self, tool: &str) -> bool {
+        self.tools
+            .as_ref()
+            .is_none_or(|t| t.iter().any(|n| n == tool))
+    }
+
+    /// The scope of the HTTP request behind an MCP request, if any.
+    fn of(ext: &rmcp::model::Extensions) -> Option<Self> {
+        ext.get::<http::request::Parts>()?
+            .extensions
+            .get::<KeyScope>()
+            .cloned()
+    }
 }
 
 impl Caller {
@@ -554,7 +589,17 @@ impl Caller {
             origin: "mcp",
             client,
             approval: None,
+            key: None,
         }
+    }
+
+    /// Whether the caller's access key (if any) allows `tool`.
+    pub fn allows(&self, tool: &str) -> bool {
+        self.key.as_ref().is_none_or(|k| k.allows(tool))
+    }
+
+    pub fn key_name(&self) -> Option<String> {
+        self.key.as_ref().map(|k| k.name.clone())
     }
 
     pub fn console(user: Option<String>) -> Self {
@@ -562,6 +607,7 @@ impl Caller {
             origin: "console",
             client: user,
             approval: None,
+            key: None,
         }
     }
 }
@@ -623,6 +669,7 @@ pub async fn run_tool(
         },
         error: run.is_error.then(|| logged_error(&run.text)),
         approval: caller.approval.clone(),
+        api_key: caller.key_name(),
     };
     log_call(store, settings, &entry).await;
     Ok(run)
@@ -1001,13 +1048,14 @@ impl ServerHandler for ForgeMcp {
     async fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
+        let key = KeyScope::of(&context.extensions);
         let settings = self.settings().await?;
         if settings.tool_search {
             return Ok(ListToolsResult::with_all_items(search_tool_defs()));
         }
-        let tools = self.exposed_tools(&settings).await?;
+        let tools = self.exposed_tools(&settings, key.as_ref()).await?;
         let conns = self.connections().await?;
         Ok(ListToolsResult::with_all_items(
             tools
@@ -1029,13 +1077,14 @@ impl ServerHandler for ForgeMcp {
             .client_info()
             .or_else(|| context.peer.peer_info().map(|i| i.client_info.clone()))
             .map(|c| format!("{} {}", c.name, c.version));
-        let caller = Caller::mcp(client);
+        let mut caller = Caller::mcp(client);
+        caller.key = KeyScope::of(&context.extensions);
         let (peer, ct) = (&context.peer, &context.ct);
         let args = request.arguments.unwrap_or_default();
         let settings = self.settings().await?;
         let name: &str = request.name.as_ref();
         let res = if settings.tool_search && name == SEARCH_TOOL {
-            self.search(&args, &settings).await
+            self.search(&args, &settings, caller.key.as_ref()).await
         } else if settings.tool_search && name == CALL_TOOL {
             match args.get("name").and_then(Value::as_str) {
                 None => Ok(result(
