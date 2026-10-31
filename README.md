@@ -169,6 +169,23 @@ SHA-256. Clients send it as `Authorization: Bearer mcpf_…`; deleting the key c
 - The Calls tab shows which key each call came in with, and the key list shows when each was last
   used.
 
+### Sign-in for apps (claude.ai connectors and others)
+
+Apps that support MCP's sign-in (OAuth 2.1), such as claude.ai custom connectors or MCP Inspector,
+need only the project URL (`https://your-host/mcp/<project>`). On first connect they open a page on
+mcp-forge where you sign in and **Allow** the app for that one project. Behind the scenes:
+
+- `/mcp` answers 401 with a pointer to `/.well-known/oauth-protected-resource/mcp/<project>`, which
+  names mcp-forge itself as the authorization server (`/.well-known/oauth-authorization-server`).
+- Apps register themselves (`/oauth/register`), then use authorization code + PKCE (S256 only)
+  against `/oauth/authorize` and `/oauth/token`. Access tokens last an hour; refresh tokens 30 days
+  and are replaced on every use. `/oauth/revoke` revokes. Only hashes of tokens are stored.
+- A sign-in covers one project and every tool agents can see in it; tools that require approval
+  still wait. **Connect → Connected apps** lists who approved what and disconnects apps.
+- The app has to reach the server, so this is for servers behind an HTTPS reverse proxy (start
+  with `--admin-token`, and have the proxy send `X-Forwarded-Proto: https`). Addresses in the
+  metadata come from the request's `Host` header.
+
 Tool changes are pushed to connected clients (`notifications/tools/list_changed`), so you can keep
 editing while an agent is connected.
 

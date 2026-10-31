@@ -371,3 +371,9 @@ describe("oauth auth configs", () => {
     ).toBe("OAuth2 client credentials from auth.example.com");
   });
 });
+
+describe("consent route", () => {
+  it("parses the OAuth consent page", () => {
+    expect(parseRoute("#/oauth/consent/abc_123")).toEqual({ name: "consent", requestId: "abc_123" });
+  });
+});

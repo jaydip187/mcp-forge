@@ -23,6 +23,26 @@ export interface ProjectSettings {
   require_key: boolean;
 }
 
+/** What the consent page shows about an app asking to connect. */
+export interface ConsentInfo {
+  client_name: string;
+  redirect_host: string;
+  project: { id: string; name: string; slug: string };
+}
+
+/** An app connected through sign-in (OAuth), as listed on the Connect tab. */
+export interface ConnectedApp {
+  id: string;
+  client_id: string;
+  client_name: string;
+  project_id: string;
+  approved_by: string | null;
+  created_at: string;
+  last_used_at: string | null;
+  access_expires_at: string;
+  refresh_expires_at: string;
+}
+
 /** An access key for a project's /mcp endpoint (never the key itself). */
 export interface ApiKey {
   id: string;
