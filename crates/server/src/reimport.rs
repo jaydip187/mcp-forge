@@ -222,7 +222,8 @@ async fn preview(
         req.auth_ref,
     )
     .await?;
-    let imported = run_import(&inp.content, inp.base_url.clone(), inp.source_url.clone())?;
+    let (imported, converted) =
+        run_import(&inp.content, inp.base_url.clone(), inp.source_url.clone())?;
     let (mine, others) = other_tool_names(&s, project_id, spec_id).await?;
     let p = plan(&imported, mine, others, inp.auth_ref);
 
@@ -251,7 +252,7 @@ async fn preview(
         "removed": p.removed.iter().map(|t| json!({
             "tool_id": t.id, "name": t.name, "op_id": t.source.op_id(),
         })).collect::<Vec<_>>(),
-        "content": inp.fetched.then_some(&inp.content),
+        "content": converted.as_ref().or(inp.fetched.then_some(&inp.content)),
         "source_url": inp.source_url,
     })))
 }
@@ -296,7 +297,8 @@ async fn commit(
         // Content fetched in the preview comes back here with its URL.
         inp.source_url = req.source_url.clone();
     }
-    let imported = run_import(&inp.content, inp.base_url.clone(), inp.source_url.clone())?;
+    let (imported, converted) =
+        run_import(&inp.content, inp.base_url.clone(), inp.source_url.clone())?;
     let (mine, others) = other_tool_names(&s, project_id, spec_id).await?;
     let p = plan(&imported, mine, others, inp.auth_ref);
 
@@ -355,7 +357,7 @@ async fn commit(
         } else {
             inp.spec.filename.clone()
         },
-        raw: inp.content,
+        raw: converted.unwrap_or(inp.content),
         options: json!({ "base_url": inp.base_url, "auth_ref": inp.auth_ref }),
     };
     let (record, result) = s

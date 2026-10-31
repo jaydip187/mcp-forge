@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCanWrite } from "@/lib/permissions";
 import { href } from "@/lib/router";
+import { specKindLabel } from "@/lib/specKind";
 import type { SpecRecord, Tool } from "@/types";
 
 export function SpecsTab({ projectId }: { projectId: string }) {
@@ -62,7 +63,7 @@ export function SpecsTab({ projectId }: { projectId: string }) {
                     {s.title} {s.version && <span className="font-normal text-muted-foreground">v{s.version}</span>}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {s.kind === "swagger2" ? "Swagger 2.0" : "OpenAPI 3"}, {count} {count === 1 ? "tool" : "tools"}.{" "}
+                    {specKindLabel(s.kind)}, {count} {count === 1 ? "tool" : "tools"}.{" "}
                     {s.updated_at
                       ? `Re-imported ${new Date(s.updated_at).toLocaleString()}.`
                       : `Imported ${new Date(s.created_at).toLocaleString()}.`}

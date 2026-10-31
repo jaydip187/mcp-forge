@@ -73,7 +73,7 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
         <div className="flex flex-wrap gap-2">
           <Button asChild variant="outline">
             <a href={href.import(projectId)}>
-              <FileJsonIcon /> Import API spec
+              <FileJsonIcon /> Import
             </a>
           </Button>
           <Button asChild variant="outline">
@@ -107,7 +107,7 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
               <a href={href.tool(projectId, null)}>Create the first tool</a>
             </Button>
             <Button asChild variant="outline">
-              <a href={href.import(projectId)}>Import from an API spec</a>
+              <a href={href.import(projectId)}>Import from a spec, Postman, HAR or curl</a>
             </Button>
             <Button asChild variant="outline">
               <a href={href.tool(projectId, null, "sql")}>Add a SQL query</a>

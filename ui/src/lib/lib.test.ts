@@ -383,3 +383,14 @@ describe("users route", () => {
     expect(parseRoute("#/users")).toEqual({ name: "users" });
   });
 });
+
+describe("spec kinds", () => {
+  it("labels every import format", async () => {
+    const { specKindLabel } = await import("./specKind");
+    expect(specKindLabel("openapi3", "3.1.0")).toBe("OpenAPI 3.1.0");
+    expect(specKindLabel("swagger2")).toBe("Swagger 2.0");
+    expect(specKindLabel("postman")).toBe("Postman collection");
+    expect(specKindLabel("har")).toBe("HAR capture");
+    expect(specKindLabel("curl")).toBe("curl commands");
+  });
+});

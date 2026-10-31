@@ -166,7 +166,7 @@ function Breadcrumbs({ route }: { route: Route }) {
         crumbs.push({ label: route.toolId ? "Edit tool" : route.kind === "sql" ? "New SQL tool" : "New HTTP tool" });
         break;
       case "import":
-        crumbs.push({ label: "Import spec" });
+        crumbs.push({ label: "Import" });
         break;
       case "reimport":
         crumbs.push({ label: "Specs", href: href.project(route.projectId, "specs") });

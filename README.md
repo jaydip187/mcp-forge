@@ -3,8 +3,8 @@
 Turn HTTP APIs and SQL databases into **curated MCP tools** for Claude and other AI agents, from one
 self-hosted binary with a web UI.
 
-- **HTTP APIs**: describe requests by hand, or import an OpenAPI 3.x / Swagger 2.0 spec, then rename,
-  trim and reshape what agents see (jq).
+- **HTTP APIs**: describe requests by hand, or import an OpenAPI 3.x / Swagger 2.0 spec, a Postman
+  collection, a HAR file or curl commands, then rename, trim and reshape what agents see (jq).
 - **Databases** (SQLite, PostgreSQL, MySQL): saved queries with typed parameters, optional schema
   exploration and agent-written SQL, all read-only by default, with writes as a deliberate opt-in.
 - **Safe by default**: listens on localhost only, stores secrets as references (never values), and
@@ -103,8 +103,27 @@ Leave the path field: `owner` and `repo` appear as required parameters. Optional
 Click **Create tool**, then try it in the **Test console** on the right (`owner` = `rust-lang`,
 `repo` = `rust`). *Agent sees* is exactly what an agent will get back.
 
-> Have an OpenAPI or Swagger spec? Use **Import API spec** on the Tools tab instead: paste a URL or
-> upload a file, filter the operations, and import the ones you want.
+> Have an OpenAPI or Swagger spec, a Postman collection, a HAR file or a few curl commands? Use
+> **Import** on the Tools tab instead: upload a file, paste text or give a URL, filter the
+> operations, and import the ones you want.
+
+### Importing Postman, HAR and curl
+
+These are converted to an OpenAPI document first, then imported like a spec (preview, filters,
+base URL, auth, re-import):
+
+- **Postman collections** (v2.0/v2.1): folders become tags, request names become tool names,
+  collection variables with values are filled in (`{{baseUrl}}`), `:id` and unresolved
+  `{{var}}` path segments become parameters, and auth blocks become suggested auth.
+- **HAR files** (browser dev tools → Network → *Save all as HAR*): only API calls are kept (JSON
+  responses, or anything but GET); repeats of the same endpoint merge, and id-like path segments
+  (`/users/42`, UUIDs) become parameters.
+- **curl commands**: paste one or several (bash `\`, cmd `^` and PowerShell `` ` `` line breaks
+  work). `-X`, `-H`, `-d`/`--data*`, `--json`, `-G`, `-u` and `-F` are understood.
+
+What never carries over: cookies, `Authorization` and other secret-looking headers or query keys
+(they become suggested auth configs instead), and example values from request bodies (only their
+shape is kept). mcp-forge stores the converted document, not your original file.
 
 ### 4. Connect Claude
 
