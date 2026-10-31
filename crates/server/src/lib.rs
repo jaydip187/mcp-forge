@@ -1,6 +1,7 @@
 //! axum application: REST API, UI and MCP endpoints.
 
 pub mod api;
+mod api_keys;
 mod approvals;
 mod assets;
 pub mod bundle;
@@ -92,6 +93,7 @@ pub fn app(state: AppState) -> Router {
                 .merge(calls::router())
                 .merge(approvals::router())
                 .merge(oauth::api_router())
+                .merge(api_keys::router())
                 .merge(login::router()),
         )
         .route("/mcp/{slug}", any(mcp_http::handle))

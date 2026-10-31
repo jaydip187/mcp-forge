@@ -215,7 +215,9 @@ function CurationCard({ project, onSaved }: { project: Project; onSaved: (p: Pro
   const [toolSearch, setToolSearch] = useState(st.tool_search);
   const [err, setErr] = useState<unknown>(null);
 
+  // Starts from the saved settings so fields owned by other cards are kept.
   const next: ProjectSettings = {
+    ...st,
     read_only: readOnly,
     include_tags: splitTags(includeTags),
     exclude_tags: splitTags(excludeTags),
@@ -224,8 +226,6 @@ function CurationCard({ project, onSaved }: { project: Project; onSaved: (p: Pro
     strip_nulls: stripNulls,
     max_response_chars: Number(maxChars),
     tool_search: toolSearch,
-    call_log_days: st.call_log_days,
-    approval_timeout_secs: st.approval_timeout_secs,
   };
   const dirty = JSON.stringify(next) !== JSON.stringify(st);
 

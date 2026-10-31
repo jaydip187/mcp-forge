@@ -20,6 +20,28 @@ export interface ProjectSettings {
   tool_search: boolean;
   call_log_days: number;
   approval_timeout_secs: number;
+  require_key: boolean;
+}
+
+/** An access key for a project's /mcp endpoint (never the key itself). */
+export interface ApiKey {
+  id: string;
+  project_id: string;
+  name: string;
+  /** First characters of the key, to tell keys apart. */
+  prefix: string;
+  /** Allowed tools; null = all tools agents can see. */
+  tools: string[] | null;
+  expires_at: string | null;
+  created_at: string;
+  created_by: string | null;
+  last_used_at: string | null;
+}
+
+export interface ApiKeyInput {
+  name: string;
+  tools: string[] | null;
+  expires_at: string | null;
 }
 
 export interface Project {
@@ -382,6 +404,7 @@ export interface CallEntry {
   upstream_status: number | null;
   error: string | null;
   approval: ApprovalRecord | null;
+  api_key: string | null;
 }
 
 export type CallWindow = "24h" | "7d" | "30d";

@@ -102,7 +102,7 @@ export function ProjectPage({ projectId, tab, info }: { projectId: string; tab: 
         {tab === "databases" && <DatabasesTab projectId={project.id} />}
         {tab === "calls" && <CallsTab projectId={project.id} />}
         {tab === "audit" && <AuditTab projectId={project.id} />}
-        {tab === "connect" && <ConnectTab project={project} info={info} />}
+        {tab === "connect" && <ConnectTab project={project} info={info} onSaved={setProject} />}
         {tab === "settings" && <SettingsTab project={project} onSaved={setProject} />}
       </div>
     </div>

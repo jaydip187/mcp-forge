@@ -155,6 +155,20 @@ The JSON form works for Claude Desktop (`claude_desktop_config.json`), `.mcp.jso
 other MCP clients. If you started the server with an admin token, HTTP clients must also send
 `Authorization: Bearer <token>` (the Connect tab adds the header for you).
 
+### Access keys
+
+Rather than sharing the admin token, give each client or teammate its own key: **Connect → Access
+keys → New key**. A key belongs to one project, can be limited to some of its tools, and can
+expire (30 days, 90 days, a year, or never). It's shown once (`mcpf_…`); mcp-forge keeps only its
+SHA-256. Clients send it as `Authorization: Bearer mcpf_…`; deleting the key cuts them off.
+
+- On a server that listens on the network, a project key is accepted on that project's `/mcp`
+  instead of the admin token.
+- On localhost, `/mcp` stays open unless you switch on **Require a key on this machine too**.
+- A key limited to some tools only lists and calls those; others look like unknown tools.
+- The Calls tab shows which key each call came in with, and the key list shows when each was last
+  used.
+
 Tool changes are pushed to connected clients (`notifications/tools/list_changed`), so you can keep
 editing while an agent is connected.
 
@@ -300,8 +314,8 @@ mcp-forge gives AI agents real access to your APIs and data, so it is built to f
 - Listens on `127.0.0.1:7410` by default. Requests must carry a loopback `Host` header, which blocks
   DNS-rebinding attacks from web pages you visit.
 - Listening on any other address (`--bind 0.0.0.0:7410`) requires an admin token (16+ characters,
-  `MCP_FORGE_ADMIN_TOKEN` or `--admin-token`). MCP clients must send it on `/mcp`; scripts may send
-  it on `/api` instead of signing in. `/healthz` stays open. Put TLS in front (a reverse proxy) if the
+  `MCP_FORGE_ADMIN_TOKEN` or `--admin-token`). MCP clients must send it (or a project's
+  [access key](#access-keys)) on `/mcp`; scripts may send it on `/api` instead of signing in. `/healthz` stays open. Put TLS in front (a reverse proxy) if the
   server is reachable from other machines.
 
 **Accounts** (web UI and `/api`)
@@ -320,8 +334,8 @@ mcp-forge gives AI agents real access to your APIs and data, so it is built to f
   keep separate sign-ins.
 - State-changing API calls with the cookie must carry an `X-Mcp-Forge` header, which other web
   pages can't add without a CORS preflight that the server never grants.
-- `/mcp` and stdio are unchanged: MCP clients can't sign in, so `/mcp` stays open on loopback and
-  needs the admin token elsewhere.
+- MCP clients can't sign in: `/mcp` stays open on loopback (unless the project requires an access
+  key) and needs the admin token or a project access key elsewhere. stdio is unaffected.
 
 **Secrets**: references only (see [Secrets](#secrets)); raw values are refused, redacted in output,
 and never exported.

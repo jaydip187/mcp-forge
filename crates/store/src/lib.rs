@@ -1,6 +1,7 @@
 //! SQLite-backed store for projects, tools, auth configs, DB connections and
 //! UI accounts.
 
+mod api_keys;
 mod audit;
 mod auth;
 mod bundle;
@@ -13,6 +14,7 @@ mod specs;
 mod tools;
 mod users;
 
+pub use api_keys::{key_hash, ApiKey, ApiKeyInput, KEY_PREFIX};
 pub use audit::MAX_AUDIT_PAGE;
 pub use bundle::{BundleReport, BundleTool, ConflictPolicy};
 pub use calls::{CallFilter, CallStat, MAX_CALL_PAGE};

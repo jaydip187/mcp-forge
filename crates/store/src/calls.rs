@@ -47,6 +47,7 @@ struct CallRow {
     approval: Option<String>,
     approved_by: Option<String>,
     approval_wait_ms: Option<i64>,
+    api_key: Option<String>,
 }
 
 impl TryFrom<CallRow> for CallEntry {
@@ -76,18 +77,19 @@ impl TryFrom<CallRow> for CallEntry {
                     decided_by: r.approved_by,
                     wait_ms: r.approval_wait_ms.unwrap_or(0).max(0) as u64,
                 }),
+            api_key: r.api_key,
         })
     }
 }
 
 const COLUMNS: &str = "id, project_id, ts, tool_id, tool_name, origin, client, arguments, status, \
                        duration_ms, response_chars, upstream_status, error, approval, approved_by, \
-                       approval_wait_ms";
+                       approval_wait_ms, api_key";
 
 impl Store {
     pub async fn append_call(&self, e: &CallEntry) -> Result<(), StoreError> {
         sqlx::query(&format!(
-            "INSERT INTO call_log ({COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO call_log ({COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ))
         .bind(e.id.to_string())
         .bind(e.project_id.to_string())
@@ -109,6 +111,7 @@ impl Store {
                 .as_ref()
                 .map(|a| i64::try_from(a.wait_ms).unwrap_or(i64::MAX)),
         )
+        .bind(&e.api_key)
         .execute(&self.pool)
         .await?;
         Ok(())

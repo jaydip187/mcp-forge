@@ -846,6 +846,7 @@ fn call(
         upstream_status: Some(200),
         error: None,
         approval: None,
+        api_key: None,
     }
 }
 
@@ -1033,4 +1034,67 @@ async fn oauth_tokens_are_encrypted_and_follow_their_config() {
         s.get_oauth_token(cfg.id).await.unwrap().is_none(),
         "cascade"
     );
+}
+
+#[tokio::test]
+async fn api_keys_are_hashed_and_scoped() {
+    use forge_store::{key_hash, ApiKeyInput};
+    let s = store().await;
+    let p = s.create_project(&project("Keys")).await.unwrap();
+    let input = ApiKeyInput {
+        name: "ci".into(),
+        tools: Some(vec!["read_a".into()]),
+        expires_at: None,
+    };
+    let (key, secret) = s.create_api_key(p.id, &input, Some("alice")).await.unwrap();
+    assert!(secret.starts_with("mcpf_") && secret.len() == 5 + 43);
+    assert!(secret.starts_with(&key.prefix));
+    assert!(key.allows("read_a") && !key.allows("read_b"));
+
+    // Only the hash is stored.
+    let (stored,): (String,) = sqlx::query_as("SELECT key_hash FROM api_keys")
+        .fetch_one(s.pool())
+        .await
+        .unwrap();
+    assert_eq!(stored, key_hash(&secret));
+    assert!(!stored.contains(&secret[5..]));
+
+    let found = s.find_api_key(&secret).await.unwrap().unwrap();
+    assert_eq!(found.id, key.id);
+    assert!(s.find_api_key("mcpf_nope").await.unwrap().is_none());
+    assert!(s.find_api_key("not-a-key").await.unwrap().is_none());
+    assert!(
+        s.list_api_keys(p.id).await.unwrap()[0]
+            .last_used_at
+            .is_some(),
+        "use recorded"
+    );
+
+    assert!(matches!(
+        s.create_api_key(p.id, &input, None).await,
+        Err(StoreError::Conflict(_))
+    ));
+    let soon = chrono::Utc::now() + chrono::Duration::hours(1);
+    let (exp, _) = s
+        .create_api_key(
+            p.id,
+            &ApiKeyInput {
+                name: "temp".into(),
+                tools: None,
+                expires_at: Some(soon),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(!exp.expired(chrono::Utc::now()) && exp.expired(soon));
+    assert!(exp.allows("anything"));
+
+    s.delete_api_key(p.id, key.id).await.unwrap();
+    assert!(s.find_api_key(&secret).await.unwrap().is_none());
+    assert!(matches!(
+        s.delete_api_key(p.id, key.id).await,
+        Err(StoreError::NotFound(_))
+    ));
+    s.delete_project(p.id).await.unwrap();
 }

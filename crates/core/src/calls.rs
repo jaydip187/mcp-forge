@@ -118,6 +118,9 @@ pub struct CallEntry {
     /// Set when the tool needed approval.
     #[serde(default)]
     pub approval: Option<ApprovalRecord>,
+    /// Name of the access key the call came in with.
+    #[serde(default)]
+    pub api_key: Option<String>,
 }
 
 /// Whether an argument name looks like it holds a secret.

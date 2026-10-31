@@ -116,6 +116,15 @@ describe("snippets", () => {
     expect(JSON.parse(http.code).mcpServers.demo.headers).toEqual({ Authorization: "Bearer <your-admin-token>" });
     expect(s.find((x) => x.id === "claude-http")!.code).toContain("--header");
   });
+
+  it("uses an access-key placeholder when the project has keys", () => {
+    const s = buildSnippets("demo", "http://h/mcp/demo", info, true);
+    expect(JSON.parse(s.find((x) => x.id === "json-http")!.code).mcpServers.demo.headers).toEqual({
+      Authorization: "Bearer <your-access-key>",
+    });
+    expect(s.find((x) => x.id === "claude-http")!.code).toContain("'Authorization: Bearer <your-access-key>'");
+    expect(s.find((x) => x.id === "json-stdio")!.code).not.toContain("access-key");
+  });
 });
 
 describe("toolForm", () => {
@@ -199,6 +208,7 @@ describe("visibility", () => {
     tool_search: false,
     call_log_days: 30,
     approval_timeout_secs: 300,
+    require_key: false,
     ...s,
   });
   const tool = (method: string, path: string, tags: string[], enabled = true) =>
