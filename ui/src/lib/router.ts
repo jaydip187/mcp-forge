@@ -5,6 +5,7 @@ export type Route =
   | { name: "home" }
   | { name: "approvals" }
   | { name: "consent"; requestId: string }
+  | { name: "users" }
   | { name: "project"; projectId: string; tab: ProjectTab }
   | { name: "tool"; projectId: string; toolId: string | null; kind: "http" | "sql" }
   | { name: "import"; projectId: string }
@@ -17,6 +18,7 @@ export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   const [a, pid, b, tid, c] = parts;
   if (a === "approvals") return { name: "approvals" };
+  if (a === "users") return { name: "users" };
   if (a === "oauth" && pid === "consent" && b) return { name: "consent", requestId: b };
   if (a === "p" && pid) {
     if (b === "tools" && tid) {
@@ -35,6 +37,7 @@ export function parseRoute(hash: string): Route {
 export const href = {
   home: () => "#/",
   approvals: () => "#/approvals",
+  users: () => "#/users",
   project: (pid: string, tab: ProjectTab = "tools") =>
     tab === "tools" ? `#/p/${encodeURIComponent(pid)}` : `#/p/${encodeURIComponent(pid)}/${tab}`,
   tool: (pid: string, tid: string | null, kind: "http" | "sql" = "http") =>

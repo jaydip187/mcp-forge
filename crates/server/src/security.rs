@@ -23,6 +23,7 @@ use axum::Json;
 use serde_json::json;
 
 use crate::login::{self, CSRF_HEADER};
+use crate::permissions;
 use crate::AppState;
 
 /// Minimum admin token length, so a guessable token can't be used.
@@ -101,8 +102,26 @@ pub async fn guard(State(state): State<AppState>, mut req: Request, next: Next) 
     }
     match login::authenticate(&state.store, state.login.cookie(), req.headers()).await {
         Ok(Some(user)) => {
-            req.extensions_mut().insert(user);
-            next.run(req).await
+            let need = permissions::need(req.method(), path.strip_prefix("/api").unwrap_or(path));
+            match permissions::allowed(&state.store, Some(&user), need).await {
+                Ok(true) => {
+                    req.extensions_mut().insert(user);
+                    next.run(req).await
+                }
+                Ok(false) => error(
+                    StatusCode::FORBIDDEN,
+                    "forbidden",
+                    "your account doesn't have permission for this (ask an admin)",
+                ),
+                Err(e) => {
+                    tracing::error!(error = %e, "permission check failed");
+                    error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "internal",
+                        "internal error; see server logs",
+                    )
+                }
+            }
         }
         Ok(None) => error(
             StatusCode::UNAUTHORIZED,

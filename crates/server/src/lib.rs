@@ -12,8 +12,10 @@ mod import;
 pub mod login;
 mod mcp_http;
 pub mod oauth;
+pub mod permissions;
 mod reimport;
 pub mod security;
+mod users_api;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -99,6 +101,7 @@ pub fn app(state: AppState) -> Router {
                 .merge(oauth::api_router())
                 .merge(api_keys::router())
                 .merge(authz::api_router())
+                .merge(users_api::router())
                 .merge(login::router()),
         )
         .route("/mcp/{slug}", any(mcp_http::handle))

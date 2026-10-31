@@ -279,9 +279,13 @@ export interface SqlTestRun extends TestRunBase {
 
 export type TestRun = HttpTestRun | SqlTestRun;
 
+export type Role = "admin" | "member";
+export type Access = "read" | "write";
+
 export interface User {
   id: string;
   username: string;
+  role: Role;
   created_at: string;
 }
 
@@ -289,6 +293,20 @@ export interface AuthStatus {
   login_required: boolean;
   setup_required: boolean;
   user: User | null;
+  /** Members' per-project access; null for admins. */
+  access: Record<string, Access> | null;
+}
+
+/** An account as the Users page lists it. */
+export interface UserView extends User {
+  access: { project_id: string; access: Access }[];
+}
+
+/** Who can see a project (its People card). */
+export interface ProjectPerson {
+  user: User;
+  /** null for admins. */
+  access: Access | null;
 }
 
 export interface ServerInfo {

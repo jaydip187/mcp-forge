@@ -99,6 +99,8 @@ pub fn router() -> Router<AppState> {
 #[derive(Debug)]
 pub enum ApiError {
     BadRequest(String),
+    /// The signed-in account lacks the permission (Stage 22).
+    Forbidden,
     Store(StoreError),
 }
 
@@ -126,6 +128,10 @@ impl IntoResponse for ApiError {
             ApiError::BadRequest(msg) => (
                 StatusCode::BAD_REQUEST,
                 json!({ "code": "bad_request", "message": msg }),
+            ),
+            ApiError::Forbidden => (
+                StatusCode::FORBIDDEN,
+                json!({ "code": "forbidden", "message": "your account doesn't have permission for this (ask an admin)" }),
             ),
             ApiError::Store(StoreError::NotFound(what)) => (
                 StatusCode::NOT_FOUND,
@@ -169,8 +175,29 @@ type ApiResult<T> = Result<T, ApiError>;
 
 // ---- projects ---------------------------------------------------------------
 
-async fn list_projects(State(s): State<AppState>) -> ApiResult<Json<Vec<Project>>> {
-    Ok(Json(s.store.list_projects().await?))
+/// All projects for admins; members get the ones they have access to.
+async fn list_projects(
+    State(s): State<AppState>,
+    user: Option<Extension<CurrentUser>>,
+) -> ApiResult<Json<Vec<Project>>> {
+    let all = s.store.list_projects().await?;
+    let user = user.map(|Extension(u)| u);
+    if crate::permissions::is_admin(user.as_ref()) {
+        return Ok(Json(all));
+    }
+    let mine: Vec<Uuid> = match &user {
+        Some(u) => s
+            .store
+            .user_access(u.user.id)
+            .await?
+            .into_iter()
+            .map(|(p, _)| p)
+            .collect(),
+        None => vec![],
+    };
+    Ok(Json(
+        all.into_iter().filter(|p| mine.contains(&p.id)).collect(),
+    ))
 }
 
 async fn create_project(

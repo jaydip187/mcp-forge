@@ -377,3 +377,9 @@ describe("consent route", () => {
     expect(parseRoute("#/oauth/consent/abc_123")).toEqual({ name: "consent", requestId: "abc_123" });
   });
 });
+
+describe("users route", () => {
+  it("parses the users page", () => {
+    expect(parseRoute("#/users")).toEqual({ name: "users" });
+  });
+});

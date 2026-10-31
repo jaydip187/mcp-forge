@@ -339,7 +339,15 @@ mcp-forge gives AI agents real access to your APIs and data, so it is built to f
 
 - Signing in is always required, on localhost too. The first account is created with the one-time
   setup code from the server log, so nobody else on the network can claim it first. More accounts,
-  password resets and removal: `mcp-forge user …` on the server.
+  password resets and removal: the **Users** page (admins), or `mcp-forge user …` on the server.
+- **Roles.** Admins can do everything: users, creating and deleting projects. Members see only the
+  projects an admin gives them, each with **Can view** (read: tools, specs, auth references,
+  databases, calls, audit log, connect snippets) or **Can change** (write: edits, the test console,
+  access keys, connected apps, approvals and app sign-ins for that project). Deleting a project
+  stays with admins. The server enforces this on every `/api` call; the UI hides what you can't do.
+  Each project's **Settings → People** shows who has access. The first account is an admin,
+  accounts from before roles existed are admins, the last admin can't be removed or demoted, and
+  the admin token counts as admin. MCP access (keys, sign-in, stdio) doesn't depend on roles.
 - Passwords are hashed with argon2id (8–256 characters). A wrong username and a wrong password get
   the same answer in the same time. After 5 failed attempts for a username (20 per client address)
   sign-in backs off, from 30 seconds doubling to 15 minutes; the backoff is stored, so restarting
@@ -420,7 +428,7 @@ mcp-forge serve  [--bind 127.0.0.1:7410] [--admin-token T] [--data-dir DIR]
 mcp-forge stdio  --project SLUG [--data-dir DIR]
 mcp-forge export --project SLUG [-o tools.yaml]
 mcp-forge import --project SLUG [FILE|-] [--on-conflict fail|skip|replace] [--confirm-full-access]
-mcp-forge user add NAME [--password-stdin]      # create an account (prompts for the password)
+mcp-forge user add NAME [--password-stdin] [--role admin|member]   # create an account (default admin)
 mcp-forge user passwd NAME [--password-stdin]   # new password; ends all its sessions
 mcp-forge user list
 mcp-forge user remove NAME

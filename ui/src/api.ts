@@ -1,4 +1,8 @@
 import type {
+  Access,
+  ProjectPerson,
+  Role,
+  UserView,
   ApiKey,
   ConnectedApp,
   ConsentInfo,
@@ -189,6 +193,14 @@ export const api = {
   oauthDeny: (id: string) => request<{ redirect: string }>("POST", `/oauth/requests/${encodeURIComponent(id)}/deny`, {}),
   listConnectedApps: (pid: string) => request<ConnectedApp[]>("GET", `${p(pid)}/connected-apps`),
   disconnectApp: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/connected-apps/${id}`),
+  listUsers: () => request<UserView[]>("GET", "/users"),
+  createUser: (input: { username: string; password: string; role: Role }) => request<UserView>("POST", "/users", input),
+  setRole: (id: string, role: Role) => request<UserView>("PUT", `/users/${id}`, { role }),
+  resetPassword: (id: string, password: string) => request<void>("PUT", `/users/${id}/password`, { password }),
+  deleteUser: (id: string) => request<void>("DELETE", `/users/${id}`),
+  setAccess: (userId: string, pid: string, access: Access | null) =>
+    request<void>("PUT", `/users/${userId}/access/${pid}`, { access }),
+  projectPeople: (pid: string) => request<ProjectPerson[]>("GET", `${p(pid)}/people`),
   listKeys: (pid: string) => request<ApiKey[]>("GET", `${p(pid)}/api-keys`),
   createKey: (pid: string, input: ApiKeyInput) =>
     request<{ key: ApiKey; secret: string }>("POST", `${p(pid)}/api-keys`, input),

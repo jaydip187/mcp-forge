@@ -6,10 +6,12 @@ import { EmptyState } from "@/components/EmptyState";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useCanWrite } from "@/lib/permissions";
 import { href } from "@/lib/router";
 import type { SpecRecord, Tool } from "@/types";
 
 export function SpecsTab({ projectId }: { projectId: string }) {
+  const canWrite = useCanWrite(projectId);
   const [specs, setSpecs] = useState<SpecRecord[] | null>(null);
   const [tools, setTools] = useState<Tool[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -43,9 +45,11 @@ export function SpecsTab({ projectId }: { projectId: string }) {
           title="No imported specs yet"
           description="Import an OpenAPI or Swagger spec to create tools from its operations, and re-import it later to pick up changes."
         >
-          <Button asChild>
-            <a href={href.import(projectId)}>Import a spec</a>
-          </Button>
+          {canWrite && (
+            <Button asChild>
+              <a href={href.import(projectId)}>Import a spec</a>
+            </Button>
+          )}
         </EmptyState>
       ) : (
         <ul className="divide-y overflow-hidden rounded-xl border bg-card">
@@ -67,11 +71,13 @@ export function SpecsTab({ projectId }: { projectId: string }) {
                     <p className="truncate font-mono text-xs text-muted-foreground">{s.source_url ?? s.filename}</p>
                   )}
                 </div>
-                <Button asChild variant="outline">
-                  <a href={href.reimport(projectId, s.id)}>
-                    <RefreshCwIcon /> Re-import
-                  </a>
-                </Button>
+                {canWrite && (
+                  <Button asChild variant="outline">
+                    <a href={href.reimport(projectId, s.id)}>
+                      <RefreshCwIcon /> Re-import
+                    </a>
+                  </Button>
+                )}
               </li>
             );
           })}

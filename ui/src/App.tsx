@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ChevronRightIcon, LayoutGridIcon, PlusIcon, ShieldCheckIcon } from "lucide-react";
+import { ChevronRightIcon, LayoutGridIcon, PlusIcon, ShieldCheckIcon, UsersIcon } from "lucide-react";
 
 import { api, ApiError, auth, setUnauthorizedHandler } from "@/api";
 import { Logo } from "@/components/Logo";
@@ -29,11 +29,13 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ApprovalsProvider, useApprovals } from "@/lib/approvals";
+import { PermissionsProvider, usePermissions, WriteGuard } from "@/lib/permissions";
 import { ProjectsProvider, useProjects } from "@/lib/projects";
 import { href, useRoute, type ProjectTab, type Route } from "@/lib/router";
 import { cn } from "@/lib/utils";
 import { ApprovalsPage } from "@/pages/ApprovalsPage";
 import { ConsentPage } from "@/pages/ConsentPage";
+import { UsersPage } from "@/pages/UsersPage";
 import { Home } from "@/pages/Home";
 import { ImportPage } from "@/pages/ImportPage";
 import { ProjectPage } from "@/pages/ProjectPage";
@@ -42,13 +44,13 @@ import { SqlToolEditor } from "@/pages/SqlToolEditor";
 import { ToolEditor } from "@/pages/ToolEditor";
 import { Login } from "@/pages/Login";
 import { Setup } from "@/pages/Setup";
-import type { ServerInfo, User } from "@/types";
+import type { Access, ServerInfo, User } from "@/types";
 
 type Gate =
   | { state: "checking" }
   | { state: "setup" }
   | { state: "login" }
-  | { state: "ready"; info: ServerInfo; user: User | null }
+  | { state: "ready"; info: ServerInfo; user: User | null; access: Record<string, Access> | null }
   | { state: "down"; message: string };
 
 export default function App() {
@@ -61,7 +63,7 @@ export default function App() {
         setGate({ state: status.setup_required ? "setup" : "login" });
         return;
       }
-      setGate({ state: "ready", info: await api.info(), user: status.user });
+      setGate({ state: "ready", info: await api.info(), user: status.user, access: status.access });
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) setGate({ state: "login" });
       else setGate({ state: "down", message: e instanceof Error ? e.message : String(e) });
@@ -86,11 +88,13 @@ export default function App() {
         </main>
       )}
       {gate.state === "ready" && (
-        <ProjectsProvider>
-          <ApprovalsProvider>
-            <Shell info={gate.info} user={gate.user} onSignedOut={() => setGate({ state: "login" })} />
-          </ApprovalsProvider>
-        </ProjectsProvider>
+        <PermissionsProvider user={gate.user} access={gate.access}>
+          <ProjectsProvider>
+            <ApprovalsProvider>
+              <Shell info={gate.info} user={gate.user} onSignedOut={() => setGate({ state: "login" })} />
+            </ApprovalsProvider>
+          </ProjectsProvider>
+        </PermissionsProvider>
       )}
       <Toaster position="bottom-right" />
     </TooltipProvider>
@@ -140,8 +144,10 @@ function Breadcrumbs({ route }: { route: Route }) {
       ? [{ label: "Approvals" }]
       : route.name === "consent"
         ? [{ label: "Connect an app" }]
-        : [{ label: "Projects", href: href.home() }];
-  if (route.name !== "home" && route.name !== "approvals" && route.name !== "consent") {
+        : route.name === "users"
+          ? [{ label: "Users" }]
+          : [{ label: "Projects", href: href.home() }];
+  if (route.name !== "home" && route.name !== "approvals" && route.name !== "consent" && route.name !== "users") {
     const project = projects?.find((p) => p.id === route.projectId);
     // Placeholder while the project list loads, so the name doesn't flash in.
     const label =
@@ -203,16 +209,33 @@ function Page({ route, info, user }: { route: Route; info: ServerInfo; user: Use
       return <ApprovalsPage />;
     case "consent":
       return <ConsentPage requestId={route.requestId} user={user} />;
+    case "users":
+      return <UsersPage />;
     case "project":
       return <ProjectPage key={route.projectId} projectId={route.projectId} tab={route.tab} info={info} />;
     case "import":
-      return <ImportPage key={route.projectId} projectId={route.projectId} />;
+      return (
+        <WriteGuard projectId={route.projectId}>
+          <ImportPage key={route.projectId} projectId={route.projectId} />
+        </WriteGuard>
+      );
     case "reimport":
-      return <ReimportPage key={route.specId} projectId={route.projectId} specId={route.specId} />;
+      return (
+        <WriteGuard projectId={route.projectId}>
+          <ReimportPage key={route.specId} projectId={route.projectId} specId={route.specId} />
+        </WriteGuard>
+      );
     case "tool":
-      if (!route.toolId && route.kind === "sql")
-        return <SqlToolEditor key={`${route.projectId}/new-sql`} projectId={route.projectId} tool={null} />;
-      return <ToolEditor key={`${route.projectId}/${route.toolId ?? "new"}`} projectId={route.projectId} toolId={route.toolId} />;
+      // Read-only users see the tool; inputs, Save and the test console are disabled.
+      return (
+        <WriteGuard projectId={route.projectId}>
+          {!route.toolId && route.kind === "sql" ? (
+            <SqlToolEditor key={`${route.projectId}/new-sql`} projectId={route.projectId} tool={null} />
+          ) : (
+            <ToolEditor key={`${route.projectId}/${route.toolId ?? "new"}`} projectId={route.projectId} toolId={route.toolId} />
+          )}
+        </WriteGuard>
+      );
   }
 }
 
@@ -229,6 +252,7 @@ function AppSidebar({
 }) {
   const { projects } = useProjects();
   const { pending } = useApprovals();
+  const { isAdmin } = usePermissions();
   const route = useRoute();
   const { setOpenMobile } = useSidebar();
   // On phones the sidebar is a sheet; close it once a link is followed.
@@ -269,15 +293,27 @@ function AppSidebar({
                 </SidebarMenuBadge>
               )}
             </SidebarMenuItem>
+            {isAdmin && (
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={route.name === "users"}>
+                  <a href={href.users()} onClick={close}>
+                    <UsersIcon />
+                    <span>Users</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )}
           </SidebarMenu>
         </SidebarGroup>
         <SidebarGroup>
           <SidebarGroupLabel>Projects</SidebarGroupLabel>
-          <SidebarGroupAction asChild title="New project">
-            <a href={`${href.home()}?new`} onClick={close} aria-label="New project">
-              <PlusIcon />
-            </a>
-          </SidebarGroupAction>
+          {isAdmin && (
+            <SidebarGroupAction asChild title="New project">
+              <a href={`${href.home()}?new`} onClick={close} aria-label="New project">
+                <PlusIcon />
+              </a>
+            </SidebarGroupAction>
+          )}
           <SidebarGroupContent>
             <SidebarMenu>
               {projects === null &&

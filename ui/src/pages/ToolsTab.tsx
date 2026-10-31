@@ -10,12 +10,14 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useCanWrite } from "@/lib/permissions";
 import { href } from "@/lib/router";
 import { looksLikeWrite } from "@/lib/sqlForm";
 import { HIDDEN_LABEL, hiddenReason } from "@/lib/visibility";
 import type { ProjectSettings, Tool } from "@/types";
 
 export function ToolsTab({ projectId, settings }: { projectId: string; settings: ProjectSettings }) {
+  const canWrite = useCanWrite(projectId);
   const [tools, setTools] = useState<Tool[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connections, setConnections] = useState<Map<string, string>>(new Map());
@@ -67,6 +69,7 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
         <p className="text-sm text-muted-foreground">
           {`${tools.filter((t) => hiddenReason(t, settings) === null).length} of ${tools.length} tools visible to agents.`}
         </p>
+        {canWrite && (
         <div className="flex flex-wrap gap-2">
           <Button asChild variant="outline">
             <a href={href.import(projectId)}>
@@ -84,6 +87,7 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
             </a>
           </Button>
         </div>
+        )}
       </div>
       )}
 
@@ -91,8 +95,14 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
         <EmptyState
           icon={WrenchIcon}
           title="Describe an HTTP request or a SQL query, and agents can call it"
-          description="Say which parts the agent fills in, and test it right here before any agent sees it."
+          description={
+            canWrite
+              ? "Say which parts the agent fills in, and test it right here before any agent sees it."
+              : "Someone with write access to this project adds them."
+          }
         >
+          {canWrite && (
+          <>
             <Button asChild>
               <a href={href.tool(projectId, null)}>Create the first tool</a>
             </Button>
@@ -102,6 +112,8 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
             <Button asChild variant="outline">
               <a href={href.tool(projectId, null, "sql")}>Add a SQL query</a>
             </Button>
+          </>
+          )}
         </EmptyState>
       ) : (
         <ul className="divide-y overflow-hidden rounded-xl border bg-card">

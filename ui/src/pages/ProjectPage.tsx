@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
+import { EyeIcon } from "lucide-react";
 
 import { api, ApiError } from "@/api";
 import { McpAddress } from "@/components/McpAddress";
 import { PageHeader } from "@/components/PageHeader";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { href, type ProjectTab } from "@/lib/router";
+import { useCanWrite, WriteGuard } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import { AuditTab } from "@/pages/AuditTab";
 import { CallsTab } from "@/pages/CallsTab";
@@ -29,6 +31,7 @@ const SECTIONS: { tab: ProjectTab; label: string }[] = [
 ];
 
 export function ProjectPage({ projectId, tab, info }: { projectId: string; tab: ProjectTab; info: ServerInfo }) {
+  const canWrite = useCanWrite(projectId);
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -95,15 +98,26 @@ export function ProjectPage({ projectId, tab, info }: { projectId: string; tab: 
         </ul>
       </nav>
 
+      {!canWrite && (
+        <Alert>
+          <EyeIcon />
+          <AlertTitle>You can view this project</AlertTitle>
+          <AlertDescription>Changing it, or running tools in the test console, needs write access. Ask an admin.</AlertDescription>
+        </Alert>
+      )}
+
       <div>
-        {tab === "tools" && <ToolsTab projectId={project.id} settings={project.settings} />}
-        {tab === "specs" && <SpecsTab projectId={project.id} />}
-        {tab === "auth" && <AuthTab projectId={project.id} />}
-        {tab === "databases" && <DatabasesTab projectId={project.id} />}
+        {/* Calls, the audit log and Connect stay interactive (filters, copy); the rest is read-only without write. */}
+        <WriteGuard projectId={project.id}>
+          {tab === "tools" && <ToolsTab projectId={project.id} settings={project.settings} />}
+          {tab === "specs" && <SpecsTab projectId={project.id} />}
+          {tab === "auth" && <AuthTab projectId={project.id} />}
+          {tab === "databases" && <DatabasesTab projectId={project.id} />}
+          {tab === "settings" && <SettingsTab project={project} onSaved={setProject} />}
+        </WriteGuard>
         {tab === "calls" && <CallsTab projectId={project.id} />}
         {tab === "audit" && <AuditTab projectId={project.id} />}
         {tab === "connect" && <ConnectTab project={project} info={info} onSaved={setProject} />}
-        {tab === "settings" && <SettingsTab project={project} onSaved={setProject} />}
       </div>
     </div>
   );
