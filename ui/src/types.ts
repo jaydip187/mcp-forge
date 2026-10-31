@@ -117,7 +117,30 @@ export interface SqlSpec {
   mode: SqlMode;
 }
 
-export type ToolKind = HttpSpec | SqlSpec;
+export interface GraphqlVar {
+  /** Without the `$`. */
+  name: string;
+  /** As written in the document, e.g. `ID!` or `[String!]`. */
+  graphql_type: string;
+  description: string;
+  /** Argument schema (set by the importer); derived from the type when absent. */
+  schema?: JsonObject | null;
+}
+
+export type GraphqlOperation = "query" | "mutation";
+
+export interface GraphqlSpec {
+  type: "graphql";
+  endpoint: string;
+  operation: GraphqlOperation;
+  document: string;
+  operation_name: string | null;
+  variables: GraphqlVar[];
+  auth_ref: string | null;
+  timeout_ms: number;
+}
+
+export type ToolKind = HttpSpec | SqlSpec | GraphqlSpec;
 
 export interface ToolInput {
   name: string;
@@ -246,7 +269,8 @@ interface TestRunBase {
 }
 
 export interface HttpTestRun extends TestRunBase {
-  kind: "http";
+  /** GraphQL tools run as one HTTP POST. */
+  kind: "http" | "graphql";
   request: { method: string; url: string } | null;
   response: {
     status: number;
@@ -318,6 +342,8 @@ export interface ServerInfo {
 
 export interface ImportOperation {
   key: string;
+  /** `graphql` operations are queries and mutations; `method` is then POST. */
+  kind: "http" | "graphql";
   operation_id: string | null;
   method: HttpMethod;
   path: string;
@@ -338,7 +364,7 @@ export interface ImportPreview {
     api_version: string;
     /** Version as written: "3.1.0", or "2.0" for Swagger. */
     openapi: string;
-    kind: "openapi3" | "swagger2";
+    kind: "openapi3" | "swagger2" | "postman" | "har" | "curl" | "graphql";
     servers: string[];
     base_url: string | null;
     security_schemes: { name: string; description: string; suggested: AuthKind | null }[];

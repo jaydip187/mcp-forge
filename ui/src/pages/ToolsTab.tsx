@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { DatabaseIcon, FileJsonIcon, KeyRoundIcon, PlusIcon, ShieldCheckIcon, WrenchIcon } from "lucide-react";
+import { ChevronDownIcon, DatabaseIcon, FileJsonIcon, GlobeIcon, WaypointsIcon, KeyRoundIcon, PlusIcon, ShieldCheckIcon, WrenchIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { RequestLine } from "@/components/RequestLine";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -76,16 +77,30 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
               <FileJsonIcon /> Import
             </a>
           </Button>
-          <Button asChild variant="outline">
-            <a href={href.tool(projectId, null, "sql")}>
-              <DatabaseIcon /> New SQL tool
-            </a>
-          </Button>
-          <Button asChild>
-            <a href={href.tool(projectId, null)}>
-              <PlusIcon /> New HTTP tool
-            </a>
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button>
+                <PlusIcon /> New tool <ChevronDownIcon />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-60">
+              <DropdownMenuItem asChild>
+                <a href={href.tool(projectId, null)}>
+                  <GlobeIcon /> HTTP request
+                </a>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <a href={href.tool(projectId, null, "graphql")}>
+                  <WaypointsIcon /> GraphQL query or mutation
+                </a>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <a href={href.tool(projectId, null, "sql")}>
+                  <DatabaseIcon /> SQL query
+                </a>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         )}
       </div>
@@ -94,7 +109,7 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
       {tools.length === 0 ? (
         <EmptyState
           icon={WrenchIcon}
-          title="Describe an HTTP request or a SQL query, and agents can call it"
+          title="Describe an HTTP request, a GraphQL query or a SQL query, and agents can call it"
           description={
             canWrite
               ? "Say which parts the agent fills in, and test it right here before any agent sees it."
@@ -112,6 +127,9 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
             <Button asChild variant="outline">
               <a href={href.tool(projectId, null, "sql")}>Add a SQL query</a>
             </Button>
+            <Button asChild variant="outline">
+              <a href={href.tool(projectId, null, "graphql")}>Add a GraphQL query</a>
+            </Button>
           </>
           )}
         </EmptyState>
@@ -122,7 +140,8 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
               <a href={href.tool(projectId, t.id)} className="group min-w-0 flex-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <div className="flex items-center gap-2">
                   <span className="font-medium group-hover:underline">{t.name}</span>
-                  {t.kind.type === "sql" && t.kind.mode.type === "query" && looksLikeWrite(t.kind.mode.sql) && (
+                  {((t.kind.type === "sql" && t.kind.mode.type === "query" && looksLikeWrite(t.kind.mode.sql)) ||
+                    (t.kind.type === "graphql" && t.kind.operation === "mutation")) && (
                     <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">writes</span>
                   )}
                   {t.require_approval && (
@@ -133,7 +152,7 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
                       <TooltipContent>Agent calls wait for a person's approval</TooltipContent>
                     </Tooltip>
                   )}
-                  {t.kind.type === "http" && t.kind.auth_ref && (
+                  {t.kind.type !== "sql" && t.kind.auth_ref && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <KeyRoundIcon className="size-3.5 text-muted-foreground" aria-label="Uses an auth config" />
@@ -144,6 +163,8 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
                 </div>
                 {t.kind.type === "http" ? (
                   <RequestLine method={t.kind.method} baseUrl={t.kind.base_url} path={t.kind.path_template} size="sm" showBase={false} className="mt-0.5" />
+                ) : t.kind.type === "graphql" ? (
+                  <GraphqlLine operation={t.kind.operation} name={t.kind.operation_name} endpoint={t.kind.endpoint} />
                 ) : (
                   <SqlLine
                     sql={t.kind.mode.type === "query" ? t.kind.mode.sql : t.kind.mode.type}
@@ -179,6 +200,23 @@ function SqlLine({ sql, connection }: { sql: string; connection: string | undefi
       <span className="shrink-0 rounded-[4px] bg-m-other/12 px-1.5 py-px text-[0.85em] font-semibold text-foreground">SQL</span>
       {connection && <span className="shrink-0">{connection}</span>}
       <span className="truncate">{oneLine}</span>
+    </p>
+  );
+}
+
+/** One-line summary of a GraphQL tool: operation, name and endpoint host. */
+function GraphqlLine({ operation, name, endpoint }: { operation: string; name: string | null; endpoint: string }) {
+  let host = endpoint;
+  try {
+    host = new URL(endpoint).host;
+  } catch {
+    // Shown as typed.
+  }
+  return (
+    <p className="mt-0.5 flex min-w-0 items-center gap-2 font-mono text-xs text-muted-foreground">
+      <span className="shrink-0 rounded-[4px] bg-m-other/12 px-1.5 py-px text-[0.85em] font-semibold text-foreground">GraphQL</span>
+      <span className="shrink-0">{operation}</span>
+      <span className="truncate">{[name, host].filter(Boolean).join(" · ")}</span>
     </p>
   );
 }

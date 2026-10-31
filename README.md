@@ -5,6 +5,8 @@ self-hosted binary with a web UI.
 
 - **HTTP APIs**: describe requests by hand, or import an OpenAPI 3.x / Swagger 2.0 spec, a Postman
   collection, a HAR file or curl commands, then rename, trim and reshape what agents see (jq).
+- **GraphQL APIs**: write a query or mutation, or import a schema (introspection or SDL) and pick
+  the operations to offer; the variables become the agent's arguments.
 - **Databases** (SQLite, PostgreSQL, MySQL): saved queries with typed parameters, optional schema
   exploration and agent-written SQL, all read-only by default, with writes as a deliberate opt-in.
 - **Safe by default**: listens on localhost only, stores secrets as references (never values), and
@@ -23,6 +25,7 @@ and to spec URLs you import on purpose. No telemetry.
 - [Connect Claude and other MCP clients](#connect-claude-and-other-mcp-clients)
 - [Secrets](#secrets)
 - [OAuth2 APIs](#oauth2-apis)
+- [GraphQL APIs](#graphql-apis)
 - [Databases](#databases)
 - [Approvals](#approvals)
 - [Call log](#call-log)
@@ -83,7 +86,7 @@ Click **+** next to *Projects*, name it `github`. A project is one MCP server: a
 
 ### 3. Add a tool
 
-Click **New HTTP tool** and fill in:
+Click **New tool → HTTP request** and fill in:
 
 | Field       | Value                                     |
 |-------------|-------------------------------------------|
@@ -255,7 +258,40 @@ Tokens never appear in the UI, API responses, exports or logs.
 Importing an OpenAPI spec whose security scheme describes an OAuth2 authorization-code or
 client-credentials flow suggests the matching auth config.
 
-## Databases
+## GraphQL APIs
+
+A GraphQL tool is one fixed query or mutation sent to an endpoint. The agent fills in its
+`$variables`; they are sent as `variables`, never pasted into the document. **New tool → GraphQL
+query or mutation** opens the editor:
+
+```graphql
+query User($login: String!) {
+  user(login: $login) {
+    name
+    bio
+  }
+}
+```
+
+Variables are read from the document (`String!` makes `login` required). Add a description for
+each so the agent knows what to pass. Auth configs, OAuth2, timeouts, response shapes and approvals
+work as for HTTP tools.
+
+**Import** offers a whole API at once. Either choose *A GraphQL endpoint* on the *From a URL* tab
+(mcp-forge sends the standard introspection query, with the auth config you pick), or upload or
+paste the schema as SDL (`schema.graphql`) or as a saved introspection result (JSON); for a file,
+enter the endpoint in the preview. Each query and mutation field becomes a tool with a generated
+selection set: scalar fields, nested objects and interfaces up to three levels deep, and `... on`
+fragments for unions. Fields that need arguments of their own are left out; edit the document after import
+to add them. Deprecated fields are skipped. Re-import keeps your edits to a tool's document.
+
+What agents see:
+
+- Queries are marked read-only. Mutations are marked as changing data, and a **read-only project**
+  hides them.
+- A response with `data` returns the data (after your response shape). A response with `errors`
+  fails the call with each message and its path, plus any partial data.
+
 
 Add a connection on the **Databases** tab. The connection string is a secret reference too:
 

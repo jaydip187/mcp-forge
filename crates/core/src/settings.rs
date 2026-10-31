@@ -121,6 +121,12 @@ impl ProjectSettings {
             ToolKind::Http(h) => Some(h),
             // Curated queries only read.
             ToolKind::Sql(_) => None,
+            ToolKind::Graphql(g) => {
+                if self.read_only && g.operation == crate::GraphqlOperation::Mutation {
+                    return Some(Hidden::ReadOnly);
+                }
+                None
+            }
         };
         if self.read_only
             && http.is_some_and(|h| {

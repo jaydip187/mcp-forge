@@ -82,6 +82,11 @@ fn copy_field(from: &ToolInput, to: &mut ToolInput, field: &str) {
         _ => {}
     }
     let (ToolKind::Http(src), ToolKind::Http(dst)) = (&from.kind, &mut to.kind) else {
+        // Other kinds track their settings as one unit: any `kind.*`
+        // override keeps the whole kind (e.g. an edited GraphQL selection).
+        if field.starts_with("kind.") && from.kind.type_name() == to.kind.type_name() {
+            to.kind = from.kind.clone();
+        }
         return;
     };
     match field {

@@ -9,7 +9,7 @@ use std::time::Duration;
 use axum::extract::{DefaultBodyLimit, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use forge_core::{ToolKind, ValidationErrors};
+use forge_core::ValidationErrors;
 use forge_importers::openapi3::{self, BuiltOperation, Imported};
 use forge_importers::{import_text, unique_name, ImportError};
 use forge_store::{NewSpec, SpecRecord, StoreError};
@@ -45,6 +45,68 @@ struct PreviewRequest {
     url: Option<String>,
     #[serde(default)]
     base_url: Option<String>,
+    /// The URL is a GraphQL endpoint: run introspection instead of a GET.
+    #[serde(default)]
+    graphql: bool,
+    /// Auth config for the introspection request.
+    #[serde(default)]
+    auth_ref: Option<Uuid>,
+}
+
+/// Runs the introspection query against a GraphQL endpoint; the result is
+/// the importable document.
+pub(crate) async fn introspect(
+    s: &AppState,
+    project_id: Uuid,
+    url: &str,
+    auth_ref: Option<Uuid>,
+) -> Result<String, ApiError> {
+    use forge_exec_http::graphql::{read_response, GraphqlResult, INTROSPECTION_QUERY};
+    let spec = forge_core::GraphqlSpec {
+        endpoint: url.to_owned(),
+        operation: forge_core::GraphqlOperation::Query,
+        document: INTROSPECTION_QUERY.into(),
+        operation_name: Some("IntrospectionQuery".into()),
+        variables: vec![],
+        auth_ref,
+        timeout_ms: 30_000,
+    };
+    let auth = match auth_ref {
+        Some(id) => Some(s.store.get_auth_config(project_id, id).await?),
+        None => None,
+    };
+    let fail = |m: String| ApiError::BadRequest(format!("Introspection of {url} failed: {m}"));
+    let token = match auth.as_ref().filter(|a| a.kind.is_oauth()) {
+        Some(a) => Some(
+            forge_mcp::oauth::access_token(&s.store, &s.exec.http, a, None)
+                .await
+                .map_err(|e| fail(e.to_string()))?,
+        ),
+        None => None,
+    };
+    let out = s
+        .exec
+        .http
+        .execute_graphql(
+            &spec,
+            auth.as_ref(),
+            token.as_deref(),
+            &serde_json::Map::new(),
+        )
+        .await
+        .map_err(|e| fail(e.to_string()))?;
+    if !out.is_success() {
+        let excerpt: String = out.body.chars().take(300).collect();
+        return Err(fail(format!("{} {excerpt}", out.status_line())));
+    }
+    match read_response(&out.body) {
+        GraphqlResult::Data(d) => Ok(format!("{{\"data\":{d}}}")),
+        GraphqlResult::Errors { messages, .. } => Err(fail(format!(
+            "{} (some APIs turn introspection off; upload the schema file instead)",
+            messages.join("; ")
+        ))),
+        GraphqlResult::NotGraphql => Err(fail("the answer isn't a GraphQL response".into())),
+    }
 }
 
 async fn preview(
@@ -55,6 +117,10 @@ async fn preview(
     s.store.get_project(project_id).await?;
     let (content, source_url) = match (req.content, req.url) {
         (Some(c), _) if !c.trim().is_empty() => (c, None),
+        (_, Some(u)) if !u.trim().is_empty() && req.graphql => (
+            introspect(&s, project_id, u.trim(), req.auth_ref).await?,
+            Some(u.trim().to_owned()),
+        ),
         (_, Some(u)) if !u.trim().is_empty() => {
             (fetch_spec(u.trim()).await?, Some(u.trim().to_owned()))
         }
@@ -155,9 +221,7 @@ async fn commit(
         let mut tool = op.tool.clone();
         tool.name = sel.name.clone().unwrap_or_else(|| names[&op.key].clone());
         if op.needs_auth || !any_auth {
-            if let ToolKind::Http(h) = &mut tool.kind {
-                h.auth_ref = req.auth_ref;
-            }
+            tool.kind.set_auth_ref(req.auth_ref);
         }
         tools.push((tool, op.op_id()));
     }

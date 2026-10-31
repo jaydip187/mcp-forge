@@ -24,6 +24,8 @@ pub enum ArgTarget {
     WholeBody,
     /// A SQL tool's `:name` placeholder.
     SqlParam { name: String },
+    /// A GraphQL operation variable (`$name`).
+    GraphqlVar { name: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

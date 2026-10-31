@@ -7,9 +7,11 @@ export type Route =
   | { name: "consent"; requestId: string }
   | { name: "users" }
   | { name: "project"; projectId: string; tab: ProjectTab }
-  | { name: "tool"; projectId: string; toolId: string | null; kind: "http" | "sql" }
+  | { name: "tool"; projectId: string; toolId: string | null; kind: ToolEditorKind }
   | { name: "import"; projectId: string }
   | { name: "reimport"; projectId: string; specId: string };
+
+export type ToolEditorKind = "http" | "sql" | "graphql";
 
 export type ProjectTab = "tools" | "specs" | "auth" | "databases" | "calls" | "audit" | "connect" | "settings";
 const TABS: ProjectTab[] = ["tools", "specs", "auth", "databases", "calls", "audit", "connect", "settings"];
@@ -24,6 +26,7 @@ export function parseRoute(hash: string): Route {
     if (b === "tools" && tid) {
       if (tid === "new") return { name: "tool", projectId: pid, toolId: null, kind: "http" };
       if (tid === "new-sql") return { name: "tool", projectId: pid, toolId: null, kind: "sql" };
+      if (tid === "new-graphql") return { name: "tool", projectId: pid, toolId: null, kind: "graphql" };
       return { name: "tool", projectId: pid, toolId: tid, kind: "http" };
     }
     if (b === "import") return { name: "import", projectId: pid };
@@ -40,8 +43,8 @@ export const href = {
   users: () => "#/users",
   project: (pid: string, tab: ProjectTab = "tools") =>
     tab === "tools" ? `#/p/${encodeURIComponent(pid)}` : `#/p/${encodeURIComponent(pid)}/${tab}`,
-  tool: (pid: string, tid: string | null, kind: "http" | "sql" = "http") =>
-    `#/p/${encodeURIComponent(pid)}/tools/${tid ?? (kind === "sql" ? "new-sql" : "new")}`,
+  tool: (pid: string, tid: string | null, kind: ToolEditorKind = "http") =>
+    `#/p/${encodeURIComponent(pid)}/tools/${tid ?? (kind === "http" ? "new" : `new-${kind}`)}`,
   import: (pid: string) => `#/p/${encodeURIComponent(pid)}/import`,
   reimport: (pid: string, sid: string) => `#/p/${encodeURIComponent(pid)}/specs/${encodeURIComponent(sid)}/reimport`,
 };

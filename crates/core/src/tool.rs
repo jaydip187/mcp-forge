@@ -6,6 +6,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::db::SqlSpec;
+use crate::graphql::GraphqlSpec;
 use crate::schema::DerivedInput;
 use crate::validate::{is_valid_name, ValidationErrors, MAX_NAME_LEN};
 
@@ -65,6 +66,7 @@ fn default_true() -> bool {
 pub enum ToolKind {
     Http(HttpSpec),
     Sql(SqlSpec),
+    Graphql(GraphqlSpec),
 }
 
 impl ToolKind {
@@ -73,22 +75,33 @@ impl ToolKind {
         match self {
             ToolKind::Http(h) => h.auth_ref,
             ToolKind::Sql(_) => None,
+            ToolKind::Graphql(g) => g.auth_ref,
+        }
+    }
+
+    /// Points the tool at an auth config (HTTP and GraphQL; SQL has none).
+    pub fn set_auth_ref(&mut self, auth: Option<Uuid>) {
+        match self {
+            ToolKind::Http(h) => h.auth_ref = auth,
+            ToolKind::Graphql(g) => g.auth_ref = auth,
+            ToolKind::Sql(_) => {}
         }
     }
 
     /// The database connection this tool runs against, if any.
     pub fn connection_ref(&self) -> Option<Uuid> {
         match self {
-            ToolKind::Http(_) => None,
+            ToolKind::Http(_) | ToolKind::Graphql(_) => None,
             ToolKind::Sql(s) => Some(s.connection_id),
         }
     }
 
-    /// `"http"` or `"sql"`, as in the serialized `type` tag.
+    /// `"http"`, `"sql"` or `"graphql"`, as in the serialized `type` tag.
     pub fn type_name(&self) -> &'static str {
         match self {
             ToolKind::Http(_) => "http",
             ToolKind::Sql(_) => "sql",
+            ToolKind::Graphql(_) => "graphql",
         }
     }
 
@@ -97,6 +110,7 @@ impl ToolKind {
         match self {
             ToolKind::Http(h) => h.derive_input(),
             ToolKind::Sql(s) => s.derive_input(),
+            ToolKind::Graphql(g) => g.derive_input(),
         }
     }
 }
@@ -274,6 +288,7 @@ impl ToolInput {
         match &self.kind {
             ToolKind::Http(h) => h.validate_into(&mut errs),
             ToolKind::Sql(s) => s.validate_into(&mut errs),
+            ToolKind::Graphql(g) => g.validate_into(&mut errs),
         }
         errs.into_result()
     }

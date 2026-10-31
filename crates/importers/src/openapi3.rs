@@ -85,6 +85,8 @@ pub struct BuiltOperation {
 /// What the preview screen shows for one operation.
 #[derive(Debug, Clone, Serialize)]
 pub struct OperationSummary {
+    /// `http` or `graphql` (then `path` is `query name` / `mutation name`).
+    pub kind: &'static str,
     pub key: String,
     pub operation_id: Option<String>,
     pub method: HttpMethod,
@@ -102,10 +104,17 @@ pub struct OperationSummary {
 
 impl BuiltOperation {
     pub fn summary(&self) -> OperationSummary {
-        let ToolKind::Http(h) = &self.tool.kind else {
-            unreachable!("importers build HTTP tools")
+        let (kind, param_count, base_url) = match &self.tool.kind {
+            ToolKind::Http(h) => (
+                "http",
+                h.params.len() + usize::from(h.body_schema.is_some()),
+                h.base_url.clone(),
+            ),
+            ToolKind::Graphql(g) => ("graphql", g.variables.len(), g.endpoint.clone()),
+            ToolKind::Sql(_) => unreachable!("importers don't build SQL tools"),
         };
         OperationSummary {
+            kind,
             key: self.key.clone(),
             operation_id: self.operation_id.clone(),
             method: self.method,
@@ -115,8 +124,8 @@ impl BuiltOperation {
             summary: self.summary.clone(),
             deprecated: self.deprecated,
             needs_auth: self.needs_auth,
-            param_count: h.params.len() + usize::from(h.body_schema.is_some()),
-            base_url: h.base_url.clone(),
+            param_count,
+            base_url,
             supported: self.supported,
             warnings: self.warnings.clone(),
         }

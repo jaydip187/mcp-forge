@@ -8,6 +8,7 @@
 
 pub mod convert;
 pub mod curl;
+pub mod graphql;
 pub mod har;
 pub mod openapi3;
 pub mod postman;
@@ -58,6 +59,9 @@ pub fn import_text(
     text: &str,
     opts: &openapi3::Options,
 ) -> Result<(openapi3::Imported, Option<String>), ImportError> {
+    if graphql::is_sdl(text) {
+        return Ok((graphql::import_sdl(text, opts)?, None));
+    }
     let (doc, converted) = if curl::is_curl(text) {
         (curl::to_openapi3(text)?, true)
     } else {
@@ -67,6 +71,9 @@ pub fn import_text(
             )),
             other => other,
         })?;
+        if graphql::is_introspection(&doc) {
+            return Ok((graphql::import_introspection(&doc, opts)?, None));
+        }
         if postman::is_postman(&doc) {
             (postman::to_openapi3(&doc)?, true)
         } else if har::is_har(&doc) {

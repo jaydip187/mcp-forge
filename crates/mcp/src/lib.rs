@@ -443,6 +443,7 @@ pub fn search_tools<'a>(tools: &'a [ToolDef], query: &str, limit: usize) -> Vec<
             let path = match &t.kind {
                 ToolKind::Http(h) => h.path_template.to_lowercase(),
                 ToolKind::Sql(_) => String::new(),
+                ToolKind::Graphql(g) => g.operation_name.clone().unwrap_or_default().to_lowercase(),
             };
             let score: u32 = terms
                 .iter()
@@ -685,6 +686,7 @@ async fn execute(
 ) -> Result<ToolRun, StoreError> {
     let spec = match &tool.kind {
         ToolKind::Http(spec) => spec,
+        ToolKind::Graphql(g) => return run_graphql(store, exec, tool, g, args, settings).await,
         ToolKind::Sql(spec) => {
             let conn = match store
                 .get_connection(tool.project_id, spec.connection_id)
@@ -746,6 +748,93 @@ async fn execute(
         _ => exec.http.execute(spec, auth.as_ref(), args).await,
     };
     Ok(ToolRun::from_outcome(outcome, tool, settings))
+}
+
+/// Runs a GraphQL tool: auth like HTTP tools (OAuth tokens refreshed and
+/// retried once on 401), then `errors` become an error result and `data`
+/// is what the agent sees (shaped like any response).
+async fn run_graphql(
+    store: &Store,
+    exec: &Executors,
+    tool: &ToolDef,
+    spec: &forge_core::GraphqlSpec,
+    args: &Map<String, Value>,
+    settings: &ProjectSettings,
+) -> Result<ToolRun, StoreError> {
+    use forge_exec_http::graphql::{read_response, GraphqlResult};
+    let auth = match spec.auth_ref {
+        Some(id) => match store.get_auth_config(tool.project_id, id).await {
+            Ok(a) => Some(a),
+            Err(StoreError::NotFound(_)) => {
+                let outcome = Err(ExecError::Config(format!(
+                    "tool `{}` references a missing auth config",
+                    tool.name
+                )));
+                return Ok(ToolRun::from_outcome(outcome, tool, settings));
+            }
+            Err(e) => return Err(e),
+        },
+        None => None,
+    };
+    let outcome = match auth.as_ref().filter(|a| a.kind.is_oauth()) {
+        Some(a) => {
+            async {
+                let token = oauth::access_token(store, &exec.http, a, None).await?;
+                let out = exec
+                    .http
+                    .execute_graphql(spec, Some(a), Some(&token), args)
+                    .await?;
+                if out.status != 401 {
+                    return Ok(out);
+                }
+                let fresh = oauth::access_token(store, &exec.http, a, Some(&token)).await?;
+                exec.http
+                    .execute_graphql(spec, Some(a), Some(&fresh), args)
+                    .await
+            }
+            .await
+        }
+        None => {
+            exec.http
+                .execute_graphql(spec, auth.as_ref(), None, args)
+                .await
+        }
+    };
+    let out = match outcome {
+        Ok(out) if out.is_success() => out,
+        other => return Ok(ToolRun::from_outcome(other, tool, settings)),
+    };
+    Ok(match read_response(&out.body) {
+        GraphqlResult::Data(data) => {
+            let shaped = HttpOutcome {
+                body: data,
+                content_type: Some("application/json".into()),
+                ..out
+            };
+            ToolRun::from_outcome(Ok(shaped), tool, settings)
+        }
+        GraphqlResult::Errors { messages, data } => {
+            let mut text = format!(
+                "The GraphQL API returned errors:\n{}",
+                messages
+                    .iter()
+                    .map(|m| format!("- {m}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+            if let Some(d) = data {
+                let cut: String = d.chars().take(MAX_ERROR_BODY_CHARS).collect();
+                text.push_str(&format!("\n\nPartial data:\n{cut}"));
+            }
+            ToolRun {
+                outcome: RunOutcome::Http(Ok(out)),
+                is_error: true,
+                text,
+                shaped: None,
+            }
+        }
+        GraphqlResult::NotGraphql => ToolRun::from_outcome(Ok(out), tool, settings),
+    })
 }
 
 /// jq, null stripping and the size cap, as configured for the project.
@@ -991,6 +1080,27 @@ fn driver_label(c: &DbConnection) -> &'static str {
 pub fn to_mcp_tool(t: &ToolDef, conn: Option<&DbConnection>) -> Tool {
     let spec = match &t.kind {
         ToolKind::Http(spec) => spec,
+        ToolKind::Graphql(g) => {
+            let mutation = g.operation == forge_core::GraphqlOperation::Mutation;
+            let description = if t.description.trim().is_empty() {
+                format!(
+                    "GraphQL {} {}",
+                    g.operation.as_str(),
+                    g.operation_name.as_deref().unwrap_or("")
+                )
+                .trim_end()
+                .to_owned()
+            } else {
+                t.description.clone()
+            };
+            // Queries read; mutations may change or delete anything.
+            let annotations = ToolAnnotations::new()
+                .read_only(!mutation)
+                .destructive(mutation)
+                .open_world(true);
+            return Tool::new(t.name.clone(), description, g.derive_input().schema)
+                .with_annotations(annotations);
+        }
         ToolKind::Sql(spec) => {
             let description = sql_tool_description(t, spec, conn);
             let writes = conn.is_some_and(|c| forge_exec_sql::tool_writes(spec, c));

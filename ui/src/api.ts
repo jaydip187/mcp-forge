@@ -135,7 +135,10 @@ export const api = {
   testTool: (pid: string, id: string, args: JsonObject) =>
     request<TestRun>("POST", `${p(pid)}/tools/${id}/test`, { arguments: args }),
 
-  previewOpenApi: (pid: string, body: { content?: string; url?: string; base_url?: string }) =>
+  previewOpenApi: (
+    pid: string,
+    body: { content?: string; url?: string; base_url?: string; graphql?: boolean; auth_ref?: string | null },
+  ) =>
     request<ImportPreview>("POST", `${p(pid)}/import/openapi/preview`, body),
   importOpenApi: (
     pid: string,

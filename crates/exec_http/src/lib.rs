@@ -5,6 +5,7 @@
 //! reported URL, error messages and response bodies.
 
 mod args;
+pub mod graphql;
 pub mod oauth;
 mod secrets;
 pub mod shape;
@@ -167,7 +168,7 @@ impl HttpExecutor {
                 } => values.push((*location, name, wire, v)),
                 ArgTarget::WholeBody => whole_body = Some(v),
                 // SQL bindings never come from an HTTP spec.
-                ArgTarget::SqlParam { .. } => {}
+                ArgTarget::SqlParam { .. } | ArgTarget::GraphqlVar { .. } => {}
             }
         }
 
