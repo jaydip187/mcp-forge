@@ -10,6 +10,7 @@ pub mod calls;
 pub mod config;
 mod context_api;
 mod import;
+mod lint_api;
 pub mod login;
 mod mcp_http;
 pub mod oauth;
@@ -53,6 +54,11 @@ pub struct AppState {
     pub oauth_flows: Arc<oauth::OAuthFlows>,
     /// Sign-in requests and codes of mcp-forge's own OAuth server (`/mcp`).
     pub authz: Arc<authz::Authz>,
+    /// Resolves secret references outside the executors (the linter's key).
+    pub secrets: Arc<dyn SecretResolver>,
+    /// Base URL of the Anthropic API ("Improve with Claude"); tests point it
+    /// at a mock.
+    pub anthropic_url: String,
     mcp: Arc<mcp_http::McpServices>,
 }
 
@@ -60,7 +66,9 @@ impl AppState {
     pub fn new(store: Store, secrets: Arc<dyn SecretResolver>) -> Self {
         Self {
             store,
-            exec: Executors::new(secrets),
+            exec: Executors::new(secrets.clone()),
+            secrets,
+            anthropic_url: "https://api.anthropic.com".into(),
             changes: ChangeBus::new(),
             shutdown: CancellationToken::new(),
             security: Security::default(),
@@ -70,6 +78,12 @@ impl AppState {
             authz: Arc::default(),
             mcp: Arc::default(),
         }
+    }
+
+    /// Points "Improve with Claude" at another Anthropic API base URL.
+    pub fn with_anthropic_url(mut self, url: impl Into<String>) -> Self {
+        self.anthropic_url = url.into();
+        self
     }
 
     pub fn with_security(mut self, security: Security) -> Self {

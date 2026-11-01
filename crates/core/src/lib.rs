@@ -11,6 +11,7 @@ mod chain;
 mod context;
 mod db;
 mod graphql;
+mod lint;
 mod nosql;
 mod overrides;
 mod project;
@@ -38,6 +39,7 @@ pub use db::{
     PATTERN_ARG, SQL_ARG, SQL_PARAM_TYPES, TABLE_ARG,
 };
 pub use graphql::{schema_for_type, GraphqlOperation, GraphqlSpec, GraphqlVar};
+pub use lint::{lint_tool, project_score, LintFinding, Severity, ToolLint, LONG_RESPONSE_CHARS};
 pub use nosql::{
     nosql_operations, op_class, render_target, render_value, NosqlSpec, OpClass, DESCRIBE_TARGET,
     EXPLORATION_OPS, LIST_TARGETS, NOSQL_BODY_ARG, NOSQL_OPERATION_ARG, NOSQL_PATTERN_ARG,

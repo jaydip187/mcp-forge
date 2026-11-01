@@ -23,6 +23,8 @@ export interface ProjectSettings {
   require_key: boolean;
   /** Offer imported specs as MCP resources. */
   share_specs: boolean;
+  /** env:/keyring: reference to an Anthropic API key for "Improve with Claude". */
+  anthropic_key_ref: string | null;
 }
 
 /** What the consent page shows about an app asking to connect. */
@@ -667,4 +669,24 @@ export interface McpResourceView {
   name: string;
   description?: string;
   mimeType?: string;
+}
+
+export interface LintFinding {
+  rule: string;
+  severity: "warning" | "info";
+  field: string;
+  message: string;
+  hint: string;
+}
+
+export interface LintReport {
+  score: number;
+  improve_available: boolean;
+  tools: { id: string; name: string; enabled: boolean; kind: string; score: number; findings: LintFinding[] }[];
+}
+
+export interface Improvement {
+  current: { description: string; params: { name: string; description: string }[] };
+  suggested: { description: string; params: { name: string; description: string }[] };
+  model: string;
 }

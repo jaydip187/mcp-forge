@@ -41,6 +41,9 @@ pub struct ProjectSettings {
     pub require_key: bool,
     /// Offer imported spec documents to agents as MCP resources.
     pub share_specs: bool,
+    /// `env:`/`keyring:` reference to an Anthropic API key; turns on
+    /// "Improve with Claude" in the description linter.
+    pub anthropic_key_ref: Option<String>,
 }
 
 impl Default for ProjectSettings {
@@ -58,6 +61,7 @@ impl Default for ProjectSettings {
             approval_timeout_secs: DEFAULT_APPROVAL_TIMEOUT_SECS,
             require_key: false,
             share_specs: false,
+            anthropic_key_ref: None,
         }
     }
 }
@@ -75,6 +79,18 @@ pub enum Hidden {
 impl ProjectSettings {
     pub fn validate(&self) -> Result<(), ValidationErrors> {
         let mut errs = ValidationErrors::default();
+        if let Some(r) = self
+            .anthropic_key_ref
+            .as_deref()
+            .filter(|r| !r.trim().is_empty())
+        {
+            if crate::SecretRef::parse(r).is_err() {
+                errs.push(
+                    "anthropic_key_ref",
+                    "must be a reference like env:ANTHROPIC_API_KEY or keyring:NAME, not the key itself",
+                );
+            }
+        }
         if !(MIN_MAX_RESPONSE_CHARS..=MAX_MAX_RESPONSE_CHARS).contains(&self.max_response_chars) {
             errs.push(
                 "max_response_chars",
