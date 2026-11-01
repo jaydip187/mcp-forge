@@ -212,9 +212,19 @@ export interface AuthConfig extends AuthConfigInput {
   updated_at: string;
 }
 
-export type Driver = "sqlite" | "postgres" | "mysql";
-export const DRIVERS: Driver[] = ["postgres", "mysql", "sqlite"];
-export const DRIVER_LABEL: Record<Driver, string> = { postgres: "PostgreSQL", mysql: "MySQL", sqlite: "SQLite" };
+export type Driver = "sqlite" | "postgres" | "mysql" | "duckdb" | "mssql" | "clickhouse";
+// DuckDB is deferred: the server is built without it for now.
+export const DRIVERS: Driver[] = ["postgres", "mysql", "mssql", "sqlite", "clickhouse"];
+export const DRIVER_LABEL: Record<Driver, string> = {
+  postgres: "PostgreSQL",
+  mysql: "MySQL",
+  sqlite: "SQLite",
+  duckdb: "DuckDB",
+  mssql: "SQL Server",
+  clickhouse: "ClickHouse",
+};
+/** ClickHouse has no transactions, so writes can't be capped or undone. */
+export const READ_ONLY_DRIVERS: Driver[] = ["clickhouse"];
 
 export type AccessMode = "read_only" | "curated_write" | "full_access";
 
@@ -231,6 +241,8 @@ export interface DbConnectionInput {
   table_allowlist: string[];
   /** `table.column`, `schema.table.column` or `*.column`. */
   column_masks: string[];
+  /** DuckDB: absolute folders whose files queries may read. */
+  file_allowlist: string[];
 }
 
 export interface DbConnection extends DbConnectionInput {

@@ -179,6 +179,10 @@ impl Visitor for Guard {
                 "locking clauses (FOR UPDATE/SHARE) are not allowed".into(),
             );
         }
+        if q.format_clause.is_some() {
+            // ClickHouse: results must come back as JSON.
+            return self.reject("FORMAT clauses are not allowed".into());
+        }
         if select_into(&q.body) {
             self.escalate(StatementClass::Ddl, "SELECT … INTO is not allowed".into());
         }

@@ -88,6 +88,14 @@ impl Redactor {
                 secrets.push(pw.trim_matches('\'').to_owned());
             }
         }
+        // ADO.NET / JDBC form (SQL Server): `Password=...;` or `pwd=...;`.
+        for part in dsn.split(';') {
+            if let Some((k, v)) = part.split_once('=') {
+                if matches!(k.trim().to_ascii_lowercase().as_str(), "password" | "pwd") {
+                    secrets.push(v.trim().trim_matches(['\'', '"', '{', '}']).to_owned());
+                }
+            }
+        }
         secrets.retain(|s| s.len() >= 3);
         secrets.sort_by_key(|s| std::cmp::Reverse(s.len()));
         Self(secrets)

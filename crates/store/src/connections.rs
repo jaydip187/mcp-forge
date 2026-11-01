@@ -15,6 +15,8 @@ struct ConnSettings {
     allow_ddl: bool,
     table_allowlist: Vec<String>,
     column_masks: Vec<ColumnMask>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    file_allowlist: Vec<String>,
 }
 
 impl From<&DbConnection> for ConnSettings {
@@ -27,6 +29,7 @@ impl From<&DbConnection> for ConnSettings {
             allow_ddl: c.allow_ddl,
             table_allowlist: c.table_allowlist.clone(),
             column_masks: c.column_masks.clone(),
+            file_allowlist: c.file_allowlist.clone(),
         }
     }
 }
@@ -62,6 +65,7 @@ impl TryFrom<ConnRow> for DbConnection {
             allow_ddl: s.allow_ddl,
             table_allowlist: s.table_allowlist,
             column_masks: s.column_masks,
+            file_allowlist: s.file_allowlist,
             created_at: r.created_at,
             updated_at: r.updated_at,
         })
@@ -89,6 +93,7 @@ pub(crate) fn new_connection(project_id: Uuid, input: &DbConnectionInput) -> DbC
         allow_ddl: input.allow_ddl,
         table_allowlist: input.table_allowlist.clone(),
         column_masks: input.column_masks.clone(),
+        file_allowlist: input.file_allowlist.clone(),
         created_at: ts,
         updated_at: ts,
     }
@@ -190,6 +195,7 @@ impl Store {
         c.allow_ddl = input.allow_ddl;
         c.table_allowlist = input.table_allowlist.clone();
         c.column_masks = input.column_masks.clone();
+        c.file_allowlist = input.file_allowlist.clone();
         c.updated_at = now();
         sqlx::query(
             "UPDATE db_connections SET name = ?, driver = ?, dsn_ref = ?, settings = ?, updated_at = ? \

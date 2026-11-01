@@ -7,6 +7,8 @@
 //!   + `START TRANSACTION READ ONLY`.
 //! - SQLite: the file is opened `mode=ro` with `PRAGMA query_only = ON`; a
 //!   progress handler interrupts statements that run past the deadline.
+//! - SQL Server: no read-only transactions exist; see [`crate::mssql`].
+//! - ClickHouse: `readonly=2` on every request; see [`crate::clickhouse`].
 //!
 //! A client-side timer backs up every server-side timeout.
 
@@ -30,6 +32,10 @@ pub enum DbPool {
     Sqlite(SqlitePool),
     Postgres(PgPool),
     Mysql(MySqlPool),
+    #[cfg(feature = "duckdb")]
+    Duckdb(crate::duckdb::DuckdbPool),
+    Mssql(crate::mssql::MssqlPool),
+    Clickhouse(crate::clickhouse::ClickhousePool),
 }
 
 impl DbPool {
@@ -38,6 +44,10 @@ impl DbPool {
             DbPool::Sqlite(p) => p.close().await,
             DbPool::Postgres(p) => p.close().await,
             DbPool::Mysql(p) => p.close().await,
+            DbPool::Mssql(p) => p.close(),
+            #[cfg(feature = "duckdb")]
+            DbPool::Duckdb(_) => {}
+            DbPool::Clickhouse(_) => {}
         }
     }
 }
@@ -118,6 +128,10 @@ pub async fn run_read_only(
             DbPool::Postgres(p) => run_pg(p, sql, binds, limits).await,
             DbPool::Mysql(p) => run_mysql(p, sql, binds, limits).await,
             DbPool::Sqlite(p) => run_sqlite(p, sql, binds, limits, budget).await,
+            DbPool::Mssql(p) => crate::mssql::run_read_only(p, sql, binds, limits).await,
+            #[cfg(feature = "duckdb")]
+            DbPool::Duckdb(p) => crate::duckdb::run_read_only(p, sql, binds, limits).await,
+            DbPool::Clickhouse(p) => crate::clickhouse::run_read_only(p, sql, binds, limits).await,
         }
     };
     match tokio::time::timeout(backstop, run).await {
@@ -361,6 +375,12 @@ pub async fn run_write(
             DbPool::Postgres(p) => write_pg(p, sql, binds, limits, opts).await,
             DbPool::Mysql(p) => write_mysql(p, sql, binds, limits, opts).await,
             DbPool::Sqlite(p) => write_sqlite(p, sql, binds, limits, opts, budget).await,
+            DbPool::Mssql(p) => crate::mssql::run_write(p, sql, binds, limits, opts).await,
+            #[cfg(feature = "duckdb")]
+            DbPool::Duckdb(p) => crate::duckdb::run_write(p, sql, binds, limits, opts).await,
+            DbPool::Clickhouse(_) => Err(SqlError::Rejected(
+                "ClickHouse connections are read-only".into(),
+            )),
         }
     };
     // A dropped transaction rolls back, so a timeout never commits.

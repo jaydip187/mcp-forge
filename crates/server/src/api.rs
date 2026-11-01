@@ -346,6 +346,20 @@ struct ConnectionRequest {
     confirm_full_access: bool,
 }
 
+/// Connections for drivers this build doesn't include can't be saved.
+fn check_driver(req: &ConnectionRequest) -> ApiResult<()> {
+    if forge_exec_sql::driver_available(req.input.driver) {
+        return Ok(());
+    }
+    Err(ApiError::Store(
+        forge_core::ValidationErrors::single(
+            "driver",
+            "this build of mcp-forge doesn't include DuckDB yet",
+        )
+        .into(),
+    ))
+}
+
 /// Switching a connection to `full_access` (agents may run their own
 /// writes) must be confirmed explicitly; the UI asks with a warning.
 fn check_full_access(
@@ -371,6 +385,7 @@ async fn create_connection(
     ApiPath(project_id): ApiPath<Uuid>,
     ApiJson(req): ApiJson<ConnectionRequest>,
 ) -> ApiResult<(StatusCode, Json<DbConnection>)> {
+    check_driver(&req)?;
     check_full_access(&req, None)?;
     Ok((
         StatusCode::CREATED,
@@ -391,6 +406,7 @@ async fn update_connection(
     ApiJson(req): ApiJson<ConnectionRequest>,
 ) -> ApiResult<Json<DbConnection>> {
     let before = s.store.get_connection(project_id, id).await?.access_mode;
+    check_driver(&req)?;
     check_full_access(&req, Some(before))?;
     let conn = s
         .store

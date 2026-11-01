@@ -27,6 +27,18 @@ pub fn list_tables_sql(driver: Driver) -> &'static str {
             "SELECT 'main', name, type FROM sqlite_master \
              WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name"
         }
+        Driver::Duckdb => {
+            "SELECT table_schema, table_name, table_type FROM information_schema.tables \
+             WHERE table_schema NOT IN ('information_schema', 'pg_catalog') ORDER BY 1, 2"
+        }
+        Driver::Mssql => {
+            "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES \
+             WHERE TABLE_SCHEMA NOT IN ('sys', 'INFORMATION_SCHEMA') ORDER BY 1, 2"
+        }
+        Driver::Clickhouse => {
+            "SELECT database, name, if(engine LIKE '%View', 'view', 'table') FROM system.tables \
+             WHERE database = currentDatabase() ORDER BY name"
+        }
     }
 }
 
@@ -147,6 +159,43 @@ pub fn describe_table_sql(driver: Driver, table: &str) -> (String, Vec<Bind>) {
                 vec![Bind::Text(name.to_owned())],
             ),
         },
+        Driver::Duckdb => (
+            "SELECT c.table_schema, c.column_name, c.data_type, c.is_nullable = 'YES', c.column_default, \
+               EXISTS (SELECT 1 FROM duckdb_constraints() k \
+                 WHERE k.constraint_type = 'PRIMARY KEY' AND k.schema_name = c.table_schema \
+                   AND k.table_name = c.table_name AND list_contains(k.constraint_column_names, c.column_name)) \
+             FROM information_schema.columns c \
+             WHERE lower(c.table_name) = lower($1) \
+               AND ($2::VARCHAR IS NULL OR lower(c.table_schema) = lower($2)) \
+               AND c.table_schema NOT IN ('information_schema', 'pg_catalog') \
+             ORDER BY c.table_schema, c.ordinal_position"
+                .into(),
+            vec![Bind::Text(name.to_owned()), schema_bind],
+        ),
+        Driver::Mssql => (
+            "SELECT c.TABLE_SCHEMA, c.COLUMN_NAME, c.DATA_TYPE, \
+               CASE WHEN c.IS_NULLABLE = 'YES' THEN 1 ELSE 0 END, c.COLUMN_DEFAULT, \
+               CASE WHEN EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc \
+                 JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE k \
+                   ON k.CONSTRAINT_NAME = tc.CONSTRAINT_NAME AND k.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA \
+                 WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY' AND tc.TABLE_SCHEMA = c.TABLE_SCHEMA \
+                   AND tc.TABLE_NAME = c.TABLE_NAME AND k.COLUMN_NAME = c.COLUMN_NAME) THEN 1 ELSE 0 END \
+             FROM INFORMATION_SCHEMA.COLUMNS c \
+             WHERE lower(c.TABLE_NAME) = lower(@P1) \
+               AND (@P2 IS NULL OR lower(c.TABLE_SCHEMA) = lower(@P2)) \
+               AND c.TABLE_SCHEMA NOT IN ('sys', 'INFORMATION_SCHEMA') \
+             ORDER BY c.TABLE_SCHEMA, c.ORDINAL_POSITION"
+                .into(),
+            vec![Bind::Text(name.to_owned()), schema_bind],
+        ),
+        Driver::Clickhouse => (
+            "SELECT database, name, type, startsWith(type, 'Nullable'), default_expression, is_in_primary_key \
+             FROM system.columns \
+             WHERE lower(table) = lower({p1:String}) AND database = coalesce({p2:String}, currentDatabase()) \
+             ORDER BY position"
+                .into(),
+            vec![Bind::Text(name.to_owned()), schema_bind],
+        ),
     }
 }
 

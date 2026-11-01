@@ -27,6 +27,10 @@ pub enum Driver {
     Sqlite,
     Postgres,
     Mysql,
+    Duckdb,
+    /// Microsoft SQL Server (and Azure SQL).
+    Mssql,
+    Clickhouse,
 }
 
 impl Driver {
@@ -35,7 +39,16 @@ impl Driver {
             Driver::Sqlite => "sqlite",
             Driver::Postgres => "postgres",
             Driver::Mysql => "mysql",
+            Driver::Duckdb => "duckdb",
+            Driver::Mssql => "mssql",
+            Driver::Clickhouse => "clickhouse",
         }
+    }
+
+    /// Whether saved queries may write through this driver. ClickHouse has
+    /// no transactions, so the affected-rows cap and dry runs can't work.
+    pub fn supports_writes(self) -> bool {
+        self != Driver::Clickhouse
     }
 }
 
@@ -142,6 +155,9 @@ pub struct DbConnection {
     pub allow_ddl: bool,
     pub table_allowlist: Vec<String>,
     pub column_masks: Vec<ColumnMask>,
+    /// DuckDB: folders whose files queries may read (`read_csv`, …).
+    #[serde(default)]
+    pub file_allowlist: Vec<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -166,6 +182,8 @@ pub struct DbConnectionInput {
     pub table_allowlist: Vec<String>,
     #[serde(default)]
     pub column_masks: Vec<ColumnMask>,
+    #[serde(default)]
+    pub file_allowlist: Vec<String>,
 }
 
 fn default_row_limit() -> u32 {
@@ -191,6 +209,7 @@ impl DbConnection {
             allow_ddl: self.allow_ddl,
             table_allowlist: self.table_allowlist.clone(),
             column_masks: self.column_masks.clone(),
+            file_allowlist: self.file_allowlist.clone(),
         }
     }
 }
@@ -202,6 +221,12 @@ impl DbConnectionInput {
             errs.push(
                 "name",
                 format!("must be 1–{MAX_NAME_LEN} characters of a-z, A-Z, 0-9, _ or -"),
+            );
+        }
+        if !self.driver.supports_writes() && self.access_mode != AccessMode::ReadOnly {
+            errs.push(
+                "access_mode",
+                "ClickHouse connections are read-only: it has no transactions to undo a write",
             );
         }
         if self.allow_ddl && self.access_mode == AccessMode::ReadOnly {
@@ -240,8 +265,42 @@ impl DbConnectionInput {
         if self.column_masks.len() > 200 {
             errs.push("column_masks", "at most 200 entries");
         }
+        if self.driver != Driver::Duckdb && !self.file_allowlist.is_empty() {
+            errs.push("file_allowlist", "only DuckDB connections read files");
+        }
+        if self.file_allowlist.len() > 20 {
+            errs.push("file_allowlist", "at most 20 folders");
+        }
+        for (i, f) in self.file_allowlist.iter().enumerate() {
+            if let Err(why) = check_folder(f) {
+                errs.push(format!("file_allowlist[{i}]"), why);
+            }
+        }
         errs.into_result()
     }
+}
+
+/// An allowed folder: an absolute path without `..`, globs or quotes.
+fn check_folder(f: &str) -> Result<(), &'static str> {
+    let p = std::path::Path::new(f);
+    let windows_abs =
+        f.len() > 2 && f.as_bytes()[1] == b':' && matches!(f.as_bytes()[2], b'\\' | b'/');
+    if f.is_empty() || f.len() > 1024 {
+        return Err("must be a folder path");
+    }
+    if !(p.is_absolute() || f.starts_with('/') || windows_abs) {
+        return Err("must be an absolute path");
+    }
+    if f.chars()
+        .any(|c| matches!(c, '*' | '?' | '[' | ']' | '{' | '}' | '\'' | '"' | '\0'))
+        || f.split(['/', '\\']).any(|part| part == "..")
+    {
+        return Err("must be a plain folder path, without `..`, wildcards or quotes");
+    }
+    if f.contains("://") {
+        return Err("must be a local folder, not a URL");
+    }
+    Ok(())
 }
 
 /// A tool that runs SQL against a [`DbConnection`].

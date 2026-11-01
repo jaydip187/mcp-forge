@@ -8,18 +8,29 @@ publish = false
 [dependencies]
 forge-core.workspace = true
 chrono.workspace = true
+duckdb = { workspace = true, optional = true }
 futures-util.workspace = true
+reqwest.workspace = true
+rust_decimal.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlparser.workspace = true
 sqlx = { workspace = true, features = ["postgres", "mysql", "json", "uuid", "rust_decimal", "tls-rustls-ring-webpki"] }
 thiserror.workspace = true
+tiberius.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
 url.workspace = true
 uuid.workspace = true
 
+[features]
+# DuckDB is compiled from C++ source (slow, memory-hungry first build), so
+# it's deferred: off by default until its build is sorted out.
+duckdb = ["dep:duckdb"]
+
 [dev-dependencies]
 tempfile.workspace = true
+wiremock.workspace = true
 testcontainers-modules.workspace = true
 tokio.workspace = true

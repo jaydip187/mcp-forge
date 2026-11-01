@@ -55,10 +55,71 @@ const DENIED_FUNCTIONS: &[&str] = &[
     "readfile",
     "writefile",
     "edit",
+    // DuckDB: run SQL from a string, read other databases, env and secrets.
+    // Files are checked against the allowed folders instead (`files`).
+    "query",
+    "query_table",
+    "getenv",
+    "sqlite_scan",
+    "sqlite_attach",
+    "postgres_scan",
+    "postgres_scan_pushdown",
+    "postgres_attach",
+    "postgres_query",
+    "mysql_scan",
+    "mysql_query",
+    "duckdb_secrets",
+    "which_secret",
+    // SQL Server: other servers and files.
+    "openrowset",
+    "openquery",
+    "opendatasource",
+    "fn_get_audit_file",
+    "fn_xe_file_target_read_file",
+    "fn_trace_gettable",
+    // ClickHouse: files, URLs, other servers and programs.
+    "file",
+    "url",
+    "urlcluster",
+    "input",
+    "remote",
+    "remotesecure",
+    "cluster",
+    "clusterallreplicas",
+    "s3",
+    "s3cluster",
+    "gcs",
+    "hdfs",
+    "hdfscluster",
+    "azureblobstorage",
+    "azureblobstoragecluster",
+    "jdbc",
+    "odbc",
+    "mysql",
+    "postgresql",
+    "sqlite",
+    "mongodb",
+    "redis",
+    "executable",
+    "executablepool",
+    "iceberg",
+    "deltalake",
+    "hudi",
+    "dictionary",
+    "sleepeachrow",
 ];
 
 /// Name prefixes denied as families (`dblink_exec`, `lo_import`, …).
-const DENIED_PREFIXES: &[&str] = &["dblink", "lo_", "pg_advisory", "pg_try_advisory"];
+const DENIED_PREFIXES: &[&str] = &[
+    "dblink",
+    "lo_",
+    "pg_advisory",
+    "pg_try_advisory",
+    // ClickHouse dictionaries and Join tables read data by name.
+    "dictget",
+    "joinget",
+    "xp_",
+];
 
 pub(super) fn denied(name: &str) -> bool {
     let n = name.to_ascii_lowercase();

@@ -9,10 +9,14 @@
 //! 4. functions that write or escape the database are denied ([`guard`]);
 //! 5. results are capped by row limit, timeout and cell length.
 
+mod clickhouse;
+#[cfg(feature = "duckdb")]
+mod duckdb;
 mod error;
 mod executor;
 mod explore;
 pub mod guard;
+mod mssql;
 mod outcome;
 mod policy;
 mod pool;
@@ -24,13 +28,19 @@ pub use session::{
     run_read_only, run_write, Bind, DbPool, Limits, RawResult, WriteOptions, WriteResult,
 };
 
+/// Whether this build can connect with `driver` (DuckDB is an opt-in
+/// cargo feature for now).
+pub fn driver_available(driver: forge_core::Driver) -> bool {
+    driver != forge_core::Driver::Duckdb || cfg!(feature = "duckdb")
+}
+
 /// Replacement value for masked columns.
 pub const MASKED: &str = "[masked]";
 
 pub use error::SqlError;
 pub use executor::SqlExecutor;
 pub use outcome::{AuditDraft, SqlOutcome, SqlRun, WriteInfo, DRY_RUN_ARG};
-pub use policy::{check_agent_sql, check_query_tool, gate, tool_input, tool_writes};
+pub use policy::{check_agent_sql, check_files, check_query_tool, gate, tool_input, tool_writes};
 pub use pool::ConnectionReport;
 
 #[cfg(test)]

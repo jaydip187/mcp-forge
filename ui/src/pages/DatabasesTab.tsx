@@ -19,6 +19,7 @@ import { EXPLORATION_LABEL, splitList } from "@/lib/sqlForm";
 import {
   DRIVER_LABEL,
   DRIVERS,
+  READ_ONLY_DRIVERS,
   EXPLORATION_MODES,
   type ConnectionReport,
   type DbConnection,
@@ -33,6 +34,9 @@ const DSN_EXAMPLE: Record<Driver, string> = {
   postgres: "postgres://readonly:PASSWORD@db.example.com:5432/shop",
   mysql: "mysql://readonly:PASSWORD@db.example.com:3306/shop",
   sqlite: "/path/to/shop.db",
+  duckdb: "/path/to/analytics.duckdb (or :memory: to query files only)",
+  mssql: "mssql://reader:PASSWORD@db.example.com:1433/shop",
+  clickhouse: "https://reader:PASSWORD@db.example.com:8443/shop",
 };
 
 export const MODE_LABEL: Record<AccessMode, { short: string; title: string; blurb: string }> = {
@@ -64,6 +68,7 @@ const EMPTY: DbConnectionInput = {
   allow_ddl: false,
   table_allowlist: [],
   column_masks: [],
+  file_allowlist: [],
 };
 
 export function DatabasesTab({ projectId }: { projectId: string }) {
@@ -356,6 +361,8 @@ function ConnectionForm({
   const [draft, setDraft] = useState<DbConnectionInput>(existing ?? EMPTY);
   const [masksText, setMasksText] = useState((existing?.column_masks ?? []).join("\n"));
   const [allowText, setAllowText] = useState((existing?.table_allowlist ?? []).join("\n"));
+  const [filesText, setFilesText] = useState((existing?.file_allowlist ?? []).join("\n"));
+  const readOnlyDriver = READ_ONLY_DRIVERS.includes(draft.driver);
   const [rowLimit, setRowLimit] = useState(String(draft.row_limit));
   const [timeout, setTimeoutText] = useState(String(draft.timeout_ms));
   const [maxRows, setMaxRows] = useState(String(draft.max_affected_rows));
@@ -374,6 +381,7 @@ function ConnectionForm({
       timeout_ms: Number(timeout),
       column_masks: splitList(masksText),
       table_allowlist: splitList(allowText),
+      file_allowlist: draft.driver === "duckdb" ? splitList(filesText) : [],
       max_affected_rows: Number(maxRows),
       allow_ddl: draft.access_mode !== "read_only" && draft.allow_ddl,
     };
@@ -391,6 +399,7 @@ function ConnectionForm({
         setDraft(EMPTY);
         setMasksText("");
         setAllowText("");
+        setFilesText("");
         setRowLimit(String(EMPTY.row_limit));
         setTimeoutText(String(EMPTY.timeout_ms));
         setMaxRows(String(EMPTY.max_affected_rows));
@@ -406,6 +415,7 @@ function ConnectionForm({
   const fe = (f: string) => fieldError(err, f);
   const maskErr = err instanceof ApiError ? err.fields.find((f) => f.field.startsWith("column_masks"))?.message : undefined;
   const allowErr = err instanceof ApiError ? err.fields.find((f) => f.field.startsWith("table_allowlist"))?.message : undefined;
+  const filesErr = err instanceof ApiError ? err.fields.find((f) => f.field.startsWith("file_allowlist"))?.message : undefined;
   return (
     <Card className="h-fit">
       <CardHeader>
@@ -421,7 +431,14 @@ function ConnectionForm({
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="d-driver">Database</Label>
-            <Select value={draft.driver} onValueChange={(v) => setDraft({ ...draft, driver: v as Driver })}>
+            <Select
+              value={draft.driver}
+              onValueChange={(v) => {
+                const driver = v as Driver;
+                // Read-only drivers can't keep a write access mode.
+                setDraft({ ...draft, driver, access_mode: READ_ONLY_DRIVERS.includes(driver) ? "read_only" : draft.access_mode });
+              }}
+            >
               <SelectTrigger id="d-driver" className="w-full">
                 <SelectValue />
               </SelectTrigger>
@@ -467,6 +484,21 @@ function ConnectionForm({
               </p>
             )}
           </div>
+          {draft.driver === "duckdb" && (
+            <div className="grid gap-1.5">
+              <Label htmlFor="d-files">Folders queries may read files from</Label>
+              <Textarea id="d-files" className="min-h-16 font-mono text-xs" value={filesText} onChange={(e) => setFilesText(e.target.value)} placeholder={"/data/exports\n/srv/reports"} spellCheck={false} aria-invalid={!!filesErr} />
+              {filesErr ? (
+                <p className="text-xs text-destructive">{filesErr}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  One absolute folder per line. Queries may then use <code>read_csv</code>, <code>read_parquet</code> and{" "}
+                  <code>read_json</code> on files inside them; anything else on disk, URLs and other databases stay off.
+                  Empty means no files at all.
+                </p>
+              )}
+            </div>
+          )}
           <div className="grid gap-1.5">
             <Label htmlFor="d-masks">Masked columns</Label>
             <Textarea id="d-masks" className="min-h-16 font-mono text-xs" value={masksText} onChange={(e) => setMasksText(e.target.value)} placeholder={"users.password_hash\n*.email"} spellCheck={false} aria-invalid={!!maskErr} />
@@ -486,13 +518,17 @@ function ConnectionForm({
               </SelectTrigger>
               <SelectContent>
                 {(Object.keys(MODE_LABEL) as AccessMode[]).map((m) => (
-                  <SelectItem key={m} value={m}>
+                  <SelectItem key={m} value={m} disabled={readOnlyDriver && m !== "read_only"}>
                     {MODE_LABEL[m].title}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">{MODE_LABEL[draft.access_mode].blurb}</p>
+            <p className="text-xs text-muted-foreground">
+              {readOnlyDriver
+                ? `${DRIVER_LABEL[draft.driver]} connections are read-only: without transactions, a write couldn't be capped or undone.`
+                : MODE_LABEL[draft.access_mode].blurb}
+            </p>
           </div>
           {draft.access_mode === "read_only" ? (
             <Alert>

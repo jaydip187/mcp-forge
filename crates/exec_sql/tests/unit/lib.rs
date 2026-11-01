@@ -179,3 +179,70 @@ fn mysql_grant_parsing() {
         mysql_write_grants(&["GRANT ALL PRIVILEGES ON *.* TO `root`@`%` WITH GRANT OPTION".into()]);
     assert_eq!(p.len(), 1);
 }
+
+#[test]
+fn duckdb_files_must_be_in_allowed_folders() {
+    use crate::policy::{check_files, path_allowed};
+    let folders = vec!["/data/exports".to_owned()];
+    assert!(path_allowed("/data/exports/sales.csv", &folders));
+    assert!(path_allowed("/data/exports/2026/*.parquet", &folders));
+    assert!(
+        !path_allowed("/data/exports", &folders),
+        "the folder itself isn't a file"
+    );
+    assert!(
+        !path_allowed("/data/exports-old/x.csv", &folders),
+        "prefix of a name doesn't count"
+    );
+    assert!(!path_allowed("/data/exports/../secrets.csv", &folders));
+    assert!(!path_allowed("data/exports/x.csv", &folders), "relative");
+    assert!(!path_allowed("s3://bucket/data/exports/x.csv", &folders));
+    assert!(!path_allowed("https://x/data/exports/x.csv", &folders));
+
+    let q = |sql: &str| guard::check_read_only(sql, Driver::Duckdb).unwrap();
+    let ok = q("SELECT * FROM read_csv('/data/exports/a.csv')");
+    assert!(check_files(Driver::Duckdb, &folders, &ok).is_ok());
+    let e = check_files(Driver::Duckdb, &[], &ok).unwrap_err();
+    assert!(e.contains("reads no files"), "{e}");
+    let outside = q("SELECT * FROM read_parquet(['/data/exports/a.parquet', '/etc/b.parquet'])");
+    assert!(check_files(Driver::Duckdb, &folders, &outside)
+        .unwrap_err()
+        .contains("/etc/b.parquet"));
+    let scan = q("SELECT * FROM \"/data/exports/a.csv\"");
+    assert!(check_files(Driver::Duckdb, &folders, &scan)
+        .unwrap_err()
+        .contains("read_csv"));
+    // Other drivers have no file functions to check.
+    let pg = guard::check_read_only("SELECT 1", Driver::Postgres).unwrap();
+    assert!(check_files(Driver::Postgres, &[], &pg).is_ok());
+}
+
+#[test]
+fn clickhouse_is_read_only_and_only_duckdb_reads_files() {
+    let mut c = conn_input("clickhouse", "curated_write", false);
+    let e = c.validate().unwrap_err();
+    assert!(e.has("access_mode"), "{e:?}");
+    c.access_mode = AccessMode::ReadOnly;
+    assert!(c.validate().is_ok());
+    c.file_allowlist = vec!["/data".into()];
+    assert!(c.validate().unwrap_err().has("file_allowlist"));
+    let mut d = conn_input("duckdb", "read_only", false);
+    d.file_allowlist = vec![
+        "/data/exports".into(),
+        "relative/dir".into(),
+        "/data/../etc".into(),
+    ];
+    let e = d.validate().unwrap_err();
+    assert!(
+        !e.has("file_allowlist[0]") && e.has("file_allowlist[1]") && e.has("file_allowlist[2]"),
+        "{e:?}"
+    );
+}
+
+#[test]
+fn redacts_sql_server_passwords() {
+    let r = Redactor::new("Server=tcp:db,1433;Database=shop;User Id=app;Password=hunter22;");
+    assert!(!r.apply("login failed (hunter22)").contains("hunter22"));
+    let r = Redactor::new("jdbc:sqlserver://db:1433;databaseName=shop;user=app;pwd={s3cret!}");
+    assert!(!r.apply("bad s3cret!").contains("s3cret!"));
+}

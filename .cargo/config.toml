@@ -1,0 +1,5 @@
+# DuckDB (bundled) has C++ files with more sections than MinGW's default
+# object format allows ("too many sections"); big-obj lifts the limit.
+# Only the windows-gnu target reads this; MSVC and other platforms don't.
+[env]
+CXXFLAGS_x86_64_pc_windows_gnu = "-Wa,-mbig-obj"
