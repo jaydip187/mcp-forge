@@ -91,6 +91,7 @@ pub fn router() -> Router<AppState> {
             "/projects/{project_id}/db-connections/{conn_id}/exploration-tools",
             axum::routing::post(add_exploration_tools),
         )
+        .merge(crate::context_api::routes())
         .fallback(|| async { ApiError::Store(StoreError::NotFound("route")) })
 }
 

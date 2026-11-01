@@ -8,6 +8,7 @@ pub mod authz;
 pub mod bundle;
 pub mod calls;
 pub mod config;
+mod context_api;
 mod import;
 pub mod login;
 mod mcp_http;

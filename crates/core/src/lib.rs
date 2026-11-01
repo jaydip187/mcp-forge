@@ -7,6 +7,7 @@ mod args;
 mod audit;
 mod auth;
 mod calls;
+mod context;
 mod db;
 mod graphql;
 mod nosql;
@@ -24,6 +25,10 @@ pub use auth::{ApiKeyLocation, AuthConfig, AuthConfigInput, AuthKind, OAuthClien
 pub use calls::{
     is_secret_name, logged_arguments, logged_error, ApprovalDecision, ApprovalRecord, CallEntry,
     CallStatus, MAX_CALLS_PER_PROJECT, MAX_LOGGED_ARGS_CHARS, MAX_LOGGED_ERROR_CHARS, REDACTED,
+};
+pub use context::{
+    PromptArg, PromptDef, PromptInput, ResourceDef, ResourceInput, MAX_PROMPT_BYTES,
+    MAX_RESOURCE_BYTES, RESOURCE_MIME_TYPES, RESOURCE_URI_PREFIX,
 };
 pub use db::{
     is_valid_sql_param_name, AccessMode, ColumnMask, DbConnection, DbConnectionInput, Driver,

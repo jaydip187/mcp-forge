@@ -13,8 +13,8 @@ export type Route =
 
 export type ToolEditorKind = "http" | "sql" | "graphql" | "nosql";
 
-export type ProjectTab = "tools" | "specs" | "auth" | "databases" | "calls" | "audit" | "connect" | "settings";
-const TABS: ProjectTab[] = ["tools", "specs", "auth", "databases", "calls", "audit", "connect", "settings"];
+export type ProjectTab = "tools" | "specs" | "auth" | "databases" | "context" | "calls" | "audit" | "connect" | "settings";
+const TABS: ProjectTab[] = ["tools", "specs", "auth", "databases", "context", "calls", "audit", "connect", "settings"];
 
 export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);

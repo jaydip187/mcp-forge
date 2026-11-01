@@ -108,6 +108,7 @@ const SECTION: Record<ProjectTab, string> = {
   specs: "Specs",
   auth: "Auth",
   databases: "Databases",
+  context: "Context",
   calls: "Calls",
   audit: "Audit log",
   connect: "Connect",

@@ -25,6 +25,11 @@ import type {
   FieldError,
   ImportPreview,
   JsonObject,
+  McpResourceView,
+  PromptDef,
+  PromptInput,
+  ResourceDef,
+  ResourceInput,
   McpToolView,
   Project,
   ProjectSettings,
@@ -214,6 +219,19 @@ export const api = {
   oauthDisconnect: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/auth-configs/${id}/oauth`),
 
   listConnections: (pid: string) => request<DbConnection[]>("GET", `${p(pid)}/db-connections`),
+  listResources: (pid: string) => request<ResourceDef[]>("GET", `${p(pid)}/resources`),
+  createResource: (pid: string, input: ResourceInput) => request<ResourceDef>("POST", `${p(pid)}/resources`, input),
+  updateResource: (pid: string, id: string, input: ResourceInput) =>
+    request<ResourceDef>("PUT", `${p(pid)}/resources/${encodeURIComponent(id)}`, input),
+  deleteResource: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/resources/${encodeURIComponent(id)}`),
+  listPrompts: (pid: string) => request<PromptDef[]>("GET", `${p(pid)}/prompts`),
+  createPrompt: (pid: string, input: PromptInput) => request<PromptDef>("POST", `${p(pid)}/prompts`, input),
+  updatePrompt: (pid: string, id: string, input: PromptInput) =>
+    request<PromptDef>("PUT", `${p(pid)}/prompts/${encodeURIComponent(id)}`, input),
+  deletePrompt: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/prompts/${encodeURIComponent(id)}`),
+  mcpResources: (pid: string) => request<McpResourceView[]>("GET", `${p(pid)}/mcp-resources`),
+  readMcpResource: (pid: string, uri: string) =>
+    request<{ uri: string; mime_type: string; text: string }>("GET", `${p(pid)}/mcp-resources/read?uri=${encodeURIComponent(uri)}`),
   createConnection: (pid: string, input: DbConnectionInput, confirmFullAccess = false) =>
     request<DbConnection>("POST", `${p(pid)}/db-connections`, { ...input, confirm_full_access: confirmFullAccess }),
   updateConnection: (pid: string, id: string, input: DbConnectionInput, confirmFullAccess = false) =>
