@@ -32,6 +32,7 @@ and to spec URLs you import on purpose. No telemetry.
 - [Databases](#databases)
 - [NoSQL databases](#nosql-databases)
 - [Resources and prompts](#resources-and-prompts)
+- [Chained tools](#chained-tools)
 - [Approvals](#approvals)
 - [Call log](#call-log)
 - [Security model](#security-model)
@@ -426,6 +427,31 @@ Resources agents can list and read:
 {{tone}} tone.` Each `{{name}}` is an argument (required or not). Claude shows prompts as slash
 commands; other clients list them under prompts. Connected clients are told when either list
 changes. The **Context** tab previews exactly what agents get.
+
+## Chained tools
+
+A **chain** (*New tool → Chain of tools*) calls other tools of the project in order and shows up to
+agents as one tool. Each step names a tool and computes its arguments with jq over
+`{input, steps, last}`: the chain's own inputs, every earlier step's result, and the previous one.
+An optional output expression (jq over `{input, steps}`) builds the result; otherwise it's the last
+step's.
+
+```text
+inputs:  login (required)
+step 1:  get_user     {login: .input.login}
+step 2:  list_repos   {owner: .last.login}
+output:  {user: .steps[0].login, repos: [.steps[1][].name]}
+```
+
+- Every step runs like a normal call: argument checks, limits, masks, and its own call-log entry,
+  shown as a step of the chain's call.
+- A failing step stops the chain; the agent is told which step failed and why.
+- Up to 10 steps; chains may call chains three levels deep. Calling itself, loops between chains,
+  missing tools and jq that doesn't compile are refused when you save.
+- If any step needs approval, the chain waits for one approval before it starts.
+- A chain changes data if any step does: agents see it as such, read-only projects hide it, and it
+  gets a `dry_run` argument (database steps report what they'd change; other writing steps are
+  skipped). The test console shows each step's arguments and result.
 
 ## Approvals
 

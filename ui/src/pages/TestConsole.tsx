@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { buildArgs, prettyBody } from "@/lib/args";
 import { schemaType } from "@/lib/template";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { Json, McpToolView, NosqlTestRun, SqlTestRun, TestRun } from "@/types";
+import type { ChainTestRun, Json, McpToolView, NosqlTestRun, SqlTestRun, TestRun } from "@/types";
 
 export function TestConsole({ projectId, toolId, version, dirty }: { projectId: string; toolId: string | null; version: string; dirty: boolean }) {
   const [view, setView] = useState<McpToolView | null>(null);
@@ -130,6 +130,7 @@ const SQL_ERROR_LABEL: Record<NonNullable<SqlTestRun["error"]>["kind"], string> 
 function RunResult({ run }: { run: TestRun }) {
   if (run.kind === "sql") return <SqlRunResult run={run} />;
   if (run.kind === "nosql") return <NosqlRunResult run={run} />;
+  if (run.kind === "chain") return <ChainRunResult run={run} />;
   const status = run.response ? (
     <Badge variant={run.response.status < 400 ? "secondary" : "destructive"} className="font-mono">
       {run.response.status_line}
@@ -319,6 +320,41 @@ function NosqlRunResult({ run }: { run: NosqlTestRun }) {
             <Output text={JSON.stringify(run.request, null, 2)} />
           </TabsContent>
         )}
+      </Tabs>
+    </section>
+  );
+}
+
+function ChainRunResult({ run }: { run: ChainTestRun }) {
+  const steps = run.response.steps;
+  return (
+    <section aria-label="Test result" className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant={run.error ? "destructive" : "secondary"} className="font-mono">
+          {run.error ? "Stopped" : "Done"} · {steps.length} {steps.length === 1 ? "step" : "steps"} run
+        </Badge>
+        {run.shaped !== null && <Badge variant="outline">Shaped</Badge>}
+      </div>
+      <Tabs defaultValue="agent">
+        <TabsList className="w-full">
+          <TabsTrigger value="agent">Agent sees</TabsTrigger>
+          <TabsTrigger value="steps">Steps</TabsTrigger>
+        </TabsList>
+        <TabsContent value="agent" className="space-y-2">
+          <p className="text-xs text-muted-foreground">{run.agent_view.is_error ? "Returned to the agent as an error." : "Returned to the agent as the tool result."}</p>
+          <Output text={run.agent_view.is_error ? run.agent_view.text : prettyBody(run.agent_view.text, "application/json")} />
+        </TabsContent>
+        <TabsContent value="steps" className="space-y-3">
+          {steps.map((s, i) => (
+            <div key={i} className="space-y-1">
+              <p className="font-mono text-xs">
+                {i + 1}. {s.tool}
+                {s.skipped ? " · skipped (dry run)" : s.is_error ? " · failed" : ""}
+              </p>
+              <Output text={`args: ${JSON.stringify(s.args)}\nresult: ${JSON.stringify(s.result, null, 2)}`} />
+            </div>
+          ))}
+        </TabsContent>
       </Tabs>
     </section>
   );

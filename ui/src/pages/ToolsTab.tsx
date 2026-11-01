@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronDownIcon, DatabaseIcon, FileJsonIcon, GlobeIcon, LayersIcon, WaypointsIcon, KeyRoundIcon, PlusIcon, ShieldCheckIcon, WrenchIcon } from "lucide-react";
+import { ChevronDownIcon, DatabaseIcon, FileJsonIcon, GlobeIcon, LayersIcon, WaypointsIcon, WorkflowIcon, KeyRoundIcon, PlusIcon, ShieldCheckIcon, WrenchIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
@@ -104,6 +104,11 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
                   <LayersIcon /> NoSQL operation
                 </a>
               </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <a href={href.tool(projectId, null, "chain")}>
+                  <WorkflowIcon /> Chain of tools
+                </a>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -169,6 +174,11 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
                 </div>
                 {t.kind.type === "http" ? (
                   <RequestLine method={t.kind.method} baseUrl={t.kind.base_url} path={t.kind.path_template} size="sm" showBase={false} className="mt-0.5" />
+                ) : t.kind.type === "chain" ? (
+                  <p className="mt-0.5 flex min-w-0 items-center gap-2 font-mono text-xs text-muted-foreground">
+                    <span className="shrink-0 rounded-[4px] bg-m-other/12 px-1.5 py-px text-[0.85em] font-semibold text-foreground">Chain</span>
+                    <span className="truncate">{t.kind.steps.map((s) => s.tool).join(" → ")}</span>
+                  </p>
                 ) : t.kind.type === "nosql" ? (
                   <NosqlLine operation={t.kind.operation} target={t.kind.target} connection={connections.get(t.kind.connection_id)} />
                 ) : t.kind.type === "graphql" ? (

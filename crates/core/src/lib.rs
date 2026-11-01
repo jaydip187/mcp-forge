@@ -7,6 +7,7 @@ mod args;
 mod audit;
 mod auth;
 mod calls;
+mod chain;
 mod context;
 mod db;
 mod graphql;
@@ -26,6 +27,7 @@ pub use calls::{
     is_secret_name, logged_arguments, logged_error, ApprovalDecision, ApprovalRecord, CallEntry,
     CallStatus, MAX_CALLS_PER_PROJECT, MAX_LOGGED_ARGS_CHARS, MAX_LOGGED_ERROR_CHARS, REDACTED,
 };
+pub use chain::{step_context, ChainSpec, ChainStep, MAX_CHAIN_DEPTH, MAX_CHAIN_STEPS};
 pub use context::{
     PromptArg, PromptDef, PromptInput, ResourceDef, ResourceInput, MAX_PROMPT_BYTES,
     MAX_RESOURCE_BYTES, RESOURCE_MIME_TYPES, RESOURCE_URI_PREFIX,

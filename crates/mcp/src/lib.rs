@@ -7,6 +7,7 @@
 //! 2026-07-28 clients.
 
 pub mod approvals;
+pub mod chain;
 pub mod context;
 pub mod oauth;
 
@@ -144,9 +145,29 @@ impl ForgeMcp {
             .await
             .map_err(internal)?;
         let conns = self.connections().await?;
+        let by_name: HashMap<String, ToolDef> =
+            tools.iter().map(|t| (t.name.clone(), t.clone())).collect();
         Ok(tools
             .into_iter()
-            .filter(|t| exposed(settings, t, &conns) && key.is_none_or(|k| k.allows(&t.name)))
+            .filter(|t| {
+                exposed(settings, t, &conns)
+                    && key.is_none_or(|k| k.allows(&t.name))
+                    && !(settings.read_only
+                        && matches!(t.kind, ToolKind::Chain(_))
+                        && chain::tool_writes(t, &by_name, &conns, 0))
+            })
+            .collect())
+    }
+
+    /// All the project's tools by name (chains look their steps up).
+    async fn tools_by_name(&self) -> Result<HashMap<String, ToolDef>, ErrorData> {
+        Ok(self
+            .store
+            .list_tools(self.project_id)
+            .await
+            .map_err(internal)?
+            .into_iter()
+            .map(|t| (t.name.clone(), t))
             .collect())
     }
 
@@ -191,6 +212,7 @@ impl ForgeMcp {
                     error: Some(format!("unknown tool `{name}`")),
                     approval: None,
                     api_key: caller.key_name(),
+                    parent_id: caller.parent,
                 };
                 log_call(&self.store, settings, &entry).await;
                 return Err(ErrorData::invalid_params(
@@ -201,7 +223,20 @@ impl ForgeMcp {
             Err(e) => return Err(internal(e)),
         };
         let mut caller = caller.clone();
-        if tool.require_approval {
+        let needs_approval = match &tool.kind {
+            ToolKind::Chain(_) => {
+                let by_name = self.tools_by_name().await?;
+                if settings.read_only && chain::tool_writes(&tool, &by_name, &conns, 0) {
+                    return Err(ErrorData::invalid_params(
+                        format!("unknown tool `{name}`"),
+                        None,
+                    ));
+                }
+                chain::needs_approval(&tool, &by_name, 0)
+            }
+            _ => tool.require_approval,
+        };
+        if needs_approval {
             match self
                 .await_approval(&tool, args, settings, &caller, peer, ct)
                 .await
@@ -224,6 +259,7 @@ impl ForgeMcp {
                         error: Some(logged_error(&text)),
                         approval: Some(record),
                         api_key: caller.key_name(),
+                        parent_id: caller.parent,
                     };
                     log_call(&self.store, settings, &entry).await;
                     return Ok(result(true, text));
@@ -397,6 +433,7 @@ impl ForgeMcp {
             });
         let tools = self.exposed_tools(settings, key).await?;
         let conns = self.connections().await?;
+        let by_name = self.tools_by_name().await?;
         let hits = search_tools(&tools, query, limit);
         if hits.is_empty() {
             return Ok(result(
@@ -409,7 +446,7 @@ impl ForgeMcp {
         let found: Vec<Value> = hits
             .iter()
             .map(|t| {
-                let m = to_mcp_tool(t, connection_of(t, &conns));
+                let m = mcp_tool(t, &by_name, &conns);
                 json!({ "name": m.name, "description": m.description, "input_schema": m.input_schema })
             })
             .collect();
@@ -451,6 +488,12 @@ pub fn search_tools<'a>(tools: &'a [ToolDef], query: &str, limit: usize) -> Vec<
                 ToolKind::Sql(_) => String::new(),
                 ToolKind::Graphql(g) => g.operation_name.clone().unwrap_or_default().to_lowercase(),
                 ToolKind::Nosql(n) => n.target.to_lowercase(),
+                ToolKind::Chain(c) => c
+                    .steps
+                    .iter()
+                    .map(|st| st.tool.to_lowercase())
+                    .collect::<Vec<_>>()
+                    .join(" "),
             };
             let score: u32 = terms
                 .iter()
@@ -528,6 +571,7 @@ pub enum RunOutcome {
     Http(Result<HttpOutcome, ExecError>),
     Sql(Result<SqlOutcome, SqlError>),
     Nosql(Result<NosqlOutcome, SqlError>),
+    Chain(chain::ChainTrace),
 }
 
 /// Result of running a tool: the raw outcome plus exactly what the agent sees.
@@ -568,6 +612,10 @@ pub struct Caller {
     pub approval: Option<ApprovalRecord>,
     /// The access key the call came in with (HTTP only).
     pub key: Option<KeyScope>,
+    /// The chain call this call is a step of.
+    pub parent: Option<Uuid>,
+    /// How many chains deep this call runs.
+    pub depth: usize,
 }
 
 /// What an access key lets a connection see and call. The server attaches
@@ -602,6 +650,8 @@ impl Caller {
             client,
             approval: None,
             key: None,
+            parent: None,
+            depth: 0,
         }
     }
 
@@ -620,6 +670,8 @@ impl Caller {
             client: user,
             approval: None,
             key: None,
+            parent: None,
+            depth: 0,
         }
     }
 }
@@ -658,9 +710,11 @@ pub async fn run_tool(
 ) -> Result<ToolRun, StoreError> {
     let ts = chrono::Utc::now();
     let started = Instant::now();
-    let run = execute(store, exec, tool, args, settings, caller.origin).await?;
+    // Known up front: a chain's steps point at it.
+    let id = Uuid::new_v4();
+    let run = execute(store, exec, tool, args, settings, caller, id).await?;
     let entry = CallEntry {
-        id: Uuid::new_v4(),
+        id,
         project_id: tool.project_id,
         ts,
         tool_id: Some(tool.id),
@@ -682,6 +736,7 @@ pub async fn run_tool(
         error: run.is_error.then(|| logged_error(&run.text)),
         approval: caller.approval.clone(),
         api_key: caller.key_name(),
+        parent_id: caller.parent,
     };
     log_call(store, settings, &entry).await;
     Ok(run)
@@ -693,9 +748,19 @@ async fn execute(
     tool: &ToolDef,
     args: &Map<String, Value>,
     settings: &ProjectSettings,
-    origin: &str,
+    caller: &Caller,
+    call_id: Uuid,
 ) -> Result<ToolRun, StoreError> {
+    let origin = caller.origin;
     let spec = match &tool.kind {
+        ToolKind::Chain(c) => {
+            let env = chain::Env {
+                store,
+                exec,
+                settings,
+            };
+            return chain::run(env, tool, c, args, caller, call_id).await;
+        }
         ToolKind::Http(spec) => spec,
         ToolKind::Graphql(g) => return run_graphql(store, exec, tool, g, args, settings).await,
         ToolKind::Sql(spec) => {
@@ -1227,6 +1292,40 @@ pub fn nosql_tool_description(
     }
 }
 
+/// What an agent is told about a chain: the user's text, or the steps.
+fn chain_description(t: &ToolDef, c: &forge_core::ChainSpec) -> String {
+    let user = t.description.trim();
+    if !user.is_empty() {
+        return user.to_owned();
+    }
+    let steps: Vec<&str> = c.steps.iter().map(|s| s.tool.as_str()).collect();
+    format!(
+        "Runs {} steps in order: {}.",
+        steps.len(),
+        steps.join(" → ")
+    )
+}
+
+/// The MCP view of any tool; chains need the other tools to know whether
+/// they write (annotations, `dry_run`).
+pub fn mcp_tool(
+    t: &ToolDef,
+    tools: &HashMap<String, ToolDef>,
+    conns: &HashMap<Uuid, DbConnection>,
+) -> Tool {
+    let ToolKind::Chain(c) = &t.kind else {
+        return to_mcp_tool(t, connection_of(t, conns));
+    };
+    let writes = chain::tool_writes(t, tools, conns, 0);
+    let schema = chain::input_for(t, c, tools, conns).schema;
+    Tool::new(t.name.clone(), chain_description(t, c), schema).with_annotations(
+        ToolAnnotations::new()
+            .read_only(!writes)
+            .destructive(writes)
+            .open_world(true),
+    )
+}
+
 fn driver_label(c: &DbConnection) -> &'static str {
     driver_name(c.driver)
 }
@@ -1271,6 +1370,14 @@ pub fn to_mcp_tool(t: &ToolDef, conn: Option<&DbConnection>) -> Tool {
                 .open_world(true);
             return Tool::new(t.name.clone(), description, g.derive_input().schema)
                 .with_annotations(annotations);
+        }
+        ToolKind::Chain(c) => {
+            return Tool::new(
+                t.name.clone(),
+                chain_description(t, c),
+                c.derive_input().schema,
+            )
+            .with_annotations(ToolAnnotations::new().open_world(true));
         }
         ToolKind::Nosql(spec) => {
             let description = nosql_tool_description(t, spec, conn);
@@ -1356,10 +1463,11 @@ impl ServerHandler for ForgeMcp {
         }
         let tools = self.exposed_tools(&settings, key.as_ref()).await?;
         let conns = self.connections().await?;
+        let by_name = self.tools_by_name().await?;
         Ok(ListToolsResult::with_all_items(
             tools
                 .iter()
-                .map(|t| to_mcp_tool(t, connection_of(t, &conns)))
+                .map(|t| mcp_tool(t, &by_name, &conns))
                 .collect(),
         ))
     }

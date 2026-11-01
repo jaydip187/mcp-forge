@@ -111,8 +111,8 @@ impl BuiltOperation {
                 h.base_url.clone(),
             ),
             ToolKind::Graphql(g) => ("graphql", g.variables.len(), g.endpoint.clone()),
-            ToolKind::Sql(_) | ToolKind::Nosql(_) => {
-                unreachable!("importers don't build database tools")
+            ToolKind::Sql(_) | ToolKind::Nosql(_) | ToolKind::Chain(_) => {
+                unreachable!("importers build HTTP and GraphQL tools only")
             }
         };
         OperationSummary {

@@ -48,6 +48,7 @@ struct CallRow {
     approved_by: Option<String>,
     approval_wait_ms: Option<i64>,
     api_key: Option<String>,
+    parent_id: Option<String>,
 }
 
 impl TryFrom<CallRow> for CallEntry {
@@ -78,18 +79,19 @@ impl TryFrom<CallRow> for CallEntry {
                     wait_ms: r.approval_wait_ms.unwrap_or(0).max(0) as u64,
                 }),
             api_key: r.api_key,
+            parent_id: r.parent_id.as_deref().map(parse_id).transpose()?,
         })
     }
 }
 
 const COLUMNS: &str = "id, project_id, ts, tool_id, tool_name, origin, client, arguments, status, \
                        duration_ms, response_chars, upstream_status, error, approval, approved_by, \
-                       approval_wait_ms, api_key";
+                       approval_wait_ms, api_key, parent_id";
 
 impl Store {
     pub async fn append_call(&self, e: &CallEntry) -> Result<(), StoreError> {
         sqlx::query(&format!(
-            "INSERT INTO call_log ({COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO call_log ({COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ))
         .bind(e.id.to_string())
         .bind(e.project_id.to_string())
@@ -112,6 +114,7 @@ impl Store {
                 .map(|a| i64::try_from(a.wait_ms).unwrap_or(i64::MAX)),
         )
         .bind(&e.api_key)
+        .bind(e.parent_id.map(|i| i.to_string()))
         .execute(&self.pool)
         .await?;
         Ok(())

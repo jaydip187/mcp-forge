@@ -11,7 +11,7 @@ export type Route =
   | { name: "import"; projectId: string }
   | { name: "reimport"; projectId: string; specId: string };
 
-export type ToolEditorKind = "http" | "sql" | "graphql" | "nosql";
+export type ToolEditorKind = "http" | "sql" | "graphql" | "nosql" | "chain";
 
 export type ProjectTab = "tools" | "specs" | "auth" | "databases" | "context" | "calls" | "audit" | "connect" | "settings";
 const TABS: ProjectTab[] = ["tools", "specs", "auth", "databases", "context", "calls", "audit", "connect", "settings"];
@@ -28,6 +28,7 @@ export function parseRoute(hash: string): Route {
       if (tid === "new-sql") return { name: "tool", projectId: pid, toolId: null, kind: "sql" };
       if (tid === "new-graphql") return { name: "tool", projectId: pid, toolId: null, kind: "graphql" };
       if (tid === "new-nosql") return { name: "tool", projectId: pid, toolId: null, kind: "nosql" };
+      if (tid === "new-chain") return { name: "tool", projectId: pid, toolId: null, kind: "chain" };
       return { name: "tool", projectId: pid, toolId: tid, kind: "http" };
     }
     if (b === "import") return { name: "import", projectId: pid };
