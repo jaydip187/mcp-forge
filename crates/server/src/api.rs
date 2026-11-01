@@ -92,6 +92,7 @@ pub fn router() -> Router<AppState> {
             axum::routing::post(add_exploration_tools),
         )
         .merge(crate::context_api::routes())
+        .merge(crate::lint_api::routes())
         .fallback(|| async { ApiError::Store(StoreError::NotFound("route")) })
 }
 
@@ -100,6 +101,8 @@ pub fn router() -> Router<AppState> {
 #[derive(Debug)]
 pub enum ApiError {
     BadRequest(String),
+    /// An upstream service (the Anthropic API) failed.
+    BadGateway(String),
     /// The signed-in account lacks the permission (Stage 22).
     Forbidden,
     Store(StoreError),
@@ -129,6 +132,10 @@ impl IntoResponse for ApiError {
             ApiError::BadRequest(msg) => (
                 StatusCode::BAD_REQUEST,
                 json!({ "code": "bad_request", "message": msg }),
+            ),
+            ApiError::BadGateway(msg) => (
+                StatusCode::BAD_GATEWAY,
+                json!({ "code": "upstream", "message": msg }),
             ),
             ApiError::Forbidden => (
                 StatusCode::FORBIDDEN,

@@ -33,6 +33,7 @@ and to spec URLs you import on purpose. No telemetry.
 - [NoSQL databases](#nosql-databases)
 - [Resources and prompts](#resources-and-prompts)
 - [Chained tools](#chained-tools)
+- [Description quality](#description-quality)
 - [Approvals](#approvals)
 - [Call log](#call-log)
 - [Security model](#security-model)
@@ -452,6 +453,25 @@ output:  {user: .steps[0].login, repos: [.steps[1][].name]}
 - A chain changes data if any step does: agents see it as such, read-only projects hide it, and it
   gets a `dry_run` argument (database steps report what they'd change; other writing steps are
   skipped). The test console shows each step's arguments and result.
+
+## Description quality
+
+Agents choose tools by their names and descriptions. The **Quality** tab checks every tool, worst
+first, with a score (the project score averages the tools agents can see) and a hint per problem:
+
+- missing or very short descriptions;
+- vague names (`get`, `tool2`, `run`);
+- parameters without a description;
+- parameters that probably take a few fixed values (`status`, `sort`, `type`) but list none;
+- responses that are long on average (from the call log) or list things, with no response shape.
+
+These checks run inside mcp-forge; nothing is sent anywhere.
+
+**Improve with Claude** is optional and off by default. Put a reference to an Anthropic API key in
+the Quality tab (`env:ANTHROPIC_API_KEY` or `keyring:NAME`, never the key itself). Each tool with
+findings then gets a button that sends its definition and findings to the Anthropic API
+(`claude-opus-5-5`) and shows the suggested description and parameter descriptions next to the
+current ones. Nothing changes until you click **Apply**; errors never include the key.
 
 ## Approvals
 

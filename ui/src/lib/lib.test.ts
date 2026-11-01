@@ -210,6 +210,7 @@ describe("visibility", () => {
     approval_timeout_secs: 300,
     require_key: false,
     share_specs: false,
+    anthropic_key_ref: null,
     ...s,
   });
   const tool = (method: string, path: string, tags: string[], enabled = true) =>
@@ -510,5 +511,27 @@ describe("nosql form", () => {
     expect(hiddenReason(tool("update_many"), s)).toBe("read_only");
     expect(hiddenReason(tool("find"), s)).toBeNull();
     expect(hiddenReason(tool("run_query"), s)).toBeNull();
+  });
+});
+
+describe("quality", () => {
+  it("applies suggested parameter descriptions to any tool kind", async () => {
+    const { withParamDescriptions } = await import("../pages/QualityTab");
+    const http = withParamDescriptions(
+      { type: "http", method: "GET", base_url: "x", path_template: "/a", params: [param({ name: "state" }), param({ name: "q", description: "kept" })], body_schema: null, auth_ref: null, timeout_ms: 1 },
+      { state: "open or closed" },
+    );
+    if (http.type !== "http") throw new Error("http");
+    expect(http.params.map((p) => p.description)).toEqual(["open or closed", "kept"]);
+    const sql = withParamDescriptions(
+      { type: "sql", connection_id: "c", mode: { type: "query", sql: "SELECT :id", params: [{ name: "id", schema: { type: "integer" }, required: true, description: null }] } },
+      { id: "Order id" },
+    );
+    if (sql.type !== "sql" || sql.mode.type !== "query") throw new Error("sql");
+    expect(sql.mode.params[0]!.description).toBe("Order id");
+  });
+
+  it("routes the quality tab", () => {
+    expect(parseRoute("#/p/x/quality")).toEqual({ name: "project", projectId: "x", tab: "quality" });
   });
 });

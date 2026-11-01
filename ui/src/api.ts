@@ -24,7 +24,9 @@ import type {
   ExplorationMode,
   FieldError,
   ImportPreview,
+  Improvement,
   JsonObject,
+  LintReport,
   McpResourceView,
   PromptDef,
   PromptInput,
@@ -229,6 +231,8 @@ export const api = {
   updatePrompt: (pid: string, id: string, input: PromptInput) =>
     request<PromptDef>("PUT", `${p(pid)}/prompts/${encodeURIComponent(id)}`, input),
   deletePrompt: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/prompts/${encodeURIComponent(id)}`),
+  lintProject: (pid: string) => request<LintReport>("GET", `${p(pid)}/lint`),
+  improveTool: (pid: string, id: string) => request<Improvement>("POST", `${p(pid)}/tools/${encodeURIComponent(id)}/improve`, {}),
   mcpResources: (pid: string) => request<McpResourceView[]>("GET", `${p(pid)}/mcp-resources`),
   readMcpResource: (pid: string, uri: string) =>
     request<{ uri: string; mime_type: string; text: string }>("GET", `${p(pid)}/mcp-resources/read?uri=${encodeURIComponent(uri)}`),
