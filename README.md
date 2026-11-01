@@ -31,6 +31,7 @@ and to spec URLs you import on purpose. No telemetry.
 - [GraphQL APIs](#graphql-apis)
 - [Databases](#databases)
 - [NoSQL databases](#nosql-databases)
+- [Resources and prompts](#resources-and-prompts)
 - [Approvals](#approvals)
 - [Call log](#call-log)
 - [Security model](#security-model)
@@ -405,6 +406,26 @@ What keeps it safe:
 **Agent tools** work as for SQL: `<db>_list_targets`, `<db>_describe_target` (a collection's
 fields from a sample, a table's keys, an index mapping, a key's type) and `<db>_run_query`, where the
 agent writes the operation, target and body itself.
+
+## Resources and prompts
+
+Besides tools, each project can offer MCP **resources** (things an agent reads) and **prompts**
+(reusable instructions). Manage both on the **Context** tab.
+
+Resources agents can list and read:
+
+- **Your documents** (`forge://resources/<name>`): Markdown, text, JSON, CSV or YAML you write in
+  mcp-forge, such as a style guide, a glossary or a runbook.
+- **Database schemas** (`schema://<connection>`): tables or collections and their columns or
+  fields, built from the connection's exploration queries. Offered only while that connection's
+  *Describe* agent tool is on, and limited to the allowed tables, with masks applied.
+- **Imported specs** (`spec://<id>`): the OpenAPI, Swagger or GraphQL documents you imported, when
+  *Share imported specs* is on.
+
+**Prompts** are templates with arguments: `Look up ticket {{ticket}} and draft a reply in a
+{{tone}} tone.` Each `{{name}}` is an argument (required or not). Claude shows prompts as slash
+commands; other clients list them under prompts. Connected clients are told when either list
+changes. The **Context** tab previews exactly what agents get.
 
 ## Approvals
 

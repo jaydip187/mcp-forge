@@ -39,6 +39,8 @@ pub struct ProjectSettings {
     pub approval_timeout_secs: u32,
     /// `/mcp` needs an access key (or the admin token) even on loopback.
     pub require_key: bool,
+    /// Offer imported spec documents to agents as MCP resources.
+    pub share_specs: bool,
 }
 
 impl Default for ProjectSettings {
@@ -55,6 +57,7 @@ impl Default for ProjectSettings {
             call_log_days: DEFAULT_CALL_LOG_DAYS,
             approval_timeout_secs: DEFAULT_APPROVAL_TIMEOUT_SECS,
             require_key: false,
+            share_specs: false,
         }
     }
 }

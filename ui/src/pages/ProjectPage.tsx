@@ -13,6 +13,7 @@ import { AuditTab } from "@/pages/AuditTab";
 import { CallsTab } from "@/pages/CallsTab";
 import { AuthTab } from "@/pages/AuthTab";
 import { ConnectTab, mcpUrl } from "@/pages/ConnectTab";
+import { ContextTab } from "@/pages/ContextTab";
 import { DatabasesTab } from "@/pages/DatabasesTab";
 import { SettingsTab } from "@/pages/SettingsTab";
 import { SpecsTab } from "@/pages/SpecsTab";
@@ -24,6 +25,7 @@ const SECTIONS: { tab: ProjectTab; label: string }[] = [
   { tab: "specs", label: "Specs" },
   { tab: "auth", label: "Auth" },
   { tab: "databases", label: "Databases" },
+  { tab: "context", label: "Context" },
   { tab: "calls", label: "Calls" },
   { tab: "audit", label: "Audit log" },
   { tab: "connect", label: "Connect" },
@@ -113,6 +115,7 @@ export function ProjectPage({ projectId, tab, info }: { projectId: string; tab: 
           {tab === "specs" && <SpecsTab projectId={project.id} />}
           {tab === "auth" && <AuthTab projectId={project.id} />}
           {tab === "databases" && <DatabasesTab projectId={project.id} />}
+          {tab === "context" && <ContextTab project={project} onSaved={setProject} />}
           {tab === "settings" && <SettingsTab project={project} onSaved={setProject} />}
         </WriteGuard>
         {tab === "calls" && <CallsTab projectId={project.id} />}

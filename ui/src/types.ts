@@ -21,6 +21,8 @@ export interface ProjectSettings {
   call_log_days: number;
   approval_timeout_secs: number;
   require_key: boolean;
+  /** Offer imported specs as MCP resources. */
+  share_specs: boolean;
 }
 
 /** What the consent page shows about an app asking to connect. */
@@ -594,4 +596,48 @@ export interface CallSummary {
   p95_ms: number | null;
   tools: ToolCallSummary[];
   buckets: { start: string; ok: number; errors: number }[];
+}
+
+export const RESOURCE_MIME_TYPES = ["text/markdown", "text/plain", "application/json", "text/csv", "application/yaml"];
+
+export interface ResourceInput {
+  name: string;
+  description: string;
+  mime_type: string;
+  content: string;
+}
+
+export interface ResourceDef extends ResourceInput {
+  id: string;
+  project_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PromptArg {
+  name: string;
+  description: string;
+  required: boolean;
+}
+
+export interface PromptInput {
+  name: string;
+  description: string;
+  arguments: PromptArg[];
+  template: string;
+}
+
+export interface PromptDef extends PromptInput {
+  id: string;
+  project_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A resource as MCP clients list it. */
+export interface McpResourceView {
+  uri: string;
+  name: string;
+  description?: string;
+  mimeType?: string;
 }

@@ -7,6 +7,7 @@
 //! 2026-07-28 clients.
 
 pub mod approvals;
+pub mod context;
 pub mod oauth;
 
 use std::sync::Arc;
@@ -26,9 +27,11 @@ use forge_exec_sql::{SqlError, SqlExecutor, SqlOutcome};
 use forge_store::{Store, StoreError};
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ClientResult, ContentBlock,
-    ElicitRequest, ElicitRequestParams, ElicitationAction, ElicitationSchema, Implementation,
-    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig, ServerRequest,
-    SubscriptionFilter, Tool, ToolAnnotations,
+    ElicitRequest, ElicitRequestParams, ElicitationAction, ElicitationSchema,
+    GetPromptRequestParams, GetPromptResponse, GetPromptResult, Implementation, ListPromptsResult,
+    ListResourcesResult, ListToolsResult, PaginatedRequestParams, PromptMessage,
+    ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, ResourceContents, Role,
+    ServerCapabilities, ServerConfig, ServerRequest, SubscriptionFilter, Tool, ToolAnnotations,
 };
 use rmcp::service::{
     ElicitationMode, NotificationContext, Peer, PeerRequestOptions, RequestContext,
@@ -1225,7 +1228,11 @@ pub fn nosql_tool_description(
 }
 
 fn driver_label(c: &DbConnection) -> &'static str {
-    match c.driver {
+    driver_name(c.driver)
+}
+
+pub(crate) fn driver_name(d: forge_core::Driver) -> &'static str {
+    match d {
         forge_core::Driver::Postgres => "PostgreSQL",
         forge_core::Driver::Mysql => "MySQL",
         forge_core::Driver::Sqlite => "SQLite",
@@ -1328,6 +1335,10 @@ impl ServerHandler for ForgeMcp {
             ServerCapabilities::builder()
                 .enable_tools()
                 .enable_tool_list_changed()
+                .enable_resources()
+                .enable_resources_list_changed()
+                .enable_prompts()
+                .enable_prompts_list_changed()
                 .build(),
         )
         .with_server_info(Implementation::new("mcp-forge", env!("CARGO_PKG_VERSION")))
@@ -1404,6 +1415,82 @@ impl ServerHandler for ForgeMcp {
         res.map(Into::into)
     }
 
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        let settings = self.settings().await?;
+        let items = context::list_resources(&self.store, self.project_id, &settings)
+            .await
+            .map_err(internal)?;
+        Ok(ListResourcesResult::with_all_items(items))
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResponse, ErrorData> {
+        let settings = self.settings().await?;
+        match context::read_resource(
+            &self.store,
+            &self.exec,
+            self.project_id,
+            &settings,
+            &request.uri,
+        )
+        .await
+        .map_err(internal)?
+        {
+            context::Read::Found { text, mime } => Ok(ReadResourceResult::new(vec![
+                ResourceContents::text(text, request.uri.clone()).with_mime_type(mime),
+            ])
+            .into()),
+            context::Read::NotFound => Err(ErrorData::resource_not_found(
+                format!("no resource `{}`", request.uri),
+                None,
+            )),
+        }
+    }
+
+    async fn list_prompts(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListPromptsResult, ErrorData> {
+        let items = context::list_prompts(&self.store, self.project_id)
+            .await
+            .map_err(internal)?;
+        Ok(ListPromptsResult::with_all_items(items))
+    }
+
+    async fn get_prompt(
+        &self,
+        request: GetPromptRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<GetPromptResponse, ErrorData> {
+        let prompt = self
+            .store
+            .list_prompts(self.project_id)
+            .await
+            .map_err(internal)?
+            .into_iter()
+            .find(|p| p.name == request.name)
+            .ok_or_else(|| {
+                ErrorData::invalid_params(format!("no prompt `{}`", request.name), None)
+            })?;
+        let args = request.arguments.unwrap_or_default();
+        let text = prompt
+            .render(&args)
+            .map_err(|e| ErrorData::invalid_params(e, None))?;
+        let mut r = GetPromptResult::new(vec![PromptMessage::new_text(Role::User, text)]);
+        if !prompt.description.is_empty() {
+            r = r.with_description(prompt.description.clone());
+        }
+        Ok(r.into())
+    }
+
     async fn on_initialized(&self, context: NotificationContext<RoleServer>) {
         let peer = context.peer.clone();
         let mut rx = self.changes.subscribe();
@@ -1416,7 +1503,11 @@ impl ServerHandler for ForgeMcp {
                         Ok(id) if id != project_id => {}
                         Err(broadcast::error::RecvError::Closed) => break,
                         _ => {
-                            if peer.notify_tool_list_changed().await.is_err() {
+                            // Tools, resources and prompts all hang off the project.
+                            if peer.notify_tool_list_changed().await.is_err()
+                                || peer.notify_resource_list_changed().await.is_err()
+                                || peer.notify_prompt_list_changed().await.is_err()
+                            {
                                 break;
                             }
                         }
@@ -1435,7 +1526,13 @@ impl ServerHandler for ForgeMcp {
         &self,
         _requested: &SubscriptionFilter,
     ) -> Option<SubscriptionFilter> {
-        Some(SubscriptionFilter::builder().tools_list_changed().build())
+        Some(
+            SubscriptionFilter::builder()
+                .tools_list_changed()
+                .resources_list_changed()
+                .prompts_list_changed()
+                .build(),
+        )
     }
 
     async fn listen(&self, context: SubscriptionContext) -> Result<(), ErrorData> {
@@ -1450,7 +1547,11 @@ impl ServerHandler for ForgeMcp {
                         return Ok(());
                     }
                     _ => {
-                        if context.sink().notify_tool_list_changed().await.is_err() {
+                        let sink = context.sink();
+                        if sink.notify_tool_list_changed().await.is_err()
+                            || sink.notify_resource_list_changed().await.is_err()
+                            || sink.notify_prompt_list_changed().await.is_err()
+                        {
                             return Ok(());
                         }
                     }

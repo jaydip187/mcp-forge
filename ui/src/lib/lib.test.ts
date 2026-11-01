@@ -209,6 +209,7 @@ describe("visibility", () => {
     call_log_days: 30,
     approval_timeout_secs: 300,
     require_key: false,
+    share_specs: false,
     ...s,
   });
   const tool = (method: string, path: string, tags: string[], enabled = true) =>

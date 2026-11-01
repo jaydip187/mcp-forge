@@ -156,7 +156,7 @@ pub struct NosqlSpec {
 }
 
 /// `{{name}}` placeholders in a string, in order.
-fn placeholders_in(s: &str, out: &mut Vec<String>) {
+pub(crate) fn placeholders_in(s: &str, out: &mut Vec<String>) {
     let mut rest = s;
     while let Some(start) = rest.find("{{") {
         let after = &rest[start + 2..];
@@ -193,7 +193,7 @@ fn whole(s: &str) -> Option<&str> {
     (!inner.contains("{{") && !inner.contains("}}")).then(|| inner.trim())
 }
 
-fn render_str(s: &str, args: &Map<String, Value>) -> String {
+pub(crate) fn render_str(s: &str, args: &Map<String, Value>) -> String {
     let mut out = String::with_capacity(s.len());
     let mut rest = s;
     while let Some(start) = rest.find("{{") {

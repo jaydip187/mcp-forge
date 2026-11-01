@@ -8,6 +8,7 @@ mod bundle;
 mod calls;
 mod cipher;
 mod connections;
+mod context;
 mod mcp_oauth;
 mod oauth;
 mod projects;
