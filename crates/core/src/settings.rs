@@ -123,7 +123,7 @@ impl ProjectSettings {
         let http = match &tool.kind {
             ToolKind::Http(h) => Some(h),
             // Database writes need the connection; forge-mcp hides those.
-            ToolKind::Sql(_) | ToolKind::Nosql(_) => None,
+            ToolKind::Sql(_) | ToolKind::Nosql(_) | ToolKind::Chain(_) => None,
             ToolKind::Graphql(g) => {
                 if self.read_only && g.operation == crate::GraphqlOperation::Mutation {
                     return Some(Hidden::ReadOnly);

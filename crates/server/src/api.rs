@@ -599,6 +599,18 @@ fn unique_name(conn: &str, suffix: &str, taken: &mut std::collections::HashSet<S
 /// statement passes the read-only check for the dialect; a NoSQL operation
 /// exists for the engine, its target is allowed and its body is safe.
 pub(crate) async fn check_sql(s: &AppState, project_id: Uuid, input: &ToolInput) -> ApiResult<()> {
+    if let ToolKind::Chain(c) = &input.kind {
+        let tools = s.store.list_tools(project_id).await?;
+        let problems = forge_mcp::chain::check(&input.name, c, &tools);
+        if problems.is_empty() {
+            return Ok(());
+        }
+        let mut errs = forge_core::ValidationErrors::default();
+        for (f, m) in problems {
+            errs.push(f, m);
+        }
+        return Err(ApiError::Store(StoreError::Validation(errs)));
+    }
     let Some(cid) = input.kind.connection_ref() else {
         return Ok(());
     };
@@ -643,11 +655,21 @@ async fn get_tool_mcp_view(
     ApiPath((project_id, id)): ApiPath<(Uuid, Uuid)>,
 ) -> ApiResult<Json<rmcp::model::Tool>> {
     let tool = s.store.get_tool(project_id, id).await?;
-    let conn = match tool.kind.connection_ref() {
-        Some(cid) => s.store.get_connection(project_id, cid).await.ok(),
-        None => None,
-    };
-    Ok(Json(forge_mcp::to_mcp_tool(&tool, conn.as_ref())))
+    let tools: std::collections::HashMap<String, ToolDef> = s
+        .store
+        .list_tools(project_id)
+        .await?
+        .into_iter()
+        .map(|t| (t.name.clone(), t))
+        .collect();
+    let conns: std::collections::HashMap<Uuid, DbConnection> = s
+        .store
+        .list_connections(project_id)
+        .await?
+        .into_iter()
+        .map(|c| (c.id, c))
+        .collect();
+    Ok(Json(forge_mcp::mcp_tool(&tool, &tools, &conns)))
 }
 
 #[derive(Deserialize)]
@@ -683,6 +705,14 @@ async fn test_tool(
                 "write": o.write,
             }),
             Value::Null,
+        ),
+        RunOutcome::Chain(trace) => (
+            Value::Null,
+            json!({ "steps": trace.steps, "output": trace.output }),
+            trace
+                .error
+                .as_ref()
+                .map_or(Value::Null, |m| json!({ "kind": "chain", "message": m })),
         ),
         RunOutcome::Sql(Err(e)) | RunOutcome::Nosql(Err(e)) => {
             (Value::Null, Value::Null, sql_error_json(e))

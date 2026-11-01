@@ -121,6 +121,9 @@ pub struct CallEntry {
     /// Name of the access key the call came in with.
     #[serde(default)]
     pub api_key: Option<String>,
+    /// The chained tool's call this call was a step of.
+    #[serde(default)]
+    pub parent_id: Option<Uuid>,
 }
 
 /// Whether an argument name looks like it holds a secret.

@@ -154,7 +154,22 @@ export interface NosqlSpec {
   params: SqlParam[];
 }
 
-export type ToolKind = HttpSpec | SqlSpec | GraphqlSpec | NosqlSpec;
+export interface ChainStep {
+  /** Name of the tool this step calls. */
+  tool: string;
+  /** jq over {input, steps, last} producing the step's arguments. */
+  args: string;
+}
+
+export interface ChainSpec {
+  type: "chain";
+  params: SqlParam[];
+  steps: ChainStep[];
+  /** jq over {input, steps}; the last result when null. */
+  output: string | null;
+}
+
+export type ToolKind = HttpSpec | SqlSpec | GraphqlSpec | NosqlSpec | ChainSpec;
 
 export interface ToolInput {
   name: string;
@@ -399,7 +414,17 @@ export interface NosqlTestRun extends TestRunBase {
   error: SqlTestRun["error"];
 }
 
-export type TestRun = HttpTestRun | SqlTestRun | NosqlTestRun;
+export interface ChainTestRun extends TestRunBase {
+  kind: "chain";
+  request: null;
+  response: {
+    steps: { tool: string; args: Json; result: Json; is_error: boolean; skipped: boolean }[];
+    output: Json | null;
+  };
+  error: { kind: "chain"; message: string } | null;
+}
+
+export type TestRun = HttpTestRun | SqlTestRun | NosqlTestRun | ChainTestRun;
 
 export type Role = "admin" | "member";
 export type Access = "read" | "write";
@@ -567,6 +592,8 @@ export interface CallEntry {
   error: string | null;
   approval: ApprovalRecord | null;
   api_key: string | null;
+  /** The chain call this call was a step of. */
+  parent_id?: string | null;
 }
 
 export type CallWindow = "24h" | "7d" | "30d";

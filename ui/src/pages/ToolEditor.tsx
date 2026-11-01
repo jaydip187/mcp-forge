@@ -21,6 +21,7 @@ import { approvalDefault, buildToolInput, formFromTool, newForm, paramIndex, typ
 import { ParamsEditor, toRow, type ParamRow } from "@/pages/ParamsEditor";
 import { GraphqlToolEditor } from "@/pages/GraphqlToolEditor";
 import { NosqlToolEditor } from "@/pages/NosqlToolEditor";
+import { ChainToolEditor } from "@/pages/ChainToolEditor";
 import { SqlToolEditor } from "@/pages/SqlToolEditor";
 import { TestConsole } from "@/pages/TestConsole";
 import { describeAuth } from "@/pages/AuthTab";
@@ -66,6 +67,7 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
 
   if (otherTool?.kind.type === "sql") return <SqlToolEditor projectId={projectId} tool={otherTool} />;
   if (otherTool?.kind.type === "nosql") return <NosqlToolEditor projectId={projectId} tool={otherTool} />;
+  if (otherTool?.kind.type === "chain") return <ChainToolEditor projectId={projectId} tool={otherTool} />;
   if (otherTool) return <GraphqlToolEditor projectId={projectId} tool={otherTool} />;
   if (loadErr)
     return (

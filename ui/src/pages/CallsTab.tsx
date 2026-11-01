@@ -37,6 +37,7 @@ const WINDOWS: { value: CallWindow; label: string }[] = [
 ];
 
 function origin(c: CallEntry): string {
+  if (c.parent_id) return "step of a chain";
   if (c.origin === "console") return `test console${c.client ? ` · ${c.client}` : ""}`;
   return `${c.client ?? "agent"}${c.api_key ? ` · key ${c.api_key}` : ""}`;
 }

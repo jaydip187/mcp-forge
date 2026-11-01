@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::chain::ChainSpec;
 use crate::db::SqlSpec;
 use crate::graphql::GraphqlSpec;
 use crate::nosql::NosqlSpec;
@@ -69,6 +70,7 @@ pub enum ToolKind {
     Sql(SqlSpec),
     Graphql(GraphqlSpec),
     Nosql(NosqlSpec),
+    Chain(ChainSpec),
 }
 
 impl ToolKind {
@@ -76,7 +78,7 @@ impl ToolKind {
     pub fn auth_ref(&self) -> Option<Uuid> {
         match self {
             ToolKind::Http(h) => h.auth_ref,
-            ToolKind::Sql(_) | ToolKind::Nosql(_) => None,
+            ToolKind::Sql(_) | ToolKind::Nosql(_) | ToolKind::Chain(_) => None,
             ToolKind::Graphql(g) => g.auth_ref,
         }
     }
@@ -86,7 +88,7 @@ impl ToolKind {
         match self {
             ToolKind::Http(h) => h.auth_ref = auth,
             ToolKind::Graphql(g) => g.auth_ref = auth,
-            ToolKind::Sql(_) | ToolKind::Nosql(_) => {}
+            ToolKind::Sql(_) | ToolKind::Nosql(_) | ToolKind::Chain(_) => {}
         }
     }
 
@@ -96,6 +98,7 @@ impl ToolKind {
             ToolKind::Http(_) | ToolKind::Graphql(_) => None,
             ToolKind::Sql(s) => Some(s.connection_id),
             ToolKind::Nosql(s) => Some(s.connection_id),
+            ToolKind::Chain(_) => None,
         }
     }
 
@@ -104,7 +107,7 @@ impl ToolKind {
         match self {
             ToolKind::Sql(s) => s.connection_id = id,
             ToolKind::Nosql(s) => s.connection_id = id,
-            ToolKind::Http(_) | ToolKind::Graphql(_) => {}
+            ToolKind::Http(_) | ToolKind::Graphql(_) | ToolKind::Chain(_) => {}
         }
     }
 
@@ -115,6 +118,7 @@ impl ToolKind {
             ToolKind::Sql(_) => "sql",
             ToolKind::Graphql(_) => "graphql",
             ToolKind::Nosql(_) => "nosql",
+            ToolKind::Chain(_) => "chain",
         }
     }
 
@@ -125,6 +129,7 @@ impl ToolKind {
             ToolKind::Sql(s) => s.derive_input(),
             ToolKind::Graphql(g) => g.derive_input(),
             ToolKind::Nosql(s) => s.derive_input(),
+            ToolKind::Chain(c) => c.derive_input(),
         }
     }
 }
@@ -303,6 +308,7 @@ impl ToolInput {
             ToolKind::Http(h) => h.validate_into(&mut errs),
             ToolKind::Sql(s) => s.validate_into(&mut errs),
             ToolKind::Nosql(s) => s.validate_into(&mut errs),
+            ToolKind::Chain(c) => c.validate_into(&mut errs),
             ToolKind::Graphql(g) => g.validate_into(&mut errs),
         }
         errs.into_result()
