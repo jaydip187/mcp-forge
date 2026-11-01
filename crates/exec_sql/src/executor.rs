@@ -16,9 +16,10 @@ use uuid::Uuid;
 use crate::{
     error::Redactor, error::SqlError, explore, guard, outcome::AuditDraft, outcome::SqlOutcome,
     outcome::SqlRun, outcome::WriteInfo, outcome::DRY_RUN_ARG, policy::apply_masks,
-    policy::binds_for, policy::check_agent_sql, policy::check_table_access, policy::finish,
-    policy::gate, policy::tool_input, pool::build_pool, pool::probe, pool::ConnectionReport,
-    run_read_only, session, Bind, DbPool, Limits, RawResult, StatementClass, WriteOptions,
+    policy::binds_for, policy::check_agent_sql, policy::check_files, policy::check_table_access,
+    policy::finish, policy::gate, policy::tool_input, pool::build_pool, pool::probe,
+    pool::ConnectionReport, run_read_only, session, Bind, DbPool, Limits, RawResult,
+    StatementClass, WriteOptions,
 };
 
 /// Cached pools: (connection, writable) → (settings fingerprint, pool).
@@ -57,8 +58,16 @@ impl SqlExecutor {
         dsn: &str,
         writable: bool,
     ) -> Result<DbPool, SqlError> {
+        // DuckDB keeps one handle per file for reads and writes alike.
+        let writable = writable && conn.driver != Driver::Duckdb;
         let mut h = DefaultHasher::new();
         (conn.driver, dsn, conn.timeout_ms).hash(&mut h);
+        // Baked into a DuckDB handle when it opens.
+        (
+            conn.access_mode == forge_core::AccessMode::ReadOnly,
+            &conn.file_allowlist,
+        )
+            .hash(&mut h);
         let key = h.finish();
         let stale = {
             let pools = self.pools.lock().expect("pool map poisoned");
@@ -284,6 +293,9 @@ impl SqlExecutor {
                 let checked =
                     guard::check_statement(&bound.sql, conn.driver).map_err(SqlError::Rejected)?;
                 gate(&checked, conn.access_mode, conn.allow_ddl, false)
+                    .map_err(SqlError::Rejected)?;
+                // The allowed folders may have changed since the tool was saved.
+                check_files(conn.driver, &conn.file_allowlist, &checked)
                     .map_err(SqlError::Rejected)?;
                 let binds = binds_for(spec, &bound.binds, args)?;
                 if checked.class != StatementClass::Read {

@@ -7,8 +7,9 @@ self-hosted binary with a web UI.
   collection, a HAR file or curl commands, then rename, trim and reshape what agents see (jq).
 - **GraphQL APIs**: write a query or mutation, or import a schema (introspection or SDL) and pick
   the operations to offer; the variables become the agent's arguments.
-- **Databases** (SQLite, PostgreSQL, MySQL): saved queries with typed parameters, optional schema
-  exploration and agent-written SQL, all read-only by default, with writes as a deliberate opt-in.
+- **Databases** (PostgreSQL, MySQL, SQL Server, SQLite, ClickHouse): saved queries with typed
+  parameters, optional schema exploration and agent-written SQL, all read-only by default, with
+  writes as a deliberate opt-in.
 - **Safe by default**: listens on localhost only, stores secrets as references (never values), and
   checks every SQL statement before it reaches your database.
 - Serves each project over **MCP streamable HTTP** (`/mcp/<project>`) and **stdio**.
@@ -292,6 +293,7 @@ What agents see:
 - A response with `data` returns the data (after your response shape). A response with `errors`
   fails the call with each message and its path, plus any partial data.
 
+## Databases
 
 Add a connection on the **Databases** tab. The connection string is a secret reference too:
 
@@ -300,6 +302,8 @@ Add a connection on the **Databases** tab. The connection string is a secret ref
 | PostgreSQL | `postgres://readonly:PASSWORD@db.example.com:5432/shop`  |
 | MySQL      | `mysql://readonly:PASSWORD@db.example.com:3306/shop`     |
 | SQLite     | `/path/to/shop.db`                                       |
+| SQL Server | `mssql://reader:PASSWORD@db.example.com:1433/shop` (ADO.NET `Server=…;` and `jdbc:sqlserver://…` strings work too; add `?trust_server_certificate=true` for self-signed certificates) |
+| ClickHouse | `https://reader:PASSWORD@db.example.com:8443/shop` (the HTTP interface) |
 
 Click **Test** to check the connection: it shows the server version, the login, and whether that
 login can change data.
@@ -318,6 +322,16 @@ allowed values). Values are always sent separately from the SQL, never pasted in
 
 They only see the tables you list under *Tables agents may explore* (empty means every non-system
 table). System catalogs are always off limits.
+
+How each database is kept read-only:
+
+- **PostgreSQL, MySQL**: read-only transactions with a server-side time limit.
+- **SQLite**: the file is opened read-only.
+- **SQL Server** has no read-only transactions: every statement is checked first, and every read
+  runs in a transaction that is rolled back. *Test* warns when the login can write; a login with only
+  `db_datareader` is the safest choice.
+- **ClickHouse**: every query is sent with `readonly=2`. ClickHouse has no transactions, so its
+  connections are always read-only.
 
 **Masked columns** (`users.password_hash`, `*.email`): their values come back as `[masked]`. In
 agent-written SQL they can't be selected, filtered on or used in expressions at all.

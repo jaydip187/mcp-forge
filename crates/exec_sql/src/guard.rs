@@ -4,15 +4,20 @@
 mod check;
 mod classify;
 mod deny;
+mod files;
 mod masks;
 mod placeholders;
 mod tables;
 
 use forge_core::Driver;
-use sqlparser::dialect::{Dialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
+use sqlparser::dialect::{
+    ClickHouseDialect, Dialect, DuckDbDialect, MsSqlDialect, MySqlDialect, PostgreSqlDialect,
+    SQLiteDialect,
+};
 
 pub use check::{check_read_only, check_statement, CheckedQuery};
 pub use classify::StatementClass;
+pub use files::{check_file_reads, file_table_name, FILE_FUNCTIONS};
 pub use masks::{check_masks, masked_columns};
 pub use placeholders::{bind_placeholders, BoundSql};
 pub use tables::{is_system_table, table_allowed};
@@ -22,9 +27,16 @@ fn dialect(driver: Driver) -> Box<dyn Dialect> {
         Driver::Sqlite => Box::new(SQLiteDialect {}),
         Driver::Postgres => Box::new(PostgreSqlDialect {}),
         Driver::Mysql => Box::new(MySqlDialect {}),
+        Driver::Duckdb => Box::new(DuckDbDialect {}),
+        Driver::Mssql => Box::new(MsSqlDialect {}),
+        Driver::Clickhouse => Box::new(ClickHouseDialect {}),
     }
 }
 
 #[cfg(test)]
 #[path = "../tests/unit/guard.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../tests/unit/guard_dialects.rs"]
+mod dialect_tests;

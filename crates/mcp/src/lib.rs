@@ -1072,6 +1072,9 @@ fn driver_label(c: &DbConnection) -> &'static str {
         forge_core::Driver::Postgres => "PostgreSQL",
         forge_core::Driver::Mysql => "MySQL",
         forge_core::Driver::Sqlite => "SQLite",
+        forge_core::Driver::Duckdb => "DuckDB",
+        forge_core::Driver::Mssql => "SQL Server",
+        forge_core::Driver::Clickhouse => "ClickHouse",
     }
 }
 

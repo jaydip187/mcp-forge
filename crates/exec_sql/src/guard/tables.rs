@@ -15,9 +15,10 @@ fn split_table(table: &str) -> (Option<String>, String) {
 fn default_schema(driver: Driver) -> Option<&'static str> {
     match driver {
         Driver::Postgres => Some("public"),
-        Driver::Sqlite => Some("main"),
+        Driver::Sqlite | Driver::Duckdb => Some("main"),
+        Driver::Mssql => Some("dbo"),
         // The connection's database; not known without asking the server.
-        Driver::Mysql => None,
+        Driver::Mysql | Driver::Clickhouse => None,
     }
 }
 
@@ -36,12 +37,15 @@ pub fn is_system_table(table: &str, driver: Driver) -> bool {
         Some(s) => {
             let last = s.rsplit('.').next().unwrap_or(&s);
             SYSTEM_SCHEMAS.contains(&last)
+                || (driver == Driver::Clickhouse && last == "system")
+                || (driver == Driver::Duckdb && last == "pg_catalog")
                 || (driver == Driver::Sqlite && name.starts_with("sqlite_"))
         }
         // Unqualified pg_* names resolve to pg_catalog first.
         None => {
             (driver == Driver::Postgres && name.starts_with("pg_"))
                 || (driver == Driver::Sqlite && name.starts_with("sqlite_"))
+                || (driver == Driver::Duckdb && name.starts_with("duckdb_"))
         }
     }
 }

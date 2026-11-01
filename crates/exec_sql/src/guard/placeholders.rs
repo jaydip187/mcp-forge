@@ -16,8 +16,11 @@ pub struct BoundSql {
 }
 
 /// Rewrites `:name` placeholders (outside strings, comments and `::` casts)
-/// to `$n` (Postgres; a repeated name reuses its number) or `?` (SQLite,
-/// MySQL; one bind per occurrence). The rest of the text is kept verbatim.
+/// to the driver's form: `$n` (Postgres), `@Pn` (SQL Server) and `{pn:String}`
+/// (ClickHouse) reuse a number for a repeated name; `?` (SQLite, MySQL,
+/// DuckDB) takes one bind per occurrence. The rest of the text is kept
+/// verbatim. ClickHouse's `String` is replaced by each value's type when it
+/// runs (see [`crate::session`]).
 pub fn bind_placeholders(sql: &str, driver: Driver) -> Result<BoundSql, String> {
     let d = dialect(driver);
     let tokens = Tokenizer::new(d.as_ref(), sql)
@@ -68,7 +71,9 @@ pub fn bind_placeholders(sql: &str, driver: Driver) -> Result<BoundSql, String> 
         };
         match driver {
             Driver::Postgres => out.push_str(&format!("${}", idx + 1)),
-            Driver::Sqlite | Driver::Mysql => {
+            Driver::Mssql => out.push_str(&format!("@P{}", idx + 1)),
+            Driver::Clickhouse => out.push_str(&format!("{{p{}:String}}", idx + 1)),
+            Driver::Sqlite | Driver::Mysql | Driver::Duckdb => {
                 out.push('?');
                 binds.push(w.value.clone());
             }
@@ -76,7 +81,10 @@ pub fn bind_placeholders(sql: &str, driver: Driver) -> Result<BoundSql, String> 
         copied = end;
     }
     out.push_str(&sql[copied..]);
-    if driver == Driver::Postgres {
+    if matches!(
+        driver,
+        Driver::Postgres | Driver::Mssql | Driver::Clickhouse
+    ) {
         binds = names.clone();
     }
     Ok(BoundSql {

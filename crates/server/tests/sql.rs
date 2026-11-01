@@ -123,6 +123,33 @@ async fn sql_tool_via_api_console_and_mcp() {
         )
         .await;
     assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY, "{e}");
+    // Stage 25: DuckDB isn't built in yet; ClickHouse is read-only.
+    let (st, e) = h
+        .send(
+            "POST",
+            &format!("{base}/db-connections"),
+            json!({ "name": "lake", "driver": "duckdb", "dsn_ref": "env:LAKE" }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY, "{e}");
+    assert!(e.to_string().contains("DuckDB"), "{e}");
+    let (st, e) = h
+        .send(
+            "POST",
+            &format!("{base}/db-connections"),
+            json!({ "name": "events", "driver": "clickhouse", "dsn_ref": "env:CH", "access_mode": "curated_write" }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY, "{e}");
+    assert!(e.to_string().contains("read-only"), "{e}");
+    let ch = h
+        .ok(
+            "POST",
+            &format!("{base}/db-connections"),
+            json!({ "name": "events", "driver": "clickhouse", "dsn_ref": "env:CH" }),
+        )
+        .await;
+    assert_eq!(ch["driver"], "clickhouse");
     let conn = h
         .ok(
             "POST",

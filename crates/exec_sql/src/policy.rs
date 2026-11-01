@@ -2,7 +2,7 @@
 
 use forge_core::{
     AccessMode, ArgBinding, ArgTarget, ColumnMask, DbConnection, DbConnectionInput, DerivedInput,
-    SqlMode, SqlSpec, ValidationErrors,
+    Driver, SqlMode, SqlSpec, ValidationErrors,
 };
 use serde_json::{json, Map, Value};
 
@@ -135,10 +135,72 @@ pub fn check_query_tool(spec: &SqlSpec, conn: &DbConnectionInput) -> Result<(), 
         Ok(q) => {
             if let Err(e) = gate(&q, conn.access_mode, conn.allow_ddl, false) {
                 errs.push("kind.mode.sql", e);
+            } else if let Err(e) = check_files(driver, &conn.file_allowlist, &q) {
+                errs.push("kind.mode.sql", e);
             }
         }
     }
     errs.into_result()
+}
+
+/// DuckDB: every file a query reads must be inside an allowed folder, named
+/// by a literal path (so it can be checked before running). Other drivers
+/// have no file functions (theirs are denied outright).
+pub fn check_files(
+    driver: Driver,
+    folders: &[String],
+    q: &guard::CheckedQuery,
+) -> Result<(), String> {
+    if driver != Driver::Duckdb {
+        return Ok(());
+    }
+    if let Some(t) = q.tables.iter().find(|t| guard::file_table_name(t)) {
+        return Err(format!(
+            "`{t}` looks like a file; read files with read_csv('…'), read_parquet('…') or read_json('…')"
+        ));
+    }
+    for path in guard::check_file_reads(&q.statement)? {
+        if folders.is_empty() {
+            return Err(
+                "this connection reads no files; add folders to its allowed file folders first"
+                    .into(),
+            );
+        }
+        if !path_allowed(&path, folders) {
+            return Err(format!(
+                "`{path}` isn't in an allowed folder ({}); use a full path inside one of them",
+                folders.join(", ")
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Forward slashes, no trailing slash; case-insensitive on Windows.
+fn norm(p: &str) -> String {
+    let p = p.replace('\\', "/");
+    let p = p.trim_end_matches('/').to_owned();
+    if cfg!(windows) {
+        p.to_lowercase()
+    } else {
+        p
+    }
+}
+
+/// Absolute local path (globs allowed in the file part) under a folder.
+pub(crate) fn path_allowed(path: &str, folders: &[String]) -> bool {
+    let p = norm(path);
+    let has_scheme = p
+        .split_once(':')
+        .is_some_and(|(scheme, _)| scheme.len() > 1 && !scheme.contains('/'));
+    let absolute = p.starts_with('/') || (p.len() > 2 && p.as_bytes()[1] == b':');
+    if has_scheme || !absolute || p.split('/').any(|part| part == ".." || part == ".") {
+        return false;
+    }
+    folders.iter().any(|f| {
+        let f = norm(f);
+        p.strip_prefix(&f).is_some_and(|rest| rest.starts_with('/'))
+    })
 }
 
 /// Turns validated arguments into positional binds.
@@ -240,6 +302,7 @@ pub fn check_agent_sql(conn: &DbConnection, sql: &str) -> Result<guard::CheckedQ
     for t in &checked.tables {
         check_table_access(conn, t)?;
     }
+    check_files(conn.driver, &conn.file_allowlist, &checked).map_err(SqlError::Rejected)?;
     guard::check_masks(&checked, &conn.column_masks).map_err(SqlError::Rejected)?;
     Ok(checked)
 }

@@ -85,6 +85,25 @@ pub(crate) fn build_pool(
                     .connect_lazy_with(opts),
             )
         }
+        // One handle per database file (DuckDB locks it): read-write when
+        // the connection allows writes, reads roll back either way.
+        #[cfg(feature = "duckdb")]
+        Driver::Duckdb => DbPool::Duckdb(crate::duckdb::DuckdbPool::open(
+            dsn,
+            conn.access_mode != forge_core::AccessMode::ReadOnly,
+            &conn.file_allowlist,
+        )?),
+        #[cfg(not(feature = "duckdb"))]
+        Driver::Duckdb => {
+            return Err(SqlError::Config(
+                "this build of mcp-forge doesn't include DuckDB".into(),
+            ))
+        }
+        Driver::Mssql => DbPool::Mssql(crate::mssql::MssqlPool::new(dsn)?),
+        Driver::Clickhouse => DbPool::Clickhouse(crate::clickhouse::ClickhousePool::new(
+            dsn,
+            conn.timeout_ms,
+        )?),
     })
 }
 
@@ -107,6 +126,10 @@ pub(crate) fn require_scheme(dsn: &str, schemes: &[&str]) -> Result<(), SqlError
 pub(crate) async fn probe(pool: &DbPool, dsn: &str) -> Result<ConnectionReport, SqlError> {
     let mut r = ConnectionReport::default();
     match pool {
+        DbPool::Mssql(p) => return crate::mssql::probe(p).await,
+        #[cfg(feature = "duckdb")]
+        DbPool::Duckdb(p) => return crate::duckdb::probe(p).await,
+        DbPool::Clickhouse(p) => return crate::clickhouse::probe(p).await,
         DbPool::Postgres(p) => {
             let mut tx = p
                 .begin_with("BEGIN READ ONLY")
