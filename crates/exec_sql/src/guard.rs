@@ -11,8 +11,8 @@ mod tables;
 
 use forge_core::Driver;
 use sqlparser::dialect::{
-    ClickHouseDialect, Dialect, DuckDbDialect, MsSqlDialect, MySqlDialect, PostgreSqlDialect,
-    SQLiteDialect,
+    ClickHouseDialect, Dialect, DuckDbDialect, GenericDialect, MsSqlDialect, MySqlDialect,
+    PostgreSqlDialect, SQLiteDialect,
 };
 
 pub use check::{check_read_only, check_statement, CheckedQuery};
@@ -30,6 +30,10 @@ fn dialect(driver: Driver) -> Box<dyn Dialect> {
         Driver::Duckdb => Box::new(DuckDbDialect {}),
         Driver::Mssql => Box::new(MsSqlDialect {}),
         Driver::Clickhouse => Box::new(ClickHouseDialect {}),
+        // NoSQL connections run no SQL; anything sent there parses generically.
+        Driver::Mongodb | Driver::Redis | Driver::Dynamodb | Driver::Elasticsearch => {
+            Box::new(GenericDialect {})
+        }
     }
 }
 

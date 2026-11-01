@@ -39,6 +39,8 @@ pub fn list_tables_sql(driver: Driver) -> &'static str {
             "SELECT database, name, if(engine LIKE '%View', 'view', 'table') FROM system.tables \
              WHERE database = currentDatabase() ORDER BY name"
         }
+        // NoSQL connections never get a SQL pool (see `build_pool`).
+        Driver::Mongodb | Driver::Redis | Driver::Dynamodb | Driver::Elasticsearch => "",
     }
 }
 
@@ -196,6 +198,9 @@ pub fn describe_table_sql(driver: Driver, table: &str) -> (String, Vec<Bind>) {
                 .into(),
             vec![Bind::Text(name.to_owned()), schema_bind],
         ),
+        Driver::Mongodb | Driver::Redis | Driver::Dynamodb | Driver::Elasticsearch => {
+            (String::new(), vec![])
+        }
     }
 }
 

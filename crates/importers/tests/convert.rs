@@ -40,6 +40,14 @@ fn param_names(o: &BuiltOperation, loc: ParamLocation) -> Vec<String> {
         .collect()
 }
 
+/// Body fields come from JSON objects, which keep their written order when
+/// serde_json's `preserve_order` is on (bson enables it in workspace builds).
+fn body_names(o: &BuiltOperation) -> Vec<String> {
+    let mut names = param_names(o, ParamLocation::Body);
+    names.sort();
+    names
+}
+
 const POSTMAN: &str = r#"{
   "info": { "_postman_id": "x", "name": "Shop API", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json" },
   "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "SECRET-BEARER" }] },
@@ -109,7 +117,7 @@ fn postman_collection() {
 
     let create = op(&i, "POST /orders");
     assert!(create.supported);
-    let body: Vec<String> = param_names(create, ParamLocation::Body);
+    let body = body_names(create);
     assert_eq!(body, ["item", "qty"]);
     assert_eq!(
         get.op_id(),
@@ -229,10 +237,7 @@ fn har_capture() {
     assert!(tasks.needs_auth);
 
     let login = op(&i, "POST /v1/login");
-    assert_eq!(
-        param_names(login, ParamLocation::Body),
-        ["password", "user"]
-    );
+    assert_eq!(body_names(login), ["password", "user"]);
     assert!(op(&i, "DELETE /v1/tasks/{tasks_id}").supported);
 }
 
@@ -280,10 +285,7 @@ fn curl_commands() {
         .find(|p| p.name == "X-GitHub-Api-Version")
         .unwrap();
     assert_eq!(version.schema["default"], "2022-11-28");
-    assert_eq!(
-        param_names(issue, ParamLocation::Body),
-        ["draft", "labels", "title"]
-    );
+    assert_eq!(body_names(issue), ["draft", "labels", "title"]);
     assert!(issue.needs_auth);
 
     let search = op(&i, "GET /v2/search");

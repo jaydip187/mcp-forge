@@ -20,6 +20,7 @@ import {
   DRIVER_LABEL,
   DRIVERS,
   READ_ONLY_DRIVERS,
+  isSqlDriver,
   EXPLORATION_MODES,
   type ConnectionReport,
   type DbConnection,
@@ -37,6 +38,26 @@ const DSN_EXAMPLE: Record<Driver, string> = {
   duckdb: "/path/to/analytics.duckdb (or :memory: to query files only)",
   mssql: "mssql://reader:PASSWORD@db.example.com:1433/shop",
   clickhouse: "https://reader:PASSWORD@db.example.com:8443/shop",
+  mongodb: "mongodb://reader:PASSWORD@db.example.com:27017/shop (or mongodb+srv://…/shop)",
+  redis: "redis://:PASSWORD@cache.example.com:6379/0 (rediss:// for TLS)",
+  dynamodb: "dynamodb://ACCESS_KEY_ID:SECRET@us-east-1 (percent-encode / and + in the secret; ?endpoint=… for DynamoDB Local)",
+  elasticsearch: "https://reader:PASSWORD@search.example.com:9200 (or ?api_key=KEY)",
+};
+
+/** NoSQL exploration tools, shown under the SQL mode names the API accepts. */
+const NOSQL_MODE: Record<string, ExplorationMode> = {
+  list_targets: "list_tables",
+  describe_target: "describe_table",
+  run_query: "run_sql",
+};
+
+const NOSQL_EXPLORATION_LABEL: Record<ExplorationMode, { title: string; blurb: string }> = {
+  list_tables: { title: "List", blurb: "Lists the collections, tables, indexes or keys the agent may use." },
+  describe_table: { title: "Describe", blurb: "Shows one collection's fields, a table's keys, an index mapping or a key's type." },
+  run_sql: {
+    title: "Run query",
+    blurb: "Lets the agent write its own read-only operation against allowed names. Most flexible, so most to review.",
+  },
 };
 
 export const MODE_LABEL: Record<AccessMode, { short: string; title: string; blurb: string }> = {
@@ -85,14 +106,16 @@ export function DatabasesTab({ projectId }: { projectId: string }) {
     setTools(ts);
   }, [projectId]);
 
-  /** Exploration tools a connection already has, by mode. */
+  /** Exploration tools a connection already has, by mode (NoSQL ones under the SQL mode names). */
   const explorationTools = (c: DbConnection) =>
     new Map(
-      tools.flatMap((t) =>
-        t.kind.type === "sql" && t.kind.connection_id === c.id && t.kind.mode.type !== "query"
-          ? [[t.kind.mode.type, t] as const]
-          : [],
-      ),
+      tools.flatMap((t) => {
+        if (t.kind.type === "sql" && t.kind.connection_id === c.id && t.kind.mode.type !== "query")
+          return [[t.kind.mode.type, t] as const];
+        if (t.kind.type === "nosql" && t.kind.connection_id === c.id && t.kind.operation in NOSQL_MODE)
+          return [[NOSQL_MODE[t.kind.operation]!, t] as const];
+        return [];
+      }),
     );
   useEffect(() => {
     void load();
@@ -137,7 +160,7 @@ export function DatabasesTab({ projectId }: { projectId: string }) {
           <EmptyState
             icon={DatabaseIcon}
             title="No databases yet"
-            description="Add a connection with the form, then create SQL tools for it on the Tools tab."
+            description="Add a connection with the form, then create database tools for it on the Tools tab."
           />
         ) : (
           <ul className="divide-y overflow-hidden rounded-xl border bg-card">
@@ -153,7 +176,11 @@ export function DatabasesTab({ projectId }: { projectId: string }) {
                         {c.access_mode !== "read_only" && ` (≤${c.max_affected_rows} rows per write${c.allow_ddl ? ", DDL on" : ""})`} · up to{" "}
                         {c.row_limit} rows · {c.timeout_ms / 1000}s limit
                         {c.column_masks.length > 0 && ` · ${c.column_masks.length} masked column${c.column_masks.length > 1 ? "s" : ""}`}
-                        {` · ${c.table_allowlist.length ? `${c.table_allowlist.length} allowed table${c.table_allowlist.length > 1 ? "s" : ""}` : "all tables allowed"}`}
+                        {(() => {
+                          const what = isSqlDriver(c.driver) ? "table" : "name";
+                          const n = c.table_allowlist.length;
+                          return ` · ${n ? `${n} allowed ${what}${n > 1 ? "s" : ""}` : `all ${what}s allowed`}`;
+                        })()}
                       </p>
                       <p className="font-mono text-xs text-muted-foreground">{c.dsn_ref}</p>
                     </div>
@@ -250,7 +277,11 @@ function AgentTools({
     <div className="space-y-3 rounded-md border bg-muted/40 p-3">
       <p className="text-sm text-muted-foreground">
         Let agents explore this database themselves. Everything stays read-only and limited to{" "}
-        {conn.table_allowlist.length ? `the ${conn.table_allowlist.length} allowed tables` : "non-system tables"}
+        {conn.table_allowlist.length
+          ? `the ${conn.table_allowlist.length} allowed ${isSqlDriver(conn.driver) ? "tables" : "names"}`
+          : isSqlDriver(conn.driver)
+            ? "non-system tables"
+            : "non-system names"}
         {conn.column_masks.length > 0 && ", with masked columns kept out of reach"}.
       </p>
       <ul className="grid gap-2">
@@ -275,7 +306,7 @@ function AgentTools({
               )}
               <Label htmlFor={`x-${conn.id}-${m}`} className="grid gap-0.5 font-normal">
                 <span className="font-medium">
-                  {EXPLORATION_LABEL[m].title}
+                  {(isSqlDriver(conn.driver) ? EXPLORATION_LABEL : NOSQL_EXPLORATION_LABEL)[m].title}
                   {tool && (
                     <>
                       {" "}
@@ -286,7 +317,7 @@ function AgentTools({
                     </>
                   )}
                 </span>
-                <span className="text-xs text-muted-foreground">{EXPLORATION_LABEL[m].blurb}</span>
+                <span className="text-xs text-muted-foreground">{(isSqlDriver(conn.driver) ? EXPLORATION_LABEL : NOSQL_EXPLORATION_LABEL)[m].blurb}</span>
               </Label>
             </li>
           );
@@ -383,7 +414,7 @@ function ConnectionForm({
       table_allowlist: splitList(allowText),
       file_allowlist: draft.driver === "duckdb" ? splitList(filesText) : [],
       max_affected_rows: Number(maxRows),
-      allow_ddl: draft.access_mode !== "read_only" && draft.allow_ddl,
+      allow_ddl: isSqlDriver(draft.driver) && draft.access_mode !== "read_only" && draft.allow_ddl,
     };
     if (needsConfirm && !confirmFull) {
       setErr(new ApiError(422, "validation", "Confirm full access first.", [
@@ -473,15 +504,22 @@ function ConnectionForm({
             )}
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="d-allow">Tables agents may explore</Label>
-            <Textarea id="d-allow" className="min-h-16 font-mono text-xs" value={allowText} onChange={(e) => setAllowText(e.target.value)} placeholder={"orders\nsales.*"} spellCheck={false} aria-invalid={!!allowErr} />
+            <Label htmlFor="d-allow">{isSqlDriver(draft.driver) ? "Tables agents may explore" : "Names agents may use"}</Label>
+            <Textarea id="d-allow" className="min-h-16 font-mono text-xs" value={allowText} onChange={(e) => setAllowText(e.target.value)} placeholder={isSqlDriver(draft.driver) ? "orders\nsales.*" : draft.driver === "redis" ? "user:*\ncart:*" : "orders\nlogs-*"} spellCheck={false} aria-invalid={!!allowErr} />
             {allowErr ? (
               <p className="text-xs text-destructive">{allowErr}</p>
             ) : (
-              <p className="text-xs text-muted-foreground">
-                One per line: <code>table</code>, <code>schema.table</code> or <code>schema.*</code>. Empty means every
-                non-system table. Applies to the agent tools (list, describe, run SQL), not to your own saved queries.
-              </p>
+              isSqlDriver(draft.driver) ? (
+                <p className="text-xs text-muted-foreground">
+                  One per line: <code>table</code>, <code>schema.table</code> or <code>schema.*</code>. Empty means every
+                  non-system table. Applies to the agent tools (list, describe, run SQL), not to your own saved queries.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  One per line: collection, table or index names, or patterns with <code>*</code> (Redis keys like{" "}
+                  <code>user:*</code>). Empty means every non-system name. Applies to every NoSQL tool on this connection.
+                </p>
+              )
             )}
           </div>
           {draft.driver === "duckdb" && (
@@ -534,20 +572,28 @@ function ConnectionForm({
             <Alert>
               <AlertDescription>
                 Agents can only read through this connection. For a second layer of safety, connect with a database
-                login that has SELECT rights only; <strong>Test</strong> tells you if it can write.
+                login that can only read; <strong>Test</strong> tells you if it can write.
               </AlertDescription>
             </Alert>
           ) : (
             <>
               <div className="grid gap-1.5">
-                <Label htmlFor="d-maxrows">Most rows one write may change</Label>
+                <Label htmlFor="d-maxrows">{isSqlDriver(draft.driver) ? "Most rows one write may change" : "Most items one write may change"}</Label>
                 <Input id="d-maxrows" inputMode="numeric" className="font-mono" value={maxRows} onChange={(e) => setMaxRows(e.target.value)} aria-invalid={!!fe("max_affected_rows")} />
                 {fe("max_affected_rows") && <p className="text-xs text-destructive">{fe("max_affected_rows")}</p>}
-                <p className="text-xs text-muted-foreground">
-                  A statement that changes more rows is undone. UPDATE and DELETE always need a WHERE clause, every write
-                  can be tried first with <code>dry_run</code>, and all writes are listed on the Audit tab.
-                </p>
+                {isSqlDriver(draft.driver) ? (
+                  <p className="text-xs text-muted-foreground">
+                    A statement that changes more rows is undone. UPDATE and DELETE always need a WHERE clause, every write
+                    can be tried first with <code>dry_run</code>, and all writes are listed on the Audit tab.
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    A write that would change more items is refused before it runs (MongoDB counts the matches first).
+                    Every write can be tried first with <code>dry_run</code>, and all writes are listed on the Audit tab.
+                  </p>
+                )}
               </div>
+              {isSqlDriver(draft.driver) && (
               <div className="flex items-start gap-2">
                 <Checkbox id="d-ddl" className="mt-0.5" checked={draft.allow_ddl} onCheckedChange={(v) => setDraft({ ...draft, allow_ddl: v === true })} />
                 <Label htmlFor="d-ddl" className="grid gap-0.5 font-normal">
@@ -555,6 +601,7 @@ function ConnectionForm({
                   <span className="text-xs text-muted-foreground">CREATE, ALTER, DROP and TRUNCATE. Off unless you need it.</span>
                 </Label>
               </div>
+              )}
             </>
           )}
           {draft.access_mode === "full_access" && (

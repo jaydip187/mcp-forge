@@ -10,6 +10,8 @@ self-hosted binary with a web UI.
 - **Databases** (PostgreSQL, MySQL, SQL Server, SQLite, ClickHouse): saved queries with typed
   parameters, optional schema exploration and agent-written SQL, all read-only by default, with
   writes as a deliberate opt-in.
+- **NoSQL** (MongoDB, Redis, DynamoDB, Elasticsearch): saved operations with typed parameters and
+  the same opt-in exploration tools, read-only by default.
 - **Safe by default**: listens on localhost only, stores secrets as references (never values), and
   checks every SQL statement before it reaches your database.
 - Serves each project over **MCP streamable HTTP** (`/mcp/<project>`) and **stdio**.
@@ -28,6 +30,7 @@ and to spec URLs you import on purpose. No telemetry.
 - [OAuth2 APIs](#oauth2-apis)
 - [GraphQL APIs](#graphql-apis)
 - [Databases](#databases)
+- [NoSQL databases](#nosql-databases)
 - [Approvals](#approvals)
 - [Call log](#call-log)
 - [Security model](#security-model)
@@ -354,6 +357,54 @@ Every write:
 - can be tried first with `dry_run: true`, which reports the row count and undoes the change;
 - is listed on the **Audit** tab: tool, agent or test console, SQL, values, rows, and whether it was
   committed, undone or failed.
+
+## NoSQL databases
+
+MongoDB, Redis, DynamoDB and Elasticsearch connections are added on the same **Databases** tab:
+
+| Database      | Value of the referenced variable |
+|---------------|----------------------------------|
+| MongoDB       | `mongodb://reader:PASSWORD@db.example.com:27017/shop` (or `mongodb+srv://…/shop`; the database name is required) |
+| Redis         | `redis://:PASSWORD@cache.example.com:6379/0` (`rediss://` for TLS) |
+| DynamoDB      | `dynamodb://ACCESS_KEY_ID:SECRET@us-east-1` (percent-encode `/` and `+` in the secret; `?session_token=…`, or `?endpoint=http://localhost:8000` for DynamoDB Local) |
+| Elasticsearch | `https://reader:PASSWORD@search.example.com:9200` (or `?api_key=KEY`; OpenSearch works too) |
+
+A **NoSQL tool** (*New tool → NoSQL operation*) is one operation on one target, with a JSON body:
+
+| Database      | Operations | Target | Body, for example |
+|---------------|------------|--------|-------------------|
+| MongoDB       | `find`, `find_one`, `aggregate`, `count`, `distinct`; writes `insert_one`, `update_one/many`, `delete_one/many` | collection | `{"filter": {"email": "{{email}}"}, "limit": 20}` |
+| Redis         | `GET`, `HGETALL`, `LRANGE`, `SMEMBERS`, `ZRANGE`, … ; writes `SET`, `DEL`, `HSET`, `EXPIRE`, … | key, e.g. `user:{{id}}` | `[0, 49]` (extra arguments) |
+| DynamoDB      | `GetItem`, `Query`, `Scan`; writes `PutItem`, `UpdateItem`, `DeleteItem` | table | `{"KeyConditionExpression": "customer = :c", "ExpressionAttributeValues": {":c": "{{customer}}"}}` |
+| Elasticsearch | `search`, `count`, `get`; writes `index`, `update`, `delete` | index | `{"query": {"match": {"title": "{{q}}"}}}` |
+
+`{{name}}` marks where an agent's value goes; each becomes a typed argument (string, integer,
+number or boolean). A whole-string `"{{name}}"` is replaced by the value itself (a number stays a
+number), never by text that could add an operator, and object keys are never filled in. DynamoDB
+bodies can use plain JSON values; they're converted to DynamoDB's typed format, and items come back
+as plain JSON. Agents get `{documents, truncated}`, plus counts, totals or aggregations.
+
+What keeps it safe:
+
+- Only the listed operations run (no `EVAL`, `CONFIG` or `FLUSHALL`; no Elasticsearch scripts;
+  no MongoDB `$where`, `$function`, `$out` or `$merge`). `$lookup` and `$unionWith` may only read
+  allowed collections.
+- *Names agents may use* limits collections, tables, indexes and keys (`user:*` patterns work);
+  system names (`system.*`, `.security`, …) are always off limits.
+- Masked fields (`users.password`, `*.ssn`) are replaced at any depth, and agent-written queries
+  can't mention them.
+- Results are capped by the row limit (MongoDB `limit`, Elasticsearch `size`, DynamoDB `Limit`,
+  Redis scans instead of `HGETALL`/`SMEMBERS` on huge values) and the time limit.
+- Writes follow the access mode like SQL: *Saved writes* allows them in saved tools, *Full access*
+  in `run_query` too. At most *Most items one write may change* change per call (MongoDB counts the
+  matches first), `dry_run` reports the count without changing anything, and every write is on the
+  **Audit** tab.
+- **Test** reports the server version, the user and whether it can write (MongoDB privileges, Redis
+  ACL, Elasticsearch index privileges; DynamoDB permissions come from IAM).
+
+**Agent tools** work as for SQL: `<db>_list_targets`, `<db>_describe_target` (a collection's
+fields from a sample, a table's keys, an index mapping, a key's type) and `<db>_run_query`, where the
+agent writes the operation, target and body itself.
 
 ## Approvals
 

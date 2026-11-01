@@ -73,7 +73,13 @@ pub fn bind_placeholders(sql: &str, driver: Driver) -> Result<BoundSql, String> 
             Driver::Postgres => out.push_str(&format!("${}", idx + 1)),
             Driver::Mssql => out.push_str(&format!("@P{}", idx + 1)),
             Driver::Clickhouse => out.push_str(&format!("{{p{}:String}}", idx + 1)),
-            Driver::Sqlite | Driver::Mysql | Driver::Duckdb => {
+            Driver::Sqlite
+            | Driver::Mysql
+            | Driver::Duckdb
+            | Driver::Mongodb
+            | Driver::Redis
+            | Driver::Dynamodb
+            | Driver::Elasticsearch => {
                 out.push('?');
                 binds.push(w.value.clone());
             }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronDownIcon, DatabaseIcon, FileJsonIcon, GlobeIcon, WaypointsIcon, KeyRoundIcon, PlusIcon, ShieldCheckIcon, WrenchIcon } from "lucide-react";
+import { ChevronDownIcon, DatabaseIcon, FileJsonIcon, GlobeIcon, LayersIcon, WaypointsIcon, KeyRoundIcon, PlusIcon, ShieldCheckIcon, WrenchIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
@@ -15,7 +15,7 @@ import { useCanWrite } from "@/lib/permissions";
 import { href } from "@/lib/router";
 import { looksLikeWrite } from "@/lib/sqlForm";
 import { HIDDEN_LABEL, hiddenReason } from "@/lib/visibility";
-import type { ProjectSettings, Tool } from "@/types";
+import { nosqlWrites, type ProjectSettings, type Tool } from "@/types";
 
 export function ToolsTab({ projectId, settings }: { projectId: string; settings: ProjectSettings }) {
   const canWrite = useCanWrite(projectId);
@@ -99,6 +99,11 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
                   <DatabaseIcon /> SQL query
                 </a>
               </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <a href={href.tool(projectId, null, "nosql")}>
+                  <LayersIcon /> NoSQL operation
+                </a>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -141,7 +146,8 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
                 <div className="flex items-center gap-2">
                   <span className="font-medium group-hover:underline">{t.name}</span>
                   {((t.kind.type === "sql" && t.kind.mode.type === "query" && looksLikeWrite(t.kind.mode.sql)) ||
-                    (t.kind.type === "graphql" && t.kind.operation === "mutation")) && (
+                    (t.kind.type === "graphql" && t.kind.operation === "mutation") ||
+                    (t.kind.type === "nosql" && nosqlWrites(t.kind.operation))) && (
                     <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">writes</span>
                   )}
                   {t.require_approval && (
@@ -152,7 +158,7 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
                       <TooltipContent>Agent calls wait for a person's approval</TooltipContent>
                     </Tooltip>
                   )}
-                  {t.kind.type !== "sql" && t.kind.auth_ref && (
+                  {(t.kind.type === "http" || t.kind.type === "graphql") && t.kind.auth_ref && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <KeyRoundIcon className="size-3.5 text-muted-foreground" aria-label="Uses an auth config" />
@@ -163,6 +169,8 @@ export function ToolsTab({ projectId, settings }: { projectId: string; settings:
                 </div>
                 {t.kind.type === "http" ? (
                   <RequestLine method={t.kind.method} baseUrl={t.kind.base_url} path={t.kind.path_template} size="sm" showBase={false} className="mt-0.5" />
+                ) : t.kind.type === "nosql" ? (
+                  <NosqlLine operation={t.kind.operation} target={t.kind.target} connection={connections.get(t.kind.connection_id)} />
                 ) : t.kind.type === "graphql" ? (
                   <GraphqlLine operation={t.kind.operation} name={t.kind.operation_name} endpoint={t.kind.endpoint} />
                 ) : (
@@ -217,6 +225,17 @@ function GraphqlLine({ operation, name, endpoint }: { operation: string; name: s
       <span className="shrink-0 rounded-[4px] bg-m-other/12 px-1.5 py-px text-[0.85em] font-semibold text-foreground">GraphQL</span>
       <span className="shrink-0">{operation}</span>
       <span className="truncate">{[name, host].filter(Boolean).join(" · ")}</span>
+    </p>
+  );
+}
+
+/** One-line summary of a NoSQL tool: connection, operation and target. */
+function NosqlLine({ operation, target, connection }: { operation: string; target: string; connection: string | undefined }) {
+  return (
+    <p className="mt-0.5 flex min-w-0 items-center gap-2 font-mono text-xs text-muted-foreground">
+      <span className="shrink-0 rounded-[4px] bg-m-other/12 px-1.5 py-px text-[0.85em] font-semibold text-foreground">NoSQL</span>
+      {connection && <span className="shrink-0">{connection}</span>}
+      <span className="truncate">{target ? `${operation} ${target}` : operation}</span>
     </p>
   );
 }

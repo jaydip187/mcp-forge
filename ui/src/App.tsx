@@ -41,6 +41,7 @@ import { ImportPage } from "@/pages/ImportPage";
 import { ProjectPage } from "@/pages/ProjectPage";
 import { ReimportPage } from "@/pages/ReimportPage";
 import { GraphqlToolEditor } from "@/pages/GraphqlToolEditor";
+import { NosqlToolEditor } from "@/pages/NosqlToolEditor";
 import { SqlToolEditor } from "@/pages/SqlToolEditor";
 import { ToolEditor } from "@/pages/ToolEditor";
 import { Login } from "@/pages/Login";
@@ -164,7 +165,7 @@ function Breadcrumbs({ route }: { route: Route }) {
         break;
       case "tool":
         crumbs.push({ label: "Tools", href: href.project(route.projectId) });
-        crumbs.push({ label: route.toolId ? "Edit tool" : route.kind === "sql" ? "New SQL tool" : route.kind === "graphql" ? "New GraphQL tool" : "New HTTP tool" });
+        crumbs.push({ label: route.toolId ? "Edit tool" : route.kind === "sql" ? "New SQL tool" : route.kind === "graphql" ? "New GraphQL tool" : route.kind === "nosql" ? "New NoSQL tool" : "New HTTP tool" });
         break;
       case "import":
         crumbs.push({ label: "Import" });
@@ -232,6 +233,8 @@ function Page({ route, info, user }: { route: Route; info: ServerInfo; user: Use
         <WriteGuard projectId={route.projectId}>
           {!route.toolId && route.kind === "sql" ? (
             <SqlToolEditor key={`${route.projectId}/new-sql`} projectId={route.projectId} tool={null} />
+          ) : !route.toolId && route.kind === "nosql" ? (
+            <NosqlToolEditor key={`${route.projectId}/new-nosql`} projectId={route.projectId} tool={null} />
           ) : !route.toolId && route.kind === "graphql" ? (
             <GraphqlToolEditor key={`${route.projectId}/new-graphql`} projectId={route.projectId} tool={null} />
           ) : (

@@ -31,6 +31,10 @@ pub enum Driver {
     /// Microsoft SQL Server (and Azure SQL).
     Mssql,
     Clickhouse,
+    Mongodb,
+    Redis,
+    Dynamodb,
+    Elasticsearch,
 }
 
 impl Driver {
@@ -42,7 +46,19 @@ impl Driver {
             Driver::Duckdb => "duckdb",
             Driver::Mssql => "mssql",
             Driver::Clickhouse => "clickhouse",
+            Driver::Mongodb => "mongodb",
+            Driver::Redis => "redis",
+            Driver::Dynamodb => "dynamodb",
+            Driver::Elasticsearch => "elasticsearch",
         }
+    }
+
+    /// SQL databases run SQL tools; the others run NoSQL tools.
+    pub fn is_sql(self) -> bool {
+        !matches!(
+            self,
+            Driver::Mongodb | Driver::Redis | Driver::Dynamodb | Driver::Elasticsearch
+        )
     }
 
     /// Whether saved queries may write through this driver. ClickHouse has
@@ -229,6 +245,9 @@ impl DbConnectionInput {
                 "ClickHouse connections are read-only: it has no transactions to undo a write",
             );
         }
+        if self.allow_ddl && !self.driver.is_sql() {
+            errs.push("allow_ddl", "schema changes only apply to SQL databases");
+        }
         if self.allow_ddl && self.access_mode == AccessMode::ReadOnly {
             errs.push("allow_ddl", "DDL needs curated_write or full_access access");
         }
@@ -251,10 +270,19 @@ impl DbConnectionInput {
             errs.push("table_allowlist", "at most 500 entries");
         }
         for (i, t) in self.table_allowlist.iter().enumerate() {
-            let ok = !t.is_empty()
-                && t.len() <= 128
-                && t.chars()
-                    .all(|c| c.is_alphanumeric() || matches!(c, '_' | '$' | '.' | '*'));
+            // NoSQL names: collections, Redis key patterns (`user:*`), index patterns.
+            let ok = if self.driver.is_sql() {
+                !t.is_empty()
+                    && t.len() <= 128
+                    && t.chars()
+                        .all(|c| c.is_alphanumeric() || matches!(c, '_' | '$' | '.' | '*'))
+            } else {
+                !t.is_empty()
+                    && t.len() <= 256
+                    && !t
+                        .chars()
+                        .any(|c| c.is_whitespace() || matches!(c, '"' | '\'' | ','))
+            };
             if !ok {
                 errs.push(
                     format!("table_allowlist[{i}]"),

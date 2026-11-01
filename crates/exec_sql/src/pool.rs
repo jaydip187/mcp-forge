@@ -100,6 +100,12 @@ pub(crate) fn build_pool(
             ))
         }
         Driver::Mssql => DbPool::Mssql(crate::mssql::MssqlPool::new(dsn)?),
+        Driver::Mongodb | Driver::Redis | Driver::Dynamodb | Driver::Elasticsearch => {
+            return Err(SqlError::Config(format!(
+                "{} connections run NoSQL tools, not SQL tools",
+                conn.driver.as_str()
+            )))
+        }
         Driver::Clickhouse => DbPool::Clickhouse(crate::clickhouse::ClickhousePool::new(
             dsn,
             conn.timeout_ms,

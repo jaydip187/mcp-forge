@@ -458,3 +458,56 @@ query User($login: String!, $first: Int = 10 $tags: [ String! ]) {
     expect(hiddenReason({ ...mutation, kind: { type: "graphql", operation: "query" } } as unknown as Tool, s)).toBeNull();
   });
 });
+
+describe("nosql form", () => {
+  it("finds placeholders and adds params for new ones", async () => {
+    const { nosqlPlaceholders, syncNosqlParams } = await import("./nosqlForm");
+    expect(nosqlPlaceholders('user:{{id}} {"q": "{{ q }}", "again": "{{id}}"}')).toEqual(["id", "q"]);
+    const params = syncNosqlParams({
+      target: "user:{{id}}",
+      bodyText: '{ "x": "{{q}}" }',
+      params: [{ name: "id", schema: { type: "integer" }, required: true, description: null }],
+    });
+    expect(params.map((p) => p.name)).toEqual(["id", "q"]);
+    expect(params[0]!.schema.type).toBe("integer");
+  });
+
+  it("builds the payload; writes need approval by default; bad JSON is caught", async () => {
+    const { buildNosqlInput, newNosqlForm } = await import("./nosqlForm");
+    const form = {
+      ...newNosqlForm("c1"),
+      name: "remove_user",
+      operation: "delete_many",
+      target: " users ",
+      bodyText: '{ "filter": { "email": "{{email}}" } }',
+      params: [{ name: "email", schema: { type: "string" }, required: true, description: " " }],
+    };
+    const r = buildNosqlInput(form);
+    if (!r.ok || r.input.kind.type !== "nosql") throw new Error("expected a NoSQL payload");
+    expect(r.input.require_approval).toBe(true);
+    expect(r.input.kind).toEqual({
+      type: "nosql",
+      connection_id: "c1",
+      operation: "delete_many",
+      target: "users",
+      body: { filter: { email: "{{email}}" } },
+      params: [{ name: "email", schema: { type: "string" }, required: true, description: null }],
+    });
+    const bad = buildNosqlInput({ ...form, bodyText: "{ nope" });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.fieldErrors["kind.body"]).toContain("Not valid JSON");
+    const read = buildNosqlInput({ ...form, operation: "find" });
+    expect(read.ok && read.input.require_approval).toBe(false);
+  });
+
+  it("routes and hides writes in read-only projects", async () => {
+    const { hiddenReason } = await import("./visibility");
+    expect(parseRoute("#/p/x/tools/new-nosql")).toEqual({ name: "tool", projectId: "x", toolId: null, kind: "nosql" });
+    const s = { read_only: true, include_tags: [], exclude_tags: [], include_paths: [], exclude_paths: [] } as unknown as ProjectSettings;
+    const tool = (operation: string) => ({ enabled: true, tags: [], kind: { type: "nosql", operation } }) as unknown as Tool;
+    expect(hiddenReason(tool("DEL"), s)).toBe("read_only");
+    expect(hiddenReason(tool("update_many"), s)).toBe("read_only");
+    expect(hiddenReason(tool("find"), s)).toBeNull();
+    expect(hiddenReason(tool("run_query"), s)).toBeNull();
+  });
+});

@@ -19,6 +19,7 @@ fn default_schema(driver: Driver) -> Option<&'static str> {
         Driver::Mssql => Some("dbo"),
         // The connection's database; not known without asking the server.
         Driver::Mysql | Driver::Clickhouse => None,
+        Driver::Mongodb | Driver::Redis | Driver::Dynamodb | Driver::Elasticsearch => None,
     }
 }
 

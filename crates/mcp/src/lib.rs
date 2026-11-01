@@ -21,6 +21,7 @@ use forge_core::{
 };
 use forge_exec_http::shape::{shape_body, ShapeOptions};
 use forge_exec_http::{ExecError, HttpExecutor, HttpOutcome};
+use forge_exec_nosql::{NosqlExecutor, NosqlOutcome};
 use forge_exec_sql::{SqlError, SqlExecutor, SqlOutcome};
 use forge_store::{Store, StoreError};
 use rmcp::model::{
@@ -71,11 +72,12 @@ impl ChangeBus {
     }
 }
 
-/// The executors tool calls run on: HTTP upstreams and SQL databases.
+/// The executors tool calls run on: HTTP upstreams, SQL and NoSQL databases.
 #[derive(Clone)]
 pub struct Executors {
     pub http: HttpExecutor,
     pub sql: SqlExecutor,
+    pub nosql: NosqlExecutor,
     /// Calls waiting for a person's approval, shared with the web UI.
     pub approvals: approvals::Approvals,
 }
@@ -84,7 +86,8 @@ impl Executors {
     pub fn new(secrets: Arc<dyn SecretResolver>) -> Self {
         Self {
             http: HttpExecutor::new(secrets.clone()),
-            sql: SqlExecutor::new(secrets),
+            sql: SqlExecutor::new(secrets.clone()),
+            nosql: NosqlExecutor::new(secrets),
             approvals: approvals::Approvals::default(),
         }
     }
@@ -444,6 +447,7 @@ pub fn search_tools<'a>(tools: &'a [ToolDef], query: &str, limit: usize) -> Vec<
                 ToolKind::Http(h) => h.path_template.to_lowercase(),
                 ToolKind::Sql(_) => String::new(),
                 ToolKind::Graphql(g) => g.operation_name.clone().unwrap_or_default().to_lowercase(),
+                ToolKind::Nosql(n) => n.target.to_lowercase(),
             };
             let score: u32 = terms
                 .iter()
@@ -520,6 +524,7 @@ fn json_object(v: Value) -> Map<String, Value> {
 pub enum RunOutcome {
     Http(Result<HttpOutcome, ExecError>),
     Sql(Result<SqlOutcome, SqlError>),
+    Nosql(Result<NosqlOutcome, SqlError>),
 }
 
 /// Result of running a tool: the raw outcome plus exactly what the agent sees.
@@ -541,6 +546,9 @@ fn exposed(settings: &ProjectSettings, t: &ToolDef, conns: &HashMap<Uuid, DbConn
     match (&t.kind, connection_of(t, conns)) {
         (ToolKind::Sql(spec), Some(c)) if settings.read_only => {
             !forge_exec_sql::tool_writes(spec, c)
+        }
+        (ToolKind::Nosql(spec), Some(c)) if settings.read_only => {
+            !forge_exec_nosql::tool_writes(spec, c)
         }
         _ => true,
     }
@@ -704,29 +712,30 @@ async fn execute(
             };
             let run = exec.sql.run(&conn, spec, args).await;
             if let Some(a) = run.audit {
-                let entry = AuditEntry {
-                    id: Uuid::new_v4(),
-                    project_id: tool.project_id,
-                    ts: chrono::Utc::now(),
-                    tool_id: Some(tool.id),
-                    tool_name: tool.name.clone(),
-                    connection_id: Some(conn.id),
-                    connection_name: conn.name.clone(),
-                    origin: origin.to_owned(),
-                    statement_class: a.class.as_str().to_owned(),
-                    sql: a.sql,
-                    params: a.params,
-                    rows_affected: a.rows_affected,
-                    outcome: a.outcome,
-                    error: a.error,
-                };
-                // The write already happened; a failed audit insert is logged,
-                // not turned into a tool error.
-                if let Err(e) = store.append_audit(&entry).await {
-                    tracing::error!(error = %e, tool = %tool.name, "could not write audit entry");
-                }
+                record_audit(store, tool, &conn, origin, a).await;
             }
             return Ok(ToolRun::from_sql(run.result, tool, settings));
+        }
+        ToolKind::Nosql(spec) => {
+            let conn = match store
+                .get_connection(tool.project_id, spec.connection_id)
+                .await
+            {
+                Ok(c) => c,
+                Err(StoreError::NotFound(_)) => {
+                    let outcome = Err(SqlError::Config(format!(
+                        "tool `{}` references a missing connection",
+                        tool.name
+                    )));
+                    return Ok(ToolRun::from_nosql(outcome, tool, settings));
+                }
+                Err(e) => return Err(e),
+            };
+            let run = exec.nosql.run(&conn, spec, args).await;
+            if let Some(a) = run.audit {
+                record_audit(store, tool, &conn, origin, a).await;
+            }
+            return Ok(ToolRun::from_nosql(run.result, tool, settings));
         }
     };
     let auth = match spec.auth_ref {
@@ -748,6 +757,36 @@ async fn execute(
         _ => exec.http.execute(spec, auth.as_ref(), args).await,
     };
     Ok(ToolRun::from_outcome(outcome, tool, settings))
+}
+
+/// Records a database write in the audit log. The write already happened;
+/// a failed insert is logged, not turned into a tool error.
+async fn record_audit(
+    store: &Store,
+    tool: &ToolDef,
+    conn: &DbConnection,
+    origin: &str,
+    a: forge_exec_sql::AuditDraft,
+) {
+    let entry = AuditEntry {
+        id: Uuid::new_v4(),
+        project_id: tool.project_id,
+        ts: chrono::Utc::now(),
+        tool_id: Some(tool.id),
+        tool_name: tool.name.clone(),
+        connection_id: Some(conn.id),
+        connection_name: conn.name.clone(),
+        origin: origin.to_owned(),
+        statement_class: a.class.as_str().to_owned(),
+        sql: a.sql,
+        params: a.params,
+        rows_affected: a.rows_affected,
+        outcome: a.outcome,
+        error: a.error,
+    };
+    if let Err(e) = store.append_audit(&entry).await {
+        tracing::error!(error = %e, tool = %tool.name, "could not write audit entry");
+    }
 }
 
 /// Runs a GraphQL tool: auth like HTTP tools (OAuth tokens refreshed and
@@ -898,6 +937,46 @@ impl ToolRun {
         };
         Self {
             outcome: RunOutcome::Sql(outcome),
+            is_error,
+            text,
+            shaped,
+        }
+    }
+
+    fn from_nosql(
+        outcome: Result<NosqlOutcome, SqlError>,
+        tool: &ToolDef,
+        settings: &ProjectSettings,
+    ) -> Self {
+        let mut shaped = None;
+        let (is_error, text) = match &outcome {
+            Ok(out) => {
+                let body = out.result_json().to_string();
+                let (text, changed) = shaped_text(&body, Some("application/json"), tool, settings);
+                if changed {
+                    shaped = Some(text.clone());
+                }
+                (false, text)
+            }
+            Err(SqlError::InvalidArgs(errs)) => (true, invalid_args_text(errs)),
+            Err(SqlError::Rejected(m)) => (true, format!("Request rejected: {m}")),
+            Err(SqlError::Config(m)) => (true, format!("Configuration error: {m}")),
+            Err(SqlError::Connect(m)) => (true, format!("Database connection failed: {m}")),
+            Err(SqlError::Timeout(ms)) => (
+                true,
+                format!(
+                    "The request did not finish within {ms} ms. Try narrower arguments; \
+                     an admin can raise the connection's timeout."
+                ),
+            ),
+            Err(SqlError::Database(m)) => (true, format!("Database error: {m}")),
+            Err(e @ SqlError::TooManyRows { .. }) => (
+                true,
+                format!("Not done: {e}. Narrow the filter, or check the count first with dry_run: true."),
+            ),
+        };
+        Self {
+            outcome: RunOutcome::Nosql(outcome),
             is_error,
             text,
             shaped,
@@ -1067,6 +1146,84 @@ pub fn sql_tool_description(t: &ToolDef, spec: &SqlSpec, conn: Option<&DbConnect
     }
 }
 
+/// What an agent is told about a NoSQL tool: the user's text (or a
+/// generated line), plus the write rules; exploration tools always describe
+/// the connection (engine, operations, limits, allowed names, masks).
+pub fn nosql_tool_description(
+    t: &ToolDef,
+    spec: &forge_core::NosqlSpec,
+    conn: Option<&DbConnection>,
+) -> String {
+    let user = t.description.trim();
+    let db = conn.map_or_else(
+        || "the configured database".to_owned(),
+        |c| format!("the `{}` database ({})", c.name, driver_label(c)),
+    );
+    let writes = conn.is_some_and(|c| forge_exec_nosql::tool_writes(spec, c));
+    let write_note = conn.map_or_else(String::new, |c| {
+        format!(
+            "Changes data. Returns {{affected, committed, dry_run}}. At most {} items may change per call.              Pass dry_run: true to see the count without changing anything.",
+            c.max_affected_rows
+        )
+    });
+    let limits = conn.map_or_else(String::new, |c| {
+        let allowed = if c.table_allowlist.is_empty() {
+            "any non-system name".to_owned()
+        } else {
+            c.table_allowlist.join(", ")
+        };
+        let masks = if c.column_masks.is_empty() {
+            String::new()
+        } else {
+            let m: Vec<String> = c.column_masks.iter().map(ToString::to_string).collect();
+            format!(
+                " Masked fields (shown as [masked], can't be queried): {}.",
+                m.join(", ")
+            )
+        };
+        format!(
+            "Returns at most {} documents and stops after {} s. Allowed: {allowed}.{masks}",
+            c.row_limit,
+            c.timeout_ms / 1000
+        )
+    });
+    let generated = match spec.operation.as_str() {
+        forge_core::LIST_TARGETS => format!("Lists what can be queried in {db}. {limits}"),
+        forge_core::DESCRIBE_TARGET => {
+            format!("Describes one collection, table, index or key in {db}: fields, types and keys. {limits}")
+        }
+        forge_core::RUN_QUERY => {
+            let ops: Vec<&str> = conn
+                .map(|c| {
+                    forge_core::nosql_operations(c.driver)
+                        .iter()
+                        .filter(|(_, class)| writes || *class == forge_core::OpClass::Read)
+                        .map(|(n, _)| *n)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut d = format!(
+                "Runs one operation you write on {db}. Operations: {}. Pass the operation, the target and a JSON body. {limits}",
+                ops.join(", ")
+            );
+            if writes {
+                d.push(' ');
+                d.push_str(&write_note);
+            }
+            d
+        }
+        _ if writes && !user.is_empty() => return format!("{user}\n\n{write_note}"),
+        _ if !user.is_empty() => return user.to_owned(),
+        op if writes => format!("Runs `{op}` on `{}` in {db}. {write_note}", spec.target),
+        op => format!("Runs `{op}` on `{}` in {db}. {limits}", spec.target),
+    };
+    if user.is_empty() {
+        generated
+    } else {
+        format!("{user}\n\n{generated}")
+    }
+}
+
 fn driver_label(c: &DbConnection) -> &'static str {
     match c.driver {
         forge_core::Driver::Postgres => "PostgreSQL",
@@ -1075,6 +1232,10 @@ fn driver_label(c: &DbConnection) -> &'static str {
         forge_core::Driver::Duckdb => "DuckDB",
         forge_core::Driver::Mssql => "SQL Server",
         forge_core::Driver::Clickhouse => "ClickHouse",
+        forge_core::Driver::Mongodb => "MongoDB",
+        forge_core::Driver::Redis => "Redis",
+        forge_core::Driver::Dynamodb => "DynamoDB",
+        forge_core::Driver::Elasticsearch => "Elasticsearch",
     }
 }
 
@@ -1103,6 +1264,20 @@ pub fn to_mcp_tool(t: &ToolDef, conn: Option<&DbConnection>) -> Tool {
                 .open_world(true);
             return Tool::new(t.name.clone(), description, g.derive_input().schema)
                 .with_annotations(annotations);
+        }
+        ToolKind::Nosql(spec) => {
+            let description = nosql_tool_description(t, spec, conn);
+            let writes = conn.is_some_and(|c| forge_exec_nosql::tool_writes(spec, c));
+            let schema = match conn {
+                Some(c) => forge_exec_nosql::tool_input(spec, c).schema,
+                None => spec.derive_input().schema,
+            };
+            // Only the configured database is touched; writers are destructive.
+            let annotations = ToolAnnotations::new()
+                .read_only(!writes)
+                .destructive(writes)
+                .open_world(false);
+            return Tool::new(t.name.clone(), description, schema).with_annotations(annotations);
         }
         ToolKind::Sql(spec) => {
             let description = sql_tool_description(t, spec, conn);

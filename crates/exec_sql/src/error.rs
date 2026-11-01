@@ -35,7 +35,7 @@ impl SqlError {
         SqlError::Connect(e.to_string())
     }
 
-    pub(crate) fn redact(self, r: &Redactor) -> Self {
+    pub fn redact(self, r: &Redactor) -> Self {
         match self {
             SqlError::Rejected(m) => SqlError::Rejected(r.apply(&m)),
             SqlError::Config(m) => SqlError::Config(r.apply(&m)),
@@ -69,16 +69,27 @@ impl From<sqlx::Error> for SqlError {
 }
 
 /// Strips the DSN and its password from messages before they leave the executor.
-pub(crate) struct Redactor(Vec<String>);
+pub struct Redactor(Vec<String>);
 
 impl Redactor {
-    pub(crate) fn new(dsn: &str) -> Self {
+    pub fn new(dsn: &str) -> Self {
         let mut secrets = vec![dsn.to_owned()];
         if let Ok(u) = url::Url::parse(dsn) {
             if let Some(pw) = u.password() {
                 secrets.push(pw.to_owned());
                 if let Ok(decoded) = urldecode(pw) {
                     secrets.push(decoded);
+                }
+            }
+            // Credentials passed as query parameters (Elasticsearch, DynamoDB).
+            for (k, v) in u.query_pairs() {
+                let k = k.to_ascii_lowercase();
+                if k.contains("key")
+                    || k.contains("token")
+                    || k.contains("password")
+                    || k.contains("secret")
+                {
+                    secrets.push(v.into_owned());
                 }
             }
         }
@@ -101,7 +112,7 @@ impl Redactor {
         Self(secrets)
     }
 
-    pub(crate) fn apply(&self, msg: &str) -> String {
+    pub fn apply(&self, msg: &str) -> String {
         self.0
             .iter()
             .fold(msg.to_owned(), |m, s| m.replace(s.as_str(), "***"))
