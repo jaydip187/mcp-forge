@@ -9,6 +9,7 @@ mod auth;
 mod calls;
 mod db;
 mod graphql;
+mod nosql;
 mod overrides;
 mod project;
 mod schema;
@@ -30,6 +31,11 @@ pub use db::{
     PATTERN_ARG, SQL_ARG, SQL_PARAM_TYPES, TABLE_ARG,
 };
 pub use graphql::{schema_for_type, GraphqlOperation, GraphqlSpec, GraphqlVar};
+pub use nosql::{
+    nosql_operations, op_class, render_target, render_value, NosqlSpec, OpClass, DESCRIBE_TARGET,
+    EXPLORATION_OPS, LIST_TARGETS, NOSQL_BODY_ARG, NOSQL_OPERATION_ARG, NOSQL_PATTERN_ARG,
+    NOSQL_TARGET_ARG, RUN_QUERY,
+};
 pub use overrides::{changed_fields, merge_overrides, OVERRIDABLE_FIELDS};
 pub use project::{slugify, Project, ProjectInput};
 pub use schema::{ArgBinding, ArgTarget, DerivedInput, BODY_ARG};

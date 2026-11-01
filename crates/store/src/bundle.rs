@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use forge_core::{AuthConfigInput, DbConnectionInput, ToolInput, ToolKind, ValidationErrors};
+use forge_core::{AuthConfigInput, DbConnectionInput, ToolInput, ValidationErrors};
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -214,19 +214,18 @@ impl Store {
                     }
                 },
             };
-            match &mut t.kind {
-                ToolKind::Http(h) => h.auth_ref = auth_ref,
-                ToolKind::Graphql(g) => g.auth_ref = auth_ref,
-                ToolKind::Sql(s) => match bt.connection.as_ref().and_then(|n| conn_ids.get(n)) {
-                    Some(id) => s.connection_id = *id,
+            t.kind.set_auth_ref(auth_ref);
+            if t.kind.connection_ref().is_some() {
+                match bt.connection.as_ref().and_then(|n| conn_ids.get(n)) {
+                    Some(id) => t.kind.set_connection_ref(*id),
                     None => errs.push(
                         format!("tools[{i}].connection"),
                         match &bt.connection {
                             Some(n) => format!("no connection named `{n}`"),
-                            None => "SQL tools need `connection: <connection name>`".into(),
+                            None => "database tools need `connection: <connection name>`".into(),
                         },
                     ),
-                },
+                }
             }
             if let Err(e) = t.validate() {
                 for f in e.errors {

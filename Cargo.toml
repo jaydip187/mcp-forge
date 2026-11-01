@@ -16,6 +16,7 @@ forge-store = { path = "crates/store" }
 forge-importers = { path = "crates/importers" }
 forge-exec-http = { path = "crates/exec_http" }
 forge-exec-sql = { path = "crates/exec_sql" }
+forge-exec-nosql = { path = "crates/exec_nosql" }
 forge-mcp = { path = "crates/mcp" }
 
 anyhow = "1"
@@ -40,6 +41,8 @@ sha2 = "0.10"
 ring = "0.17"
 http = "1"
 graphql-parser = "0.4"
+mongodb = "3.9"
+redis = { version = "1.8", default-features = false, features = ["tokio-comp", "tokio-rustls-comp", "tls-rustls-webpki-roots"] }
 sqlparser = { version = "0.63", features = ["visitor"] }
 rust_decimal = { version = "1", default-features = false, features = ["std"] }
 # Bundled: DuckDB is compiled in (slow first build, no system library needed).
@@ -47,7 +50,7 @@ duckdb = { version = "1", features = ["bundled"] }
 tiberius = { version = "0.13", default-features = false, features = ["tds80", "rustls", "chrono", "rust_decimal"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros", "chrono"] }
 tempfile = "3"
-testcontainers-modules = { version = "0.15", features = ["postgres", "mysql", "mssql_server", "clickhouse"] }
+testcontainers-modules = { version = "0.15", features = ["postgres", "mysql", "mssql_server", "clickhouse", "mongo", "redis"] }
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "sync"] }
 tokio-util = { version = "0.7", features = ["compat"] }

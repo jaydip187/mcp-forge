@@ -415,6 +415,7 @@ async fn update_connection(
     // Tool descriptions, schemas (dry_run) and annotations depend on it.
     s.changes.notify(project_id);
     s.exec.sql.forget(id).await;
+    s.exec.nosql.forget(id);
     Ok(Json(conn))
 }
 
@@ -424,6 +425,7 @@ async fn delete_connection(
 ) -> ApiResult<StatusCode> {
     s.store.delete_connection(project_id, id).await?;
     s.exec.sql.forget(id).await;
+    s.exec.nosql.forget(id);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -434,7 +436,11 @@ async fn test_connection(
     ApiPath((project_id, id)): ApiPath<(Uuid, Uuid)>,
 ) -> ApiResult<Json<forge_exec_sql::ConnectionReport>> {
     let conn = s.store.get_connection(project_id, id).await?;
-    Ok(Json(s.exec.sql.test_connection(&conn).await))
+    if conn.driver.is_sql() {
+        Ok(Json(s.exec.sql.test_connection(&conn).await))
+    } else {
+        Ok(Json(s.exec.nosql.test_connection(&conn).await))
+    }
 }
 
 #[derive(Deserialize)]
@@ -481,6 +487,48 @@ async fn add_exploration_tools(
     let mut taken: std::collections::HashSet<String> =
         tools.iter().map(|t| t.name.clone()).collect();
     for (i, m) in req.modes.iter().enumerate() {
+        if !conn.driver.is_sql() {
+            // NoSQL: list_targets / describe_target / run_query.
+            let op = match m.as_str() {
+                "list_targets" | "list_tables" => forge_core::LIST_TARGETS,
+                "describe_target" | "describe_table" => forge_core::DESCRIBE_TARGET,
+                "run_query" | "run_sql" => forge_core::RUN_QUERY,
+                other => {
+                    return Err(ApiError::Store(
+                        forge_core::ValidationErrors::single(
+                            format!("modes[{i}]"),
+                            format!("unknown mode `{other}`; use list_targets, describe_target or run_query"),
+                        )
+                        .into(),
+                    ))
+                }
+            };
+            let have = tools.iter().find(
+                |t| matches!(&t.kind, ToolKind::Nosql(sp) if sp.connection_id == id && sp.operation == op),
+            );
+            if let Some(t) = have {
+                existing.push(t.name.clone());
+                continue;
+            }
+            let name = unique_name(&conn.name, op, &mut taken);
+            let input = ToolInput {
+                name,
+                description: String::new(),
+                kind: ToolKind::Nosql(forge_core::NosqlSpec {
+                    connection_id: id,
+                    operation: op.into(),
+                    target: String::new(),
+                    body: Value::Null,
+                    params: vec![],
+                }),
+                enabled: true,
+                tags: vec!["database".into()],
+                response_shape: None,
+                require_approval: false,
+            };
+            created.push(s.store.create_tool(project_id, &input).await?);
+            continue;
+        }
         let mode = match m.as_str() {
             "list_tables" => SqlMode::ListTables,
             "describe_table" => SqlMode::DescribeTable,
@@ -504,20 +552,7 @@ async fn add_exploration_tools(
             existing.push(t.name.clone());
             continue;
         }
-        let suffix = format!("_{}", mode.as_str());
-        let base: String = conn
-            .name
-            .chars()
-            .take(forge_core::MAX_NAME_LEN - suffix.len() - 3)
-            .collect::<String>()
-            + &suffix;
-        let mut name = base.clone();
-        let mut n = 2;
-        while taken.contains(&name) {
-            name = format!("{base}_{n}");
-            n += 1;
-        }
-        taken.insert(name.clone());
+        let name = unique_name(&conn.name, mode.as_str(), &mut taken);
         let input = ToolInput {
             name,
             description: String::new(),
@@ -541,18 +576,49 @@ async fn add_exploration_tools(
     ))
 }
 
-/// A SQL tool's statement must pass the read-only check for its
-/// connection's dialect before it's saved.
+/// `<connection>_<suffix>`, made unique among `taken` (and added to it).
+fn unique_name(conn: &str, suffix: &str, taken: &mut std::collections::HashSet<String>) -> String {
+    let suffix = format!("_{suffix}");
+    let base: String = conn
+        .chars()
+        .take(forge_core::MAX_NAME_LEN - suffix.len() - 3)
+        .collect::<String>()
+        + &suffix;
+    let mut name = base.clone();
+    let mut n = 2;
+    while taken.contains(&name) {
+        name = format!("{base}_{n}");
+        n += 1;
+    }
+    taken.insert(name.clone());
+    name
+}
+
+/// Database tools must fit their connection before they're saved: a SQL
+/// statement passes the read-only check for the dialect; a NoSQL operation
+/// exists for the engine, its target is allowed and its body is safe.
 pub(crate) async fn check_sql(s: &AppState, project_id: Uuid, input: &ToolInput) -> ApiResult<()> {
-    let ToolKind::Sql(spec) = &input.kind else {
+    let Some(cid) = input.kind.connection_ref() else {
         return Ok(());
     };
     // A missing connection is reported by the store (422 on kind.connection_id).
-    let Ok(conn) = s.store.get_connection(project_id, spec.connection_id).await else {
+    let Ok(conn) = s.store.get_connection(project_id, cid).await else {
         return Ok(());
     };
-    forge_exec_sql::check_query_tool(spec, &conn.input())
-        .map_err(|e| ApiError::Store(StoreError::Validation(e)))
+    let invalid = |e| ApiError::Store(StoreError::Validation(e));
+    match &input.kind {
+        ToolKind::Sql(_) if !conn.driver.is_sql() => {
+            Err(invalid(forge_core::ValidationErrors::single(
+                "kind.connection_id",
+                "pick a SQL connection; this one runs NoSQL tools",
+            )))
+        }
+        ToolKind::Sql(spec) => {
+            forge_exec_sql::check_query_tool(spec, &conn.input()).map_err(invalid)
+        }
+        ToolKind::Nosql(spec) => forge_exec_nosql::check_tool(spec, &conn.input()).map_err(invalid),
+        _ => Ok(()),
+    }
 }
 
 // ---- info, MCP view, test console ---------------------------------------------
@@ -617,22 +683,22 @@ async fn test_tool(
             }),
             Value::Null,
         ),
-        RunOutcome::Sql(Err(e)) => {
-            let err = match e {
-                SqlError::InvalidArgs(v) => json!({
-                    "kind": "invalid_args", "message": v.to_string(), "fields": v.errors,
-                }),
-                SqlError::Rejected(m) => json!({ "kind": "rejected", "message": m }),
-                SqlError::Config(m) => json!({ "kind": "config", "message": m }),
-                SqlError::Connect(m) => json!({ "kind": "connect", "message": m }),
-                SqlError::Timeout(_) => json!({ "kind": "timeout", "message": e.to_string() }),
-                SqlError::Database(m) => json!({ "kind": "database", "message": m }),
-                SqlError::TooManyRows { affected, max, .. } => json!({
-                    "kind": "too_many_rows", "message": e.to_string(), "affected_rows": affected, "max": max,
-                }),
-            };
-            (Value::Null, Value::Null, err)
+        RunOutcome::Sql(Err(e)) | RunOutcome::Nosql(Err(e)) => {
+            (Value::Null, Value::Null, sql_error_json(e))
         }
+        RunOutcome::Nosql(Ok(o)) => (
+            o.request.clone(),
+            json!({
+                "documents": o.documents,
+                "count": o.documents.len(),
+                "truncated": o.truncated,
+                "summary": o.summary,
+                "masked_fields": o.masked_fields,
+                "elapsed_ms": o.elapsed_ms,
+                "write": o.write,
+            }),
+            Value::Null,
+        ),
         RunOutcome::Http(Ok(o)) => (
             json!({ "method": o.method, "url": o.url }),
             json!({
@@ -774,4 +840,21 @@ async fn update_settings(
     // Filters and tool_search change what agents see.
     s.changes.notify(id);
     Ok(Json(project))
+}
+
+/// A database error for the test console.
+fn sql_error_json(e: &SqlError) -> Value {
+    match e {
+        SqlError::InvalidArgs(v) => json!({
+            "kind": "invalid_args", "message": v.to_string(), "fields": v.errors,
+        }),
+        SqlError::Rejected(m) => json!({ "kind": "rejected", "message": m }),
+        SqlError::Config(m) => json!({ "kind": "config", "message": m }),
+        SqlError::Connect(m) => json!({ "kind": "connect", "message": m }),
+        SqlError::Timeout(_) => json!({ "kind": "timeout", "message": e.to_string() }),
+        SqlError::Database(m) => json!({ "kind": "database", "message": m }),
+        SqlError::TooManyRows { affected, max, .. } => json!({
+            "kind": "too_many_rows", "message": e.to_string(), "affected_rows": affected, "max": max,
+        }),
+    }
 }

@@ -1,5 +1,5 @@
 import { pathMatcher } from "./glob";
-import type { ProjectSettings, Tool } from "../types";
+import { nosqlWrites, type ProjectSettings, type Tool } from "../types";
 
 export type HiddenReason = "disabled" | "read_only" | "tag" | "path";
 
@@ -12,6 +12,7 @@ export function hiddenReason(tool: Tool, s: ProjectSettings): HiddenReason | nul
   const http = tool.kind.type === "http" ? tool.kind : null;
   if (s.read_only && http && !READ_METHODS.has(http.method)) return "read_only";
   if (s.read_only && tool.kind.type === "graphql" && tool.kind.operation === "mutation") return "read_only";
+  if (s.read_only && tool.kind.type === "nosql" && nosqlWrites(tool.kind.operation)) return "read_only";
   const lower = (xs: string[]) => xs.map((x) => x.toLowerCase());
   const tags = lower(tool.tags);
   const hasTag = (list: string[]) => lower(list).some((t) => tags.includes(t));

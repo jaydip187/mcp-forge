@@ -10,6 +10,7 @@ forge-core.workspace = true
 chrono.workspace = true
 forge-exec-http.workspace = true
 forge-exec-sql.workspace = true
+forge-exec-nosql.workspace = true
 forge-store.workspace = true
 http.workspace = true
 rmcp.workspace = true

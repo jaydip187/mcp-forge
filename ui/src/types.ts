@@ -140,7 +140,19 @@ export interface GraphqlSpec {
   timeout_ms: number;
 }
 
-export type ToolKind = HttpSpec | SqlSpec | GraphqlSpec;
+export interface NosqlSpec {
+  type: "nosql";
+  connection_id: string;
+  /** An engine operation (`find`, `HGETALL`, `Query`, `search`, …) or an exploration tool. */
+  operation: string;
+  /** Collection, key, table or index; `{{param}}` templates allowed. */
+  target: string;
+  /** Operation body; `{{param}}` templates allowed in values. */
+  body: Json;
+  params: SqlParam[];
+}
+
+export type ToolKind = HttpSpec | SqlSpec | GraphqlSpec | NosqlSpec;
 
 export interface ToolInput {
   name: string;
@@ -212,9 +224,32 @@ export interface AuthConfig extends AuthConfigInput {
   updated_at: string;
 }
 
-export type Driver = "sqlite" | "postgres" | "mysql" | "duckdb" | "mssql" | "clickhouse";
+export type Driver =
+  | "sqlite"
+  | "postgres"
+  | "mysql"
+  | "duckdb"
+  | "mssql"
+  | "clickhouse"
+  | "mongodb"
+  | "redis"
+  | "dynamodb"
+  | "elasticsearch";
 // DuckDB is deferred: the server is built without it for now.
-export const DRIVERS: Driver[] = ["postgres", "mysql", "mssql", "sqlite", "clickhouse"];
+export const DRIVERS: Driver[] = [
+  "postgres",
+  "mysql",
+  "mssql",
+  "sqlite",
+  "clickhouse",
+  "mongodb",
+  "redis",
+  "dynamodb",
+  "elasticsearch",
+];
+/** These run NoSQL tools; the others run SQL tools. */
+export const NOSQL_DRIVERS: Driver[] = ["mongodb", "redis", "dynamodb", "elasticsearch"];
+export const isSqlDriver = (d: Driver) => !NOSQL_DRIVERS.includes(d);
 export const DRIVER_LABEL: Record<Driver, string> = {
   postgres: "PostgreSQL",
   mysql: "MySQL",
@@ -222,7 +257,41 @@ export const DRIVER_LABEL: Record<Driver, string> = {
   duckdb: "DuckDB",
   mssql: "SQL Server",
   clickhouse: "ClickHouse",
+  mongodb: "MongoDB",
+  redis: "Redis",
+  dynamodb: "DynamoDB",
+  elasticsearch: "Elasticsearch",
 };
+
+/** Operations per NoSQL engine, mirroring `forge_core::nosql_operations`. */
+export const NOSQL_OPERATIONS: Record<string, { name: string; write: boolean }[]> = {
+  mongodb: [
+    ...["find", "find_one", "aggregate", "count", "distinct"].map((name) => ({ name, write: false })),
+    ...["insert_one", "update_one", "update_many", "delete_one", "delete_many"].map((name) => ({ name, write: true })),
+  ],
+  redis: [
+    ...["GET", "MGET", "STRLEN", "EXISTS", "TYPE", "TTL", "HGET", "HMGET", "HGETALL", "HKEYS", "HLEN", "LRANGE", "LLEN",
+      "LINDEX", "SMEMBERS", "SISMEMBER", "SCARD", "ZRANGE", "ZREVRANGE", "ZRANGEBYSCORE", "ZSCORE", "ZCARD", "XRANGE",
+      "XREVRANGE", "XLEN"].map((name) => ({ name, write: false })),
+    ...["SET", "DEL", "EXPIRE", "INCR", "INCRBY", "HSET", "HDEL", "HINCRBY", "LPUSH", "RPUSH", "SADD", "SREM", "ZADD",
+      "ZREM"].map((name) => ({ name, write: true })),
+  ],
+  dynamodb: [
+    ...["GetItem", "Query", "Scan"].map((name) => ({ name, write: false })),
+    ...["PutItem", "UpdateItem", "DeleteItem"].map((name) => ({ name, write: true })),
+  ],
+  elasticsearch: [
+    ...["search", "count", "get"].map((name) => ({ name, write: false })),
+    ...["index", "update", "delete"].map((name) => ({ name, write: true })),
+  ],
+};
+
+/** Whether a NoSQL operation writes (names don't collide across engines). */
+export function nosqlWrites(op: string): boolean {
+  return Object.values(NOSQL_OPERATIONS).some((ops) => ops.some((o) => o.write && o.name.toLowerCase() === op.toLowerCase()));
+}
+
+export const NOSQL_EXPLORATION = ["list_targets", "describe_target", "run_query"] as const;
 /** ClickHouse has no transactions, so writes can't be capped or undone. */
 export const READ_ONLY_DRIVERS: Driver[] = ["clickhouse"];
 
@@ -313,7 +382,22 @@ export interface SqlTestRun extends TestRunBase {
   } | null;
 }
 
-export type TestRun = HttpTestRun | SqlTestRun;
+export interface NosqlTestRun extends TestRunBase {
+  kind: "nosql";
+  request: { operation: string; target?: string; body?: Json } | null;
+  response: {
+    documents: Json[];
+    count: number;
+    truncated: boolean;
+    summary: Json | null;
+    masked_fields: string[];
+    elapsed_ms: number;
+    write: { affected_rows: number; committed: boolean; dry_run: boolean } | null;
+  } | null;
+  error: SqlTestRun["error"];
+}
+
+export type TestRun = HttpTestRun | SqlTestRun | NosqlTestRun;
 
 export type Role = "admin" | "member";
 export type Access = "read" | "write";

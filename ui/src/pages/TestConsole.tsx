@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { buildArgs, prettyBody } from "@/lib/args";
 import { schemaType } from "@/lib/template";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { Json, McpToolView, SqlTestRun, TestRun } from "@/types";
+import type { Json, McpToolView, NosqlTestRun, SqlTestRun, TestRun } from "@/types";
 
 export function TestConsole({ projectId, toolId, version, dirty }: { projectId: string; toolId: string | null; version: string; dirty: boolean }) {
   const [view, setView] = useState<McpToolView | null>(null);
@@ -129,6 +129,7 @@ const SQL_ERROR_LABEL: Record<NonNullable<SqlTestRun["error"]>["kind"], string> 
 
 function RunResult({ run }: { run: TestRun }) {
   if (run.kind === "sql") return <SqlRunResult run={run} />;
+  if (run.kind === "nosql") return <NosqlRunResult run={run} />;
   const status = run.response ? (
     <Badge variant={run.response.status < 400 ? "secondary" : "destructive"} className="font-mono">
       {run.response.status_line}
@@ -260,6 +261,62 @@ function SqlRunResult({ run }: { run: SqlTestRun }) {
                 <Output text={run.request.params.map((v, i) => `${i + 1}: ${JSON.stringify(v)}`).join("\n")} />
               </>
             )}
+          </TabsContent>
+        )}
+      </Tabs>
+    </section>
+  );
+}
+
+function NosqlRunResult({ run }: { run: NosqlTestRun }) {
+  const r = run.response;
+  const items = (n: number) => `${n} ${n === 1 ? "item" : "items"}`;
+  return (
+    <section aria-label="Test result" className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {r?.write ? (
+          <Badge variant={r.write.committed ? "destructive" : "secondary"} className="font-mono">
+            {r.write.dry_run ? `dry run: would change ${items(r.write.affected_rows)}` : `${items(r.write.affected_rows)} changed`} · {r.elapsed_ms} ms
+          </Badge>
+        ) : r ? (
+          <Badge variant="secondary" className="font-mono">
+            {r.count} {r.count === 1 ? "document" : "documents"}
+            {r.truncated && " (limit reached)"} · {r.elapsed_ms} ms
+          </Badge>
+        ) : (
+          <Badge variant="destructive">{run.error ? SQL_ERROR_LABEL[run.error.kind] : "Failed"}</Badge>
+        )}
+        {r && r.masked_fields.length > 0 && <Badge variant="outline">Masked: {r.masked_fields.join(", ")}</Badge>}
+        {run.shaped !== null && <Badge variant="outline">Shaped</Badge>}
+      </div>
+      <Tabs defaultValue="agent">
+        <TabsList className="w-full">
+          <TabsTrigger value="agent">Agent sees</TabsTrigger>
+          <TabsTrigger value="documents" disabled={!r}>
+            Documents
+          </TabsTrigger>
+          <TabsTrigger value="request" disabled={!run.request}>
+            Request
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="agent" className="space-y-2">
+          <p className="text-xs text-muted-foreground">{run.agent_view.is_error ? "Returned to the agent as an error." : "Returned to the agent as the tool result."}</p>
+          <Output text={run.agent_view.is_error ? run.agent_view.text : prettyBody(run.agent_view.text, "application/json")} />
+        </TabsContent>
+        {r && (
+          <TabsContent value="documents" className="space-y-2">
+            {r.documents.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nothing matched.</p>
+            ) : (
+              <Output text={JSON.stringify(r.documents, null, 2)} />
+            )}
+            {r.summary !== null && <Output text={JSON.stringify(r.summary, null, 2)} />}
+          </TabsContent>
+        )}
+        {run.request && (
+          <TabsContent value="request" className="space-y-2">
+            <p className="text-xs text-muted-foreground">As sent, with the arguments filled in as values.</p>
+            <Output text={JSON.stringify(run.request, null, 2)} />
           </TabsContent>
         )}
       </Tabs>

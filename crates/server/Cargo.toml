@@ -17,6 +17,7 @@ path = "src/main.rs"
 forge-core.workspace = true
 forge-exec-http.workspace = true
 forge-exec-sql.workspace = true
+forge-exec-nosql.workspace = true
 forge-importers.workspace = true
 forge-mcp.workspace = true
 forge-store.workspace = true

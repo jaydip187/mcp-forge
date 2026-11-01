@@ -280,14 +280,20 @@ pub async fn check_sql_tools(
     }
     let mut errs = ValidationErrors::default();
     for (i, t) in bundle.tools.iter().enumerate() {
-        let ToolKind::Sql(spec) = &t.input.kind else {
-            continue;
-        };
         // Unknown connection names are reported by the store import.
         let Some(conn) = t.connection.as_ref().and_then(|n| drivers.get(n)) else {
             continue;
         };
-        if let Err(e) = forge_exec_sql::check_query_tool(spec, conn) {
+        let checked = match &t.input.kind {
+            ToolKind::Sql(_) if !conn.driver.is_sql() => Err(ValidationErrors::single(
+                "kind.connection_id",
+                "pick a SQL connection; this one runs NoSQL tools",
+            )),
+            ToolKind::Sql(spec) => forge_exec_sql::check_query_tool(spec, conn),
+            ToolKind::Nosql(spec) => forge_exec_nosql::check_tool(spec, conn),
+            _ => continue,
+        };
+        if let Err(e) = checked {
             for f in e.errors {
                 errs.push(format!("tools[{i}].{}", f.field), f.message);
             }

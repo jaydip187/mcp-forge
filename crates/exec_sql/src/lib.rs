@@ -37,7 +37,7 @@ pub fn driver_available(driver: forge_core::Driver) -> bool {
 /// Replacement value for masked columns.
 pub const MASKED: &str = "[masked]";
 
-pub use error::SqlError;
+pub use error::{Redactor, SqlError};
 pub use executor::SqlExecutor;
 pub use outcome::{AuditDraft, SqlOutcome, SqlRun, WriteInfo, DRY_RUN_ARG};
 pub use policy::{check_agent_sql, check_files, check_query_tool, gate, tool_input, tool_writes};
