@@ -310,23 +310,32 @@ function PromptForm({ projectId, existing, onDone }: { projectId: string; existi
   const [err, setErr] = useState<unknown>(null);
   const [confirm, setConfirm] = useState(false);
 
-  /** Adds an argument for every new {{name}} in the template. */
-  function syncArgs() {
+  /** The draft with an argument for every new {{name}} in the template. */
+  function withTemplateArgs(): PromptInput {
     const have = new Set(draft.arguments.map((a) => a.name));
     const added: PromptArg[] = nosqlPlaceholders(draft.template)
       .filter((n) => !have.has(n))
       .map((name) => ({ name, description: "", required: true }));
-    if (added.length) setDraft({ ...draft, arguments: [...draft.arguments, ...added] });
+    return added.length ? { ...draft, arguments: [...draft.arguments, ...added] } : draft;
+  }
+  function syncArgs() {
+    const next = withTemplateArgs();
+    if (next !== draft) {
+      setDraft(next);
+      setErr(null);
+    }
   }
   const setArg = (i: number, patch: Partial<PromptArg>) =>
     setDraft({ ...draft, arguments: draft.arguments.map((a, j) => (j === i ? { ...a, ...patch } : a)) });
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    const body = withTemplateArgs();
+    setDraft(body);
     try {
-      if (existing) await api.updatePrompt(projectId, existing.id, draft);
-      else await api.createPrompt(projectId, draft);
-      toast.success(existing ? `Saved ${draft.name}` : `Added ${draft.name}`);
+      if (existing) await api.updatePrompt(projectId, existing.id, body);
+      else await api.createPrompt(projectId, body);
+      toast.success(existing ? `Saved ${body.name}` : `Added ${body.name}`);
       await onDone();
     } catch (e) {
       setErr(e);
@@ -389,7 +398,11 @@ function PromptForm({ projectId, existing, onDone }: { projectId: string; existi
       )}
       {argErrors.length > 0 && (
         <Alert variant="destructive">
-          <AlertDescription>{argErrors.join(" ")}</AlertDescription>
+          <AlertDescription>
+            {argErrors.map((m, i) => (
+              <p key={i}>{m}</p>
+            ))}
+          </AlertDescription>
         </Alert>
       )}
       <div className="flex flex-wrap gap-2">
