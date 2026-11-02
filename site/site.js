@@ -78,6 +78,22 @@ for (const button of document.querySelectorAll(".copy")) {
   });
 }
 
+// The hero's live example replays every few seconds while it's on screen.
+for (const demo of document.querySelectorAll("[data-demo]")) {
+  const play = () => {
+    demo.classList.remove("play");
+    void demo.offsetWidth; // restart the CSS animations
+    demo.classList.add("play");
+  };
+  play();
+  if (reduceMotion || !("IntersectionObserver" in window)) continue;
+  let timer = null;
+  new IntersectionObserver(([entry]) => {
+    clearInterval(timer);
+    if (entry.isIntersecting) timer = setInterval(play, 9000);
+  }).observe(demo);
+}
+
 // Numbers count up once when they scroll into view.
 const counters = document.querySelectorAll("[data-count]");
 if (!reduceMotion && "IntersectionObserver" in window) {
