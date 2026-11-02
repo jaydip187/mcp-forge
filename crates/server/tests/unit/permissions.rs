@@ -24,6 +24,11 @@ fn needs_by_route() {
         "prompt preview"
     );
     assert_eq!(need(&Method::POST, &p("/prompts")), Need::Write(pid));
+    assert_eq!(
+        need(&Method::POST, &p("/tools/check")),
+        Need::Write(pid),
+        "checks need what create needs"
+    );
     assert_eq!(need(&Method::GET, &p("/calls")), Need::Read(pid));
     assert_eq!(
         need(&Method::GET, "/projects/not-a-uuid/tools"),

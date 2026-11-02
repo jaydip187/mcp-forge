@@ -10,7 +10,7 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use uuid::Uuid;
 
-use crate::api::{ApiError, ApiJson, ApiPath};
+use crate::api::{checked, ApiError, ApiJson, ApiPath, CheckQuery};
 use crate::AppState;
 
 type ApiResult<T> = Result<T, ApiError>;
@@ -28,8 +28,16 @@ pub fn routes() -> Router<AppState> {
                 .delete(delete_resource),
         )
         .route(
+            "/projects/{project_id}/resources/check",
+            axum::routing::post(check_resource),
+        )
+        .route(
             "/projects/{project_id}/prompts",
             get(list_prompts).post(create_prompt),
+        )
+        .route(
+            "/projects/{project_id}/prompts/check",
+            axum::routing::post(check_prompt),
         )
         .route(
             "/projects/{project_id}/prompts/{prompt_id}",
@@ -68,6 +76,30 @@ async fn create_resource(
     let r = s.store.create_resource(project_id, &input).await?;
     s.changes.notify(project_id);
     Ok((StatusCode::CREATED, Json(r)))
+}
+
+/// Validates a resource without saving it (see `api::checked`).
+async fn check_resource(
+    State(s): State<AppState>,
+    ApiPath(project_id): ApiPath<Uuid>,
+    Query(q): Query<CheckQuery>,
+    ApiJson(input): ApiJson<ResourceInput>,
+) -> ApiResult<StatusCode> {
+    let mut errs = input.validate().err().unwrap_or_default();
+    let taken = s.store.list_resources(project_id).await?;
+    if taken
+        .iter()
+        .any(|r| r.name == input.name && Some(r.id) != q.id)
+    {
+        errs.push(
+            "name",
+            format!(
+                "a resource named `{}` already exists in this project",
+                input.name
+            ),
+        );
+    }
+    checked(errs)
 }
 
 async fn update_resource(
@@ -111,6 +143,30 @@ async fn create_prompt(
     let p = s.store.create_prompt(project_id, &input).await?;
     s.changes.notify(project_id);
     Ok((StatusCode::CREATED, Json(p)))
+}
+
+/// Validates a prompt without saving it (see `api::checked`).
+async fn check_prompt(
+    State(s): State<AppState>,
+    ApiPath(project_id): ApiPath<Uuid>,
+    Query(q): Query<CheckQuery>,
+    ApiJson(input): ApiJson<PromptInput>,
+) -> ApiResult<StatusCode> {
+    let mut errs = input.validate().err().unwrap_or_default();
+    let taken = s.store.list_prompts(project_id).await?;
+    if taken
+        .iter()
+        .any(|p| p.name == input.name && Some(p.id) != q.id)
+    {
+        errs.push(
+            "name",
+            format!(
+                "a prompt named `{}` already exists in this project",
+                input.name
+            ),
+        );
+    }
+    checked(errs)
 }
 
 async fn update_prompt(

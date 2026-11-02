@@ -4,7 +4,7 @@ import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
 import { EmptyState } from "@/components/EmptyState";
-import { StepDialog, type FormStep } from "@/components/StepDialog";
+import { checkError, StepDialog, type FormStep } from "@/components/StepDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -412,8 +412,8 @@ function ConnectionForm({
   // Confirmation is needed when this save turns full access on.
   const needsConfirm = draft.access_mode === "full_access" && existing?.access_mode !== "full_access";
 
-  async function submit() {
-    const input: DbConnectionInput = {
+  function buildInput(): DbConnectionInput {
+    return {
       ...draft,
       name: draft.name.trim(),
       dsn_ref: draft.dsn_ref.trim(),
@@ -425,6 +425,10 @@ function ConnectionForm({
       max_affected_rows: Number(maxRows),
       allow_ddl: isSqlDriver(draft.driver) && draft.access_mode !== "read_only" && draft.allow_ddl,
     };
+  }
+
+  async function submit() {
+    const input = buildInput();
     if (needsConfirm && !confirmFull) {
       setErr(new ApiError(422, "validation", "Confirm full access first.", [
         { field: "access_mode", message: "Tick the box to confirm that agents may change and delete data." },
@@ -672,6 +676,8 @@ function ConnectionForm({
       submitLabel={existing ? "Save database" : "Add database"}
       onSubmit={submit}
       onClose={onClose}
+      check={() => api.checkConnection(projectId, buildInput(), confirmFull, existing?.id)}
+      showErrors={(found) => setErr(checkError(found))}
     />
   );
 }

@@ -5,7 +5,7 @@ import { api, ApiError } from "@/api";
 import { PageHeader } from "@/components/PageHeader";
 import { Field, Section } from "@/components/FormSection";
 import { RequestLine } from "@/components/RequestLine";
-import { StepDialog, type FormStep } from "@/components/StepDialog";
+import { asProblems, checkError, StepDialog, type FormStep } from "@/components/StepDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,7 +26,7 @@ import { ChainToolEditor } from "@/pages/ChainToolEditor";
 import { SqlToolEditor } from "@/pages/SqlToolEditor";
 import { TestConsole } from "@/pages/TestConsole";
 import { describeAuth } from "@/pages/AuthTab";
-import { METHODS, type AuthConfig, type HttpMethod, type Tool } from "@/types";
+import { METHODS, type AuthConfig, type HttpMethod, type Tool, type FieldError } from "@/types";
 
 export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: string | null }) {
   const [saved, setSaved] = useState<Tool | null>(null);
@@ -122,6 +122,16 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  /** For Next: what the form or the server would refuse now. */
+  async function check(): Promise<FieldError[]> {
+    if (!form) return [];
+    const result = buildToolInput(form, rows);
+    setRows(rows.map((r, i) => ({ ...r, error: result.ok ? undefined : result.rowErrors[i] })));
+    if (result.ok) return api.checkTool(projectId, result.input);
+    const rowProblems = Object.values(result.rowErrors).map((message) => ({ field: "kind.params", message }));
+    return [...asProblems(result.fieldErrors), ...rowProblems];
   }
 
   const steps: FormStep[] = [
@@ -281,7 +291,7 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
     },
   ];
 
-  const errorAlert = serverErr && (
+  const errorAlert = serverErr && serverErr.code !== "check" && (
     <Alert variant="destructive">
       <AlertTitle>{serverErr.code === "validation" ? "Fix these before saving" : "Couldn't save"}</AlertTitle>
       <AlertDescription>
@@ -322,6 +332,11 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
         busy={busy}
         onSubmit={() => save()}
         onClose={() => navigate(href.project(projectId))}
+        check={check}
+        showErrors={(found) => {
+          setLocalErr({});
+          setServerErr(checkError(found));
+        }}
       />
     );
 

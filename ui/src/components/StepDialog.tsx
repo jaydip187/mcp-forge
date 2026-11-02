@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { CheckIcon } from "lucide-react";
+import { toast } from "sonner";
 
+import { ApiError } from "@/api";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { problemField } from "@/lib/fields";
 import { cn } from "@/lib/utils";
+import type { FieldError } from "@/types";
 
 /** One page of a step-by-step form. */
 export interface FormStep {
@@ -21,6 +26,19 @@ function focusFirstField(root: HTMLElement | null): boolean {
   return !!el;
 }
 
+/** Errors a form found itself, as check problems. */
+export function asProblems(errors: Record<string, string>): FieldError[] {
+  return Object.entries(errors).map(([field, message]) => ({ field, message }));
+}
+
+/**
+ * Check problems as the error a form keeps for the server, so its fields show
+ * them. Code `check`: the dialog already lists them, so banners skip it.
+ */
+export function checkError(problems: FieldError[]): ApiError | null {
+  return problems.length ? new ApiError(422, "check", "", problems) : null;
+}
+
 /** Whether `field` belongs to `step`. */
 export function owns(step: FormStep, field: string): boolean {
   return (step.fields ?? []).some((f) => field === f || field.startsWith(`${f}.`) || field.startsWith(`${f}[`));
@@ -31,6 +49,11 @@ export function owns(step: FormStep, field: string): boolean {
  * on top, Back and Next below, the submit button on the last step. Errors
  * jump to the first step with a field in `errorFields`; steps with errors
  * are marked. `banner` (a server error, say) shows above every step.
+ *
+ * With `check`, Next validates first: it asks the server about the whole
+ * form, keeps the problems with fields on this step or earlier ones (later
+ * steps aren't filled in yet), and stays put while there are any, listing
+ * them and passing them to `showErrors` for the fields to show.
  */
 export function StepDialog({
   open = true,
@@ -45,6 +68,8 @@ export function StepDialog({
   onSubmit,
   wide = false,
   extraActions,
+  check,
+  showErrors,
 }: {
   open?: boolean;
   onClose: () => void;
@@ -60,8 +85,14 @@ export function StepDialog({
   wide?: boolean;
   /** Shown at the left of the footer, such as a delete button. */
   extraActions?: ReactNode;
+  /** Every problem the server would refuse the form with now; none when it would save. */
+  check?: () => Promise<FieldError[]>;
+  /** Shows a check's problems (only those of the steps so far) on the fields. */
+  showErrors?: (errors: FieldError[]) => void;
 }) {
   const [at, setAt] = useState(0);
+  const [checking, setChecking] = useState(false);
+  const [problems, setProblems] = useState<FieldError[]>([]);
   const bodyRef = useRef<HTMLDivElement>(null);
   const invalid = steps.map((s) => errorFields.some((f) => owns(s, f)));
   const invalidKey = invalid.map(Number).join("");
@@ -86,12 +117,36 @@ export function StepDialog({
   const last = step === steps.length - 1;
   const current = steps[step]!;
 
+  /** Moves to step `to`, checking every step before it first when going forward. */
+  async function go(to: number) {
+    if (to <= step || !check) {
+      setProblems([]);
+      setAt(to);
+      return;
+    }
+    setChecking(true);
+    try {
+      const before = steps.slice(0, to);
+      const found = (await check()).filter((f) => before.some((s) => owns(s, f.field)));
+      setProblems(found);
+      showErrors?.(found);
+      const stuck = before.findIndex((s) => found.some((f) => owns(s, f.field)));
+      setAt(stuck >= 0 ? stuck : to);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setChecking(false);
+    }
+  }
+
   function submit(e: FormEvent) {
     e.preventDefault();
     // Enter on an earlier step moves on instead of submitting.
-    if (!last) setAt(step + 1);
+    if (!last) void go(step + 1);
     else void onSubmit();
   }
+
+  const here = problems.filter((f) => owns(current, f.field));
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -115,7 +170,8 @@ export function StepDialog({
                   <li key={s.title} className={cn("flex min-w-0 items-center gap-1.5", i < steps.length - 1 && "flex-1")}>
                     <button
                       type="button"
-                      onClick={() => setAt(i)}
+                      onClick={() => void go(i)}
+                      disabled={checking}
                       aria-current={here ? "step" : undefined}
                       className="group flex min-w-0 items-center gap-2 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
@@ -153,6 +209,20 @@ export function StepDialog({
         <form onSubmit={submit} noValidate className="flex min-h-0 flex-1 flex-col">
           <div ref={bodyRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
             {banner}
+            {here.length > 0 && (
+              <Alert variant="destructive">
+                <AlertTitle>Fix this to continue</AlertTitle>
+                <AlertDescription>
+                  <ul className="list-disc pl-4">
+                    {here.map((f) => (
+                      <li key={`${f.field}:${f.message}`}>
+                        <span className="font-medium">{problemField(f.field)}:</span> {f.message}
+                      </li>
+                    ))}
+                  </ul>
+                </AlertDescription>
+              </Alert>
+            )}
             {steps.length > 1 && (
               <div className="space-y-1">
                 <p className="text-xs font-medium text-muted-foreground">
@@ -169,7 +239,7 @@ export function StepDialog({
             {extraActions}
             <span className="flex-1" />
             {step > 0 ? (
-              <Button type="button" variant="outline" onClick={() => setAt(step - 1)}>
+              <Button type="button" variant="outline" onClick={() => void go(step - 1)}>
                 Back
               </Button>
             ) : (
@@ -182,7 +252,9 @@ export function StepDialog({
                 {submitLabel}
               </Button>
             ) : (
-              <Button type="submit">Next</Button>
+              <Button type="submit" disabled={checking}>
+                {checking ? "Checking…" : "Next"}
+              </Button>
             )}
           </div>
         </form>
