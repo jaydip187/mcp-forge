@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { api, ApiError } from "@/api";
 import { PageHeader } from "@/components/PageHeader";
 import { Field, Section } from "@/components/FormSection";
+import { StepDialog, type FormStep } from "@/components/StepDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -55,8 +56,8 @@ export function SqlToolEditor({ projectId, tool }: { projectId: string; tool: To
     (serverErr?.fields ?? []).filter((f) => sqlParamIndex(f.field) === i).map((f) => f.message);
   const conn = conns?.find((c) => c.id === form.connection_id);
 
-  async function save(e: FormEvent) {
-    e.preventDefault();
+  async function save(e?: FormEvent) {
+    e?.preventDefault();
     const result = buildSqlInput(form);
     if (!result.ok) {
       setLocalErr(result.fieldErrors);
@@ -91,23 +92,235 @@ export function SqlToolEditor({ projectId, tool }: { projectId: string; tool: To
 
   const general = (serverErr?.fields ?? []).filter((f) => f.field === "kind.mode.params" || f.field === "response_shape");
 
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        back={{ href: href.project(projectId), label: "Tools" }}
-        title={saved ? <span className="font-mono">{saved.name}</span> : "New SQL tool"}
-        description={
-          form.mode !== "query" ? (
-            "A database exploration tool. Everything it runs is read-only and limited to the allowed tables."
-          ) : (
-            <>
-          A fixed, read-only query. Agents fill in the <code>:name</code> parameters; values are always sent separately from
-          the SQL, never pasted into it.
-            </>
-          )
-        }
-      />
+  const steps: FormStep[] = [
+    {
+      title: "What the agent sees",
+      description: "The name and description are how an agent decides when to use this tool.",
+      fields: ["name", "description", "tags", "enabled", "require_approval"],
+      content: (
+        <>
+          <Field id="s-name" label="Name" error={err("name")} hint="Letters, digits, _ and -. Up to 64 characters.">
+            <Input id="s-name" value={form.name} onChange={(e) => set({ name: e.target.value })} className="font-mono" placeholder="find_orders" aria-invalid={!!err("name")} />
+          </Field>
+          <Field id="s-desc" label="Description" error={err("description")}>
+            <Textarea id="s-desc" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder={form.mode === "query" ? "Recent orders for one customer: id, status, total and date, newest first." : "Optional. Extra guidance for agents, shown before the generated description."} className="min-h-20" />
+          </Field>
+          <Field id="s-tags" label="Tags" error={err("tags")} hint="Comma-separated. Project filters and tool search use them.">
+            <Input id="s-tags" value={form.tagsText} onChange={(e) => set({ tagsText: e.target.value })} placeholder="orders, reporting" />
+          </Field>
+          <div className="flex items-center gap-2">
+            <Switch id="s-enabled" checked={form.enabled} onCheckedChange={(v) => set({ enabled: v })} />
+            <Label htmlFor="s-enabled">Visible to agents</Label>
+          </div>
+          <ApprovalSwitch
+            id="s-approval"
+            checked={form.requireApproval ?? (form.mode === "query" && looksLikeWrite(form.sql))}
+            onChange={(v) => set({ requireApproval: v })}
+          />
+        </>
+      ),
+    },
+    ...(form.mode !== "query"
+      ? [
+          {
+            title: EXPLORATION_LABEL[form.mode].title,
+            description: EXPLORATION_LABEL[form.mode].blurb,
+            fields: ["kind.connection_id"],
+            content: (
+              <>
+                <Field id="s-conn" label="Database" error={err("kind.connection_id")}>
+                  <Select value={form.connection_id || "none"} onValueChange={(v) => set({ connection_id: v === "none" ? "" : v })}>
+                    <SelectTrigger id="s-conn" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(conns ?? []).map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name} ({DRIVER_LABEL[c.driver]})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <p className="text-sm text-muted-foreground">
+                  Agents get a description written from the database's settings (limits, allowed tables, masked columns),
+                  so it stays current when you change them. Anything you put in the Description is shown first.
+                </p>
+                {conn && (
+                  <p className="text-sm text-muted-foreground">
+                    Allowed tables: {conn.table_allowlist.length ? conn.table_allowlist.join(", ") : "every non-system table"}.{" "}
+                    <a className="underline" href={href.project(projectId, "databases")}>
+                      Change on the Databases tab
+                    </a>
+                    .
+                  </p>
+                )}
+              </>
+            ),
+          },
+        ]
+      : [
+          {
+            title: "Query",
+            description: "One SELECT statement. Writes, multiple statements and risky functions are refused when you save.",
+            fields: ["kind.connection_id", "kind.mode.sql"],
+            content: (
+              <>
+                <Field id="s-conn" label="Database" error={err("kind.connection_id")}>
+                  <Select value={form.connection_id || "none"} onValueChange={(v) => set({ connection_id: v === "none" ? "" : v })}>
+                    <SelectTrigger id="s-conn" className="w-full" aria-invalid={!!err("kind.connection_id")}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none" disabled>
+                        Pick a database
+                      </SelectItem>
+                      {(conns ?? []).map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name} ({DRIVER_LABEL[c.driver]})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field
+                  id="s-sql"
+                  label="SQL"
+                  error={err("kind.mode.sql")}
+                  hint={
+                    conn?.driver === "postgres"
+                      ? "Write :name for each value. Values are typed by their parameter; cast where Postgres needs it, e.g. :since::timestamptz."
+                      : "Write :name for each value. Leaving this field adds a parameter for any new :name."
+                  }
+                >
+                  <Textarea
+                    id="s-sql"
+                    value={form.sql}
+                    onChange={(e) => set({ sql: e.target.value })}
+                    onBlur={() => set({ params: syncSqlParams(form.sql, form.params) })}
+                    className="min-h-40 font-mono text-xs"
+                    spellCheck={false}
+                    placeholder={"SELECT id, status, total, created_at\nFROM orders\nWHERE customer_id = :customer_id\nORDER BY created_at DESC"}
+                    aria-invalid={!!err("kind.mode.sql")}
+                  />
+                </Field>
+                {conn && looksLikeWrite(form.sql) ? (
+                  conn.access_mode === "read_only" ? (
+                    <Alert variant="destructive">
+                      <AlertDescription>
+                        This looks like a write, but {conn.name} is read-only. Allow saved writes on the Databases tab first.
+                      </AlertDescription>
+                    </Alert>
+                  ) : (
+                    <Alert>
+                      <AlertDescription>
+                        This tool changes data. Agents can try it with <code>dry_run</code>; a change of more than{" "}
+                        {conn.max_affected_rows} rows is undone; UPDATE and DELETE need a WHERE clause; every run is listed on
+                        the Audit tab.
+                      </AlertDescription>
+                    </Alert>
+                  )
+                ) : (
+                  conn && (
+                    <p className="text-xs text-muted-foreground">
+                      Returns at most {conn.row_limit} rows and stops after {conn.timeout_ms / 1000}s (set on the database).
+                    </p>
+                  )
+                )}
+              </>
+            ),
+          },
+          {
+            title: "Parameters",
+            description: "Each :name in the SQL is an argument the agent fills in.",
+            fields: ["kind.mode.params"],
+            content: (
+              <>
+                {form.params.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No parameters. Add :name to the SQL, or add one here.</p>
+                ) : (
+                  <div className="grid gap-3">
+                    {form.params.map((p, i) => (
+                      <div key={i} className="grid gap-2 rounded-md border p-3">
+                        <div className="grid gap-2 sm:grid-cols-[1fr_8rem_auto_auto] sm:items-end">
+                          <Field id={`sp-name-${i}`} label="Name">
+                            <Input id={`sp-name-${i}`} value={p.name} onChange={(e) => setParam(i, { name: e.target.value })} className="font-mono" />
+                          </Field>
+                          <Field id={`sp-type-${i}`} label="Type">
+                            <Select value={paramType(p)} onValueChange={(v) => setParam(i, { schema: { ...p.schema, type: v as SqlParamType } })}>
+                              <SelectTrigger id={`sp-type-${i}`} className="w-full">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {SQL_PARAM_TYPES.map((t) => (
+                                  <SelectItem key={t} value={t}>
+                                    {t}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                          <div className="flex h-9 items-center gap-2">
+                            <Checkbox id={`sp-req-${i}`} checked={p.required} onCheckedChange={(v) => setParam(i, { required: v === true })} />
+                            <Label htmlFor={`sp-req-${i}`}>Required</Label>
+                          </div>
+                          <Button type="button" variant="ghost" size="icon" aria-label={`Remove ${p.name || "parameter"}`} onClick={() => set({ params: form.params.filter((_, j) => j !== i) })}>
+                            <Trash2Icon />
+                          </Button>
+                        </div>
+                        <Input value={p.description ?? ""} onChange={(e) => setParam(i, { description: e.target.value })} placeholder="What the agent should pass (optional)" aria-label={`Description of ${p.name}`} />
+                        <Input
+                          value={enumText(p)}
+                          onChange={(e) => setParam(i, { schema: withEnum(p.schema, e.target.value, paramType(p)) })}
+                          placeholder="Allowed values, comma-separated (optional), e.g. pending, shipped"
+                          aria-label={`Allowed values of ${p.name}`}
+                          className="font-mono text-xs"
+                        />
+                        {!p.required && <p className="text-xs text-muted-foreground">Left out by the agent, it's sent as NULL.</p>}
+                        {paramErrors(i).map((m) => (
+                          <p key={m} className="text-xs text-destructive">
+                            {m}
+                          </p>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div>
+                  <Button type="button" variant="outline" size="sm" onClick={() => set({ params: [...form.params, { name: "", schema: { type: "string" }, required: true, description: null }] })}>
+                    <PlusIcon /> Add parameter
+                  </Button>
+                </div>
+              </>
+            ),
+          },
+        ]),
+    {
+      title: "Response",
+      description: "Agents get {columns, rows, truncated}. Reshape it here if they need less.",
+      fields: ["response_shape"],
+      content: (
+        <>
+          <Field id="s-shape" label="Response shape (jq)" error={err("response_shape")} hint="Leave empty to return the result as is. The project's size limit still applies.">
+            <Textarea id="s-shape" value={form.responseShape} onChange={(e) => set({ responseShape: e.target.value })} placeholder=".rows | map({id: .[0], status: .[1]})" className="min-h-16 font-mono text-xs" spellCheck={false} aria-invalid={!!err("response_shape")} />
+          </Field>
+        </>
+      ),
+    },
+  ];
 
+  const description =
+    form.mode !== "query" ? (
+      "A database exploration tool. Everything it runs is read-only and limited to the allowed tables."
+    ) : (
+      <>
+        A fixed, read-only query. Agents fill in the <code>:name</code> parameters; values are always sent separately from the
+        SQL, never pasted into it.
+      </>
+    );
+
+  const banner = (
+    <>
       {conns && conns.length === 0 && (
         <Alert>
           <AlertTitle>Add a database first</AlertTitle>
@@ -122,238 +335,79 @@ export function SqlToolEditor({ projectId, tool }: { projectId: string; tool: To
           </AlertDescription>
         </Alert>
       )}
+      {serverErr && (
+        <Alert variant="destructive">
+          <AlertTitle>{serverErr.code === "validation" ? "Fix these before saving" : "Couldn't save"}</AlertTitle>
+          <AlertDescription>
+            {serverErr.fields.length === 0 ? (
+              serverErr.message
+            ) : (
+              <ul className="list-disc pl-4">
+                {(general.length ? general : serverErr.fields).map((f, i) => (
+                  <li key={i}>{f.message}</li>
+                ))}
+              </ul>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+    </>
+  );
+
+  if (!saved)
+    return (
+      <StepDialog
+        title="New SQL tool"
+        description={description}
+        steps={steps}
+        errorFields={[...Object.keys(localErr), ...(serverErr?.fields ?? []).map((f) => f.field)]}
+        banner={banner}
+        submitLabel="Create tool"
+        busy={busy}
+        onSubmit={() => save()}
+        onClose={() => navigate(href.project(projectId))}
+      />
+    );
+
+  return (
+    <div className="space-y-6">
+      <PageHeader back={{ href: href.project(projectId), label: "Tools" }} title={<span className="font-mono">{saved.name}</span>} description={description} />
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
         <form onSubmit={save} className="min-w-0 space-y-6" noValidate>
-          {serverErr && (
-            <Alert variant="destructive">
-              <AlertTitle>{serverErr.code === "validation" ? "Fix these before saving" : "Couldn't save"}</AlertTitle>
-              <AlertDescription>
-                {serverErr.fields.length === 0 ? (
-                  serverErr.message
-                ) : (
-                  <ul className="list-disc pl-4">
-                    {(general.length ? general : serverErr.fields).map((f, i) => (
-                      <li key={i}>{f.message}</li>
-                    ))}
-                  </ul>
-                )}
-              </AlertDescription>
-            </Alert>
-          )}
+          {banner}
 
-          <Section title="What the agent sees" description="The name and description are how an agent decides when to use this tool.">
-            <Field id="s-name" label="Name" error={err("name")} hint="Letters, digits, _ and -. Up to 64 characters.">
-              <Input id="s-name" value={form.name} onChange={(e) => set({ name: e.target.value })} className="font-mono" placeholder="find_orders" aria-invalid={!!err("name")} />
-            </Field>
-            <Field id="s-desc" label="Description" error={err("description")}>
-              <Textarea id="s-desc" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder={form.mode === "query" ? "Recent orders for one customer: id, status, total and date, newest first." : "Optional. Extra guidance for agents, shown before the generated description."} className="min-h-20" />
-            </Field>
-            <Field id="s-tags" label="Tags" error={err("tags")} hint="Comma-separated. Project filters and tool search use them.">
-              <Input id="s-tags" value={form.tagsText} onChange={(e) => set({ tagsText: e.target.value })} placeholder="orders, reporting" />
-            </Field>
-            <div className="flex items-center gap-2">
-              <Switch id="s-enabled" checked={form.enabled} onCheckedChange={(v) => set({ enabled: v })} />
-              <Label htmlFor="s-enabled">Visible to agents</Label>
-            </div>
-            <ApprovalSwitch
-              id="s-approval"
-              checked={form.requireApproval ?? (form.mode === "query" && looksLikeWrite(form.sql))}
-              onChange={(v) => set({ requireApproval: v })}
-            />
-          </Section>
-
-          {form.mode !== "query" && (
-            <Section title={EXPLORATION_LABEL[form.mode].title} description={EXPLORATION_LABEL[form.mode].blurb}>
-              <Field id="s-conn" label="Database" error={err("kind.connection_id")}>
-                <Select value={form.connection_id || "none"} onValueChange={(v) => set({ connection_id: v === "none" ? "" : v })}>
-                  <SelectTrigger id="s-conn" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(conns ?? []).map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name} ({DRIVER_LABEL[c.driver]})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <p className="text-sm text-muted-foreground">
-                Agents get a description written from the database's settings (limits, allowed tables, masked columns),
-                so it stays current when you change them. Anything you put in Description above is shown first.
-              </p>
-              {conn && (
-                <p className="text-sm text-muted-foreground">
-                  Allowed tables: {conn.table_allowlist.length ? conn.table_allowlist.join(", ") : "every non-system table"}.{" "}
-                  <a className="underline" href={href.project(projectId, "databases")}>
-                    Change on the Databases tab
-                  </a>
-                  .
-                </p>
-              )}
+          {steps.map((s) => (
+            <Section key={s.title} title={s.title} description={s.description ?? ""}>
+              {s.content}
             </Section>
-          )}
-
-          {form.mode === "query" && (
-            <>
-          <Section title="Query" description="One SELECT statement. Writes, multiple statements and risky functions are refused when you save.">
-            <Field id="s-conn" label="Database" error={err("kind.connection_id")}>
-              <Select value={form.connection_id || "none"} onValueChange={(v) => set({ connection_id: v === "none" ? "" : v })}>
-                <SelectTrigger id="s-conn" className="w-full" aria-invalid={!!err("kind.connection_id")}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none" disabled>
-                    Pick a database
-                  </SelectItem>
-                  {(conns ?? []).map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name} ({DRIVER_LABEL[c.driver]})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field
-              id="s-sql"
-              label="SQL"
-              error={err("kind.mode.sql")}
-              hint={
-                conn?.driver === "postgres"
-                  ? "Write :name for each value. Values are typed by their parameter; cast where Postgres needs it, e.g. :since::timestamptz."
-                  : "Write :name for each value. Leaving this field adds a parameter for any new :name."
-              }
-            >
-              <Textarea
-                id="s-sql"
-                value={form.sql}
-                onChange={(e) => set({ sql: e.target.value })}
-                onBlur={() => set({ params: syncSqlParams(form.sql, form.params) })}
-                className="min-h-40 font-mono text-xs"
-                spellCheck={false}
-                placeholder={"SELECT id, status, total, created_at\nFROM orders\nWHERE customer_id = :customer_id\nORDER BY created_at DESC"}
-                aria-invalid={!!err("kind.mode.sql")}
-              />
-            </Field>
-            {conn && looksLikeWrite(form.sql) ? (
-              conn.access_mode === "read_only" ? (
-                <Alert variant="destructive">
-                  <AlertDescription>
-                    This looks like a write, but {conn.name} is read-only. Allow saved writes on the Databases tab first.
-                  </AlertDescription>
-                </Alert>
-              ) : (
-                <Alert>
-                  <AlertDescription>
-                    This tool changes data. Agents can try it with <code>dry_run</code>; a change of more than{" "}
-                    {conn.max_affected_rows} rows is undone; UPDATE and DELETE need a WHERE clause; every run is listed on
-                    the Audit tab.
-                  </AlertDescription>
-                </Alert>
-              )
-            ) : (
-              conn && (
-                <p className="text-xs text-muted-foreground">
-                  Returns at most {conn.row_limit} rows and stops after {conn.timeout_ms / 1000}s (set on the database).
-                </p>
-              )
-            )}
-          </Section>
-
-          <Section title="Parameters" description="Each :name in the SQL is an argument the agent fills in.">
-            {form.params.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No parameters. Add :name to the SQL, or add one here.</p>
-            ) : (
-              <div className="grid gap-3">
-                {form.params.map((p, i) => (
-                  <div key={i} className="grid gap-2 rounded-md border p-3">
-                    <div className="grid gap-2 sm:grid-cols-[1fr_8rem_auto_auto] sm:items-end">
-                      <Field id={`sp-name-${i}`} label="Name">
-                        <Input id={`sp-name-${i}`} value={p.name} onChange={(e) => setParam(i, { name: e.target.value })} className="font-mono" />
-                      </Field>
-                      <Field id={`sp-type-${i}`} label="Type">
-                        <Select value={paramType(p)} onValueChange={(v) => setParam(i, { schema: { ...p.schema, type: v as SqlParamType } })}>
-                          <SelectTrigger id={`sp-type-${i}`} className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {SQL_PARAM_TYPES.map((t) => (
-                              <SelectItem key={t} value={t}>
-                                {t}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </Field>
-                      <div className="flex h-9 items-center gap-2">
-                        <Checkbox id={`sp-req-${i}`} checked={p.required} onCheckedChange={(v) => setParam(i, { required: v === true })} />
-                        <Label htmlFor={`sp-req-${i}`}>Required</Label>
-                      </div>
-                      <Button type="button" variant="ghost" size="icon" aria-label={`Remove ${p.name || "parameter"}`} onClick={() => set({ params: form.params.filter((_, j) => j !== i) })}>
-                        <Trash2Icon />
-                      </Button>
-                    </div>
-                    <Input value={p.description ?? ""} onChange={(e) => setParam(i, { description: e.target.value })} placeholder="What the agent should pass (optional)" aria-label={`Description of ${p.name}`} />
-                    <Input
-                      value={enumText(p)}
-                      onChange={(e) => setParam(i, { schema: withEnum(p.schema, e.target.value, paramType(p)) })}
-                      placeholder="Allowed values, comma-separated (optional), e.g. pending, shipped"
-                      aria-label={`Allowed values of ${p.name}`}
-                      className="font-mono text-xs"
-                    />
-                    {!p.required && <p className="text-xs text-muted-foreground">Left out by the agent, it's sent as NULL.</p>}
-                    {paramErrors(i).map((m) => (
-                      <p key={m} className="text-xs text-destructive">
-                        {m}
-                      </p>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            )}
-            <div>
-              <Button type="button" variant="outline" size="sm" onClick={() => set({ params: [...form.params, { name: "", schema: { type: "string" }, required: true, description: null }] })}>
-                <PlusIcon /> Add parameter
-              </Button>
-            </div>
-          </Section>
-
-            </>
-          )}
-
-          <Section title="Response" description="Agents get {columns, rows, truncated}. Reshape it here if they need less.">
-            <Field id="s-shape" label="Response shape (jq)" error={err("response_shape")} hint="Leave empty to return the result as is. The project's size limit still applies.">
-              <Textarea id="s-shape" value={form.responseShape} onChange={(e) => set({ responseShape: e.target.value })} placeholder=".rows | map({id: .[0], status: .[1]})" className="min-h-16 font-mono text-xs" spellCheck={false} aria-invalid={!!err("response_shape")} />
-            </Field>
-          </Section>
+          ))}
 
           <div className="sticky bottom-0 -mx-1 flex flex-wrap items-center gap-3 border-t bg-background/95 px-1 py-3 backdrop-blur">
-            <Button type="submit" disabled={busy || (!!saved && !dirty)}>
-              {saved ? "Save tool" : "Create tool"}
+            <Button type="submit" disabled={busy || !dirty}>
+              Save tool
             </Button>
-            {saved && dirty && <span className="text-sm text-muted-foreground">Unsaved changes</span>}
+            {dirty && <span className="text-sm text-muted-foreground">Unsaved changes</span>}
             <span className="flex-1" />
-            {saved &&
-              (confirmDelete ? (
-                <>
-                  <Button type="button" variant="destructive" onClick={() => void remove()}>
-                    Delete {saved.name}
-                  </Button>
-                  <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)}>
-                    Keep it
-                  </Button>
-                </>
-              ) : (
-                <Button type="button" variant="ghost" className="text-destructive" onClick={() => setConfirmDelete(true)}>
-                  Delete tool
+            {confirmDelete ? (
+              <>
+                <Button type="button" variant="destructive" onClick={() => void remove()}>
+                  Delete {saved.name}
                 </Button>
-              ))}
+                <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)}>
+                  Keep it
+                </Button>
+              </>
+            ) : (
+              <Button type="button" variant="ghost" className="text-destructive" onClick={() => setConfirmDelete(true)}>
+                Delete tool
+              </Button>
+            )}
           </div>
         </form>
 
         <aside className="lg:sticky lg:top-20">
-          <TestConsole projectId={projectId} toolId={saved?.id ?? null} version={saved?.updated_at ?? ""} dirty={dirty} />
+          <TestConsole projectId={projectId} toolId={saved.id} version={saved.updated_at} dirty={dirty} />
         </aside>
       </div>
     </div>

@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { KeyRoundIcon, LinkIcon, UnlinkIcon } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { KeyRoundIcon, LinkIcon, PlusIcon, UnlinkIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
 import { CopyBlock } from "@/components/CopyBlock";
 import { EmptyState } from "@/components/EmptyState";
+import { StepDialog, type FormStep } from "@/components/StepDialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -48,7 +48,7 @@ const EMPTY: AuthConfigInput = { name: "", kind: { type: "bearer" }, secret_ref:
 export function AuthTab({ projectId }: { projectId: string }) {
   const [configs, setConfigs] = useState<AuthConfig[] | null>(null);
   const [oauth, setOauth] = useState<OAuthStatus[]>([]);
-  const [editing, setEditing] = useState<AuthConfig | null>(null);
+  const [editing, setEditing] = useState<AuthConfig | "new" | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -85,7 +85,7 @@ export function AuthTab({ projectId }: { projectId: string }) {
       await api.deleteAuth(projectId, c.id);
       toast.success(`Deleted ${c.name}`);
       setConfirmDelete(null);
-      if (editing?.id === c.id) setEditing(null);
+      if (editing !== "new" && editing?.id === c.id) setEditing(null);
       await load();
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : String(e));
@@ -93,84 +93,92 @@ export function AuthTab({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-      <section className="min-w-0 space-y-3">
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <p className="max-w-prose text-sm text-muted-foreground">
           An auth config says how to sign requests and where the secret lives. mcp-forge stores only the
           reference and reads the secret each time a tool runs.
         </p>
-        {!configs ? (
-          <Skeleton className="h-24 w-full" />
-        ) : configs.length === 0 ? (
-          <EmptyState
-            icon={KeyRoundIcon}
-            title="No auth configs yet"
-            description="Add one with the form if your API needs a key or token. Tools then sign their requests with it."
-          />
-        ) : (
-          <ul className="divide-y overflow-hidden rounded-xl border bg-card">
-            {configs.map((c) => (
-              <li key={c.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium">{c.name}</p>
-                  <p className="text-sm text-muted-foreground">{describeAuth(c.kind)}</p>
-                  <p className="font-mono text-xs text-muted-foreground">{c.secret_ref}</p>
-                  {c.kind.type === "oauth2_authorization_code" && (
-                    <ConnectionLine status={oauth.find((o) => o.auth_config_id === c.id)} />
+        <Button className="shrink-0" onClick={() => setEditing("new")}>
+          <PlusIcon /> Add auth config
+        </Button>
+      </div>
+      {!configs ? (
+        <Skeleton className="h-24 w-full" />
+      ) : configs.length === 0 ? (
+        <EmptyState
+          icon={KeyRoundIcon}
+          title="No auth configs yet"
+          description="Add one if your API needs a key or token. Tools then sign their requests with it."
+        >
+          <Button onClick={() => setEditing("new")}>Add an auth config</Button>
+        </EmptyState>
+      ) : (
+        <ul className="divide-y overflow-hidden rounded-xl border bg-card">
+          {configs.map((c) => (
+            <li key={c.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+              <div className="min-w-0 flex-1">
+                <p className="font-medium">{c.name}</p>
+                <p className="text-sm text-muted-foreground">{describeAuth(c.kind)}</p>
+                <p className="font-mono text-xs text-muted-foreground">{c.secret_ref}</p>
+                {c.kind.type === "oauth2_authorization_code" && (
+                  <ConnectionLine status={oauth.find((o) => o.auth_config_id === c.id)} />
+                )}
+              </div>
+              {c.kind.type === "oauth2_authorization_code" && confirmDelete !== c.id && (
+                <div className="flex gap-2">
+                  {oauth.some((o) => o.auth_config_id === c.id) ? (
+                    <>
+                      <Button size="sm" variant="outline" onClick={() => void connect(c)}>
+                        <LinkIcon /> Reconnect
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => void disconnect(c)}>
+                        <UnlinkIcon /> Disconnect
+                      </Button>
+                    </>
+                  ) : (
+                    <Button size="sm" onClick={() => void connect(c)}>
+                      <LinkIcon /> Connect
+                    </Button>
                   )}
                 </div>
-                {c.kind.type === "oauth2_authorization_code" && confirmDelete !== c.id && (
-                  <div className="flex gap-2">
-                    {oauth.some((o) => o.auth_config_id === c.id) ? (
-                      <>
-                        <Button size="sm" variant="outline" onClick={() => void connect(c)}>
-                          <LinkIcon /> Reconnect
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => void disconnect(c)}>
-                          <UnlinkIcon /> Disconnect
-                        </Button>
-                      </>
-                    ) : (
-                      <Button size="sm" onClick={() => void connect(c)}>
-                        <LinkIcon /> Connect
-                      </Button>
-                    )}
-                  </div>
-                )}
-                {confirmDelete === c.id ? (
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="destructive" onClick={() => void remove(c)}>
-                      Delete
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => setConfirmDelete(null)}>
-                      Keep
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={() => setEditing(c)}>
-                      Edit
-                    </Button>
-                    <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setConfirmDelete(c.id)}>
-                      Delete
-                    </Button>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+              )}
+              {confirmDelete === c.id ? (
+                <div className="flex gap-2">
+                  <Button size="sm" variant="destructive" onClick={() => void remove(c)}>
+                    Delete
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setConfirmDelete(null)}>
+                    Keep
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setEditing(c)}>
+                    Edit
+                  </Button>
+                  <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setConfirmDelete(c.id)}>
+                    Delete
+                  </Button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
 
-      <AuthForm
-        key={editing?.id ?? "new"}
-        projectId={projectId}
-        existing={editing}
-        onDone={async () => {
-          setEditing(null);
-          await load();
-        }}
-      />
+      {editing && (
+        <AuthForm
+          key={editing === "new" ? "new" : editing.id}
+          projectId={projectId}
+          existing={editing === "new" ? null : editing}
+          onDone={async () => {
+            setEditing(null);
+            await load();
+          }}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   );
 }
@@ -202,7 +210,17 @@ function kindFor(type: AuthKind["type"]): AuthKind {
   }
 }
 
-function AuthForm({ projectId, existing, onDone }: { projectId: string; existing: AuthConfig | null; onDone: () => Promise<void> }) {
+function AuthForm({
+  projectId,
+  existing,
+  onDone,
+  onClose,
+}: {
+  projectId: string;
+  existing: AuthConfig | null;
+  onDone: () => Promise<void>;
+  onClose: () => void;
+}) {
   const [draft, setDraft] = useState<AuthConfigInput>(existing ?? EMPTY);
   const [scopesText, setScopesText] = useState(() => ("scopes" in draft.kind ? draft.kind.scopes.join(" ") : ""));
   const [err, setErr] = useState<unknown>(null);
@@ -212,8 +230,7 @@ function AuthForm({ projectId, existing, onDone }: { projectId: string; existing
     setScopesText("");
   }
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
+  async function submit() {
     let input = draft;
     if ("scopes" in draft.kind) {
       const scopes = scopesText.split(/[\s,]+/).filter(Boolean);
@@ -224,10 +241,6 @@ function AuthForm({ projectId, existing, onDone }: { projectId: string; existing
       if (existing) await api.updateAuth(projectId, existing.id, input);
       else await api.createAuth(projectId, input);
       toast.success(existing ? `Saved ${draft.name}` : `Added ${draft.name}`);
-      if (!existing) {
-        setDraft(EMPTY);
-        setScopesText("");
-      }
       setErr(null);
       await onDone();
     } catch (e) {
@@ -236,14 +249,13 @@ function AuthForm({ projectId, existing, onDone }: { projectId: string; existing
   }
 
   const k = draft.kind;
-  return (
-    <Card className="h-fit">
-      <CardHeader>
-        <CardTitle>{existing ? `Edit ${existing.name}` : "Add auth config"}</CardTitle>
-        <CardDescription>The secret itself never goes into mcp-forge.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={submit} className="grid gap-4">
+  const steps: FormStep[] = [
+    {
+      title: "Name and type",
+      description: "What tools call this config, and how the API expects the secret.",
+      fields: ["name"],
+      content: (
+        <>
           <div className="grid gap-1.5">
             <Label htmlFor="a-name">Name</Label>
             <Input id="a-name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="github-token" required aria-invalid={!!fieldError(err, "name")} />
@@ -264,6 +276,15 @@ function AuthForm({ projectId, existing, onDone }: { projectId: string; existing
               </SelectContent>
             </Select>
           </div>
+        </>
+      ),
+    },
+    {
+      title: "Secret",
+      description: "Where the secret lives. The secret itself never goes into mcp-forge.",
+      fields: ["kind", "secret_ref"],
+      content: (
+        <>
           {(k.type === "oauth2_client_credentials" || k.type === "oauth2_authorization_code") && (
             <OAuthFields
               kind={k}
@@ -311,6 +332,18 @@ function AuthForm({ projectId, existing, onDone }: { projectId: string; existing
               your OS keychain (service <code>mcp-forge</code>, account <code>NAME</code>).
             </p>
           </div>
+        </>
+      ),
+    },
+  ];
+
+  return (
+    <StepDialog
+      title={existing ? `Edit ${existing.name}` : "Add auth config"}
+      steps={steps}
+      errorFields={err instanceof ApiError ? err.fields.map((f) => f.field) : []}
+      banner={
+        <>
           {err instanceof ApiError && err.fields.length === 0 && (
             <Alert variant="destructive">
               <AlertDescription>
@@ -320,17 +353,12 @@ function AuthForm({ projectId, existing, onDone }: { projectId: string; existing
               </AlertDescription>
             </Alert>
           )}
-          <div className="flex gap-2">
-            <Button type="submit">{existing ? "Save auth config" : "Add auth config"}</Button>
-            {existing && (
-              <Button type="button" variant="ghost" onClick={() => void onDone()}>
-                Cancel
-              </Button>
-            )}
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+        </>
+      }
+      submitLabel={existing ? "Save auth config" : "Add auth config"}
+      onSubmit={submit}
+      onClose={onClose}
+    />
   );
 }
 

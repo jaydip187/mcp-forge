@@ -217,7 +217,13 @@ function Page({ route, info, user }: { route: Route; info: ServerInfo; user: Use
     case "users":
       return <UsersPage />;
     case "project":
-      return <ProjectPage key={route.projectId} projectId={route.projectId} tab={route.tab} info={info} />;
+      // Same shape as a new tool below, so opening and closing its dialog keeps the page.
+      return (
+        <>
+          <ProjectPage key={route.projectId} projectId={route.projectId} tab={route.tab} info={info} />
+          {null}
+        </>
+      );
     case "import":
       return (
         <WriteGuard projectId={route.projectId}>
@@ -231,20 +237,30 @@ function Page({ route, info, user }: { route: Route; info: ServerInfo; user: Use
         </WriteGuard>
       );
     case "tool":
+      // New tools open in a dialog over the tool list.
+      if (!route.toolId)
+        return (
+          <>
+            <ProjectPage key={route.projectId} projectId={route.projectId} tab="tools" info={info} />
+            <WriteGuard projectId={route.projectId}>
+              {route.kind === "sql" ? (
+                <SqlToolEditor key={`${route.projectId}/new-sql`} projectId={route.projectId} tool={null} />
+              ) : route.kind === "chain" ? (
+                <ChainToolEditor key={`${route.projectId}/new-chain`} projectId={route.projectId} tool={null} />
+              ) : route.kind === "nosql" ? (
+                <NosqlToolEditor key={`${route.projectId}/new-nosql`} projectId={route.projectId} tool={null} />
+              ) : route.kind === "graphql" ? (
+                <GraphqlToolEditor key={`${route.projectId}/new-graphql`} projectId={route.projectId} tool={null} />
+              ) : (
+                <ToolEditor key={`${route.projectId}/new`} projectId={route.projectId} toolId={null} />
+              )}
+            </WriteGuard>
+          </>
+        );
       // Read-only users see the tool; inputs, Save and the test console are disabled.
       return (
         <WriteGuard projectId={route.projectId}>
-          {!route.toolId && route.kind === "sql" ? (
-            <SqlToolEditor key={`${route.projectId}/new-sql`} projectId={route.projectId} tool={null} />
-          ) : !route.toolId && route.kind === "chain" ? (
-            <ChainToolEditor key={`${route.projectId}/new-chain`} projectId={route.projectId} tool={null} />
-          ) : !route.toolId && route.kind === "nosql" ? (
-            <NosqlToolEditor key={`${route.projectId}/new-nosql`} projectId={route.projectId} tool={null} />
-          ) : !route.toolId && route.kind === "graphql" ? (
-            <GraphqlToolEditor key={`${route.projectId}/new-graphql`} projectId={route.projectId} tool={null} />
-          ) : (
-            <ToolEditor key={`${route.projectId}/${route.toolId ?? "new"}`} projectId={route.projectId} toolId={route.toolId} />
-          )}
+          <ToolEditor key={`${route.projectId}/${route.toolId}`} projectId={route.projectId} toolId={route.toolId} />
         </WriteGuard>
       );
   }

@@ -5,6 +5,7 @@ import { api, ApiError } from "@/api";
 import { PageHeader } from "@/components/PageHeader";
 import { Field, Section } from "@/components/FormSection";
 import { RequestLine } from "@/components/RequestLine";
+import { StepDialog, type FormStep } from "@/components/StepDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -87,8 +88,8 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
     (f) => f.field === "kind.params" || f.field === "kind.auth_ref" || f.field === "response_shape",
   );
 
-  async function save(e: FormEvent) {
-    e.preventDefault();
+  async function save(e?: FormEvent) {
+    e?.preventDefault();
     if (!form) return;
     const result = buildToolInput(form, rows);
     if (!result.ok) {
@@ -123,17 +124,217 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
     }
   }
 
+  const steps: FormStep[] = [
+    {
+      title: "What the agent sees",
+      description: "The name and description are how an agent decides when to use this tool.",
+      fields: ["name", "description", "tags", "enabled", "require_approval"],
+      content: (
+        <>
+          <Field id="t-name" label="Name" error={err("name")} hint="Letters, digits, _ and -. Up to 64 characters.">
+            <Input id="t-name" value={form.name} onChange={(e) => set({ name: e.target.value })} className="font-mono" placeholder="get_user" aria-invalid={!!err("name")} />
+          </Field>
+          <Field id="t-desc" label="Description" error={err("description")}>
+            <Textarea id="t-desc" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="Fetch one user by id. Returns name, email and created date." className="min-h-20" />
+          </Field>
+          <Field id="t-tags" label="Tags" error={err("tags")} hint="Comma-separated. Project filters and tool search use them.">
+            <Input id="t-tags" value={form.tagsText} onChange={(e) => set({ tagsText: e.target.value })} placeholder="users, admin" />
+          </Field>
+          <div className="flex items-center gap-2">
+            <Switch id="t-enabled" checked={form.enabled} onCheckedChange={(v) => set({ enabled: v })} />
+            <Label htmlFor="t-enabled">Visible to agents</Label>
+          </div>
+          <ApprovalSwitch
+            id="t-approval"
+            checked={form.requireApproval ?? approvalDefault(form.method)}
+            onChange={(v) => set({ requireApproval: v })}
+          />
+        </>
+      ),
+    },
+    {
+      title: "Request",
+      description: "Use {name} in the path for values the agent fills in.",
+      fields: ["kind.method", "kind.base_url", "kind.path_template", "kind.auth_ref", "kind.timeout_ms"],
+      content: (
+        <>
+          <div className="grid gap-3 sm:grid-cols-[8rem_1fr]">
+            <Field id="t-method" label="Method">
+              <Select value={form.method} onValueChange={(v) => set({ method: v as HttpMethod })}>
+                <SelectTrigger id="t-method" className="w-full font-mono">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {METHODS.map((m) => (
+                    <SelectItem key={m} value={m} className="font-mono">
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field id="t-base" label="Base URL" error={err("kind.base_url")}>
+              <Input id="t-base" value={form.base_url} onChange={(e) => set({ base_url: e.target.value })} className="font-mono" placeholder="https://api.example.com/v1" aria-invalid={!!err("kind.base_url")} />
+            </Field>
+          </div>
+          <Field id="t-path" label="Path" error={err("kind.path_template")} hint="Leaving this field adds a parameter for any new {placeholder}.">
+            <Input
+              id="t-path"
+              value={form.path_template}
+              onChange={(e) => set({ path_template: e.target.value })}
+              onBlur={() => {
+                const synced = syncPathParams(form.path_template, rows.map((r) => r.def));
+                if (synced.length !== rows.length) setRows([...rows, ...synced.slice(rows.length).map(toRow)]);
+              }}
+              className="font-mono"
+              placeholder="/users/{id}"
+              aria-invalid={!!err("kind.path_template")}
+            />
+          </Field>
+          <div className="grid gap-3 sm:grid-cols-[1fr_10rem]">
+            <Field id="t-auth" label="Auth" error={err("kind.auth_ref")}>
+              <Select value={form.auth_ref ?? "none"} onValueChange={(v) => set({ auth_ref: v === "none" ? null : v })}>
+                <SelectTrigger id="t-auth" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No auth</SelectItem>
+                  {auths.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.name}: {describeAuth(a.kind)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field id="t-timeout" label="Timeout (ms)" error={err("kind.timeout_ms")}>
+              <Input id="t-timeout" value={form.timeout} onChange={(e) => set({ timeout: e.target.value })} inputMode="numeric" className="font-mono" aria-invalid={!!err("kind.timeout_ms")} />
+            </Field>
+          </div>
+          {auths.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              Need a key or token? <a className="underline" href={href.project(projectId, "auth")}>Add an auth config</a> first.
+            </p>
+          )}
+        </>
+      ),
+    },
+    {
+      title: "Parameters",
+      description: "Each parameter is an argument the agent fills in, unless you give it a fixed value.",
+      fields: ["kind.params", "params"],
+      content: (
+        <>
+          <ParamsEditor rows={rows} onChange={setRows} serverErrors={rowServerErrors} />
+        </>
+      ),
+    },
+    {
+      title: "Body",
+      description: "Sent as JSON. Use body parameters for a few fields, or one schema for the whole body.",
+      fields: ["kind.body_schema", "kind.body"],
+      content: (
+        <>
+          <Field id="t-bodymode" label="Body comes from">
+            <Select value={form.bodyMode} onValueChange={(v) => set({ bodyMode: v as ToolForm["bodyMode"] })}>
+              <SelectTrigger id="t-bodymode" className="w-full sm:w-80">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="fields">Parameters set to go in Body</SelectItem>
+                <SelectItem value="schema">One JSON schema for the whole body</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          {form.bodyMode === "schema" && (
+            <Field id="t-bodyschema" label="Body JSON Schema" error={err("kind.body_schema")} hint="The agent passes the whole body as one argument named body.">
+              <Textarea id="t-bodyschema" value={form.bodySchemaText} onChange={(e) => set({ bodySchemaText: e.target.value })} className="min-h-40 font-mono text-xs" spellCheck={false} aria-invalid={!!err("kind.body_schema")} />
+            </Field>
+          )}
+        </>
+      ),
+    },
+    {
+      title: "Response",
+      description: "Trim what the agent gets back, so it spends fewer tokens on fields it doesn't need.",
+      fields: ["response_shape"],
+      content: (
+        <>
+          <Field
+            id="t-shape"
+            label="Response shape (jq)"
+            error={err("response_shape")}
+            hint="Applied to successful JSON responses. Leave empty to return the body as is. Null stripping and the size limit are set per project in Settings."
+          >
+            <Textarea
+              id="t-shape"
+              value={form.responseShape}
+              onChange={(e) => set({ responseShape: e.target.value })}
+              placeholder={'map({id, name, status})   or   .items[] | {id, title}'}
+              className="min-h-16 font-mono text-xs"
+              spellCheck={false}
+              aria-invalid={!!err("response_shape")}
+            />
+          </Field>
+        </>
+      ),
+    },
+  ];
+
+  const errorAlert = serverErr && (
+    <Alert variant="destructive">
+      <AlertTitle>{serverErr.code === "validation" ? "Fix these before saving" : "Couldn't save"}</AlertTitle>
+      <AlertDescription>
+        {serverErr.fields.length === 0 ? (
+          serverErr.message
+        ) : (
+          <ul className="list-disc pl-4">
+            {(generalErrors.length ? generalErrors : serverErr.fields).map((f, i) => (
+              <li key={i}>{f.message}</li>
+            ))}
+          </ul>
+        )}
+      </AlertDescription>
+    </Alert>
+  );
+
+  if (!saved)
+    return (
+      <StepDialog
+        title="New HTTP tool"
+        description="Describe one request. Agents fill in the parameters you leave open; everything else is fixed."
+        steps={steps}
+        wide
+        errorFields={[
+          ...Object.keys(localErr),
+          ...(serverErr?.fields ?? []).map((f) => f.field),
+          ...(rows.some((r) => r.error) ? ["params"] : []),
+        ]}
+        banner={
+          <>
+            {errorAlert}
+            <div className="overflow-x-auto rounded-lg border bg-muted/30 px-3 py-2">
+              <RequestLine method={form.method} baseUrl={form.base_url} path={form.path_template} size="sm" />
+            </div>
+          </>
+        }
+        submitLabel="Create tool"
+        busy={busy}
+        onSubmit={() => save()}
+        onClose={() => navigate(href.project(projectId))}
+      />
+    );
+
   return (
     <div className="space-y-6">
       <PageHeader
         back={{ href: href.project(projectId), label: "Tools" }}
-        title={saved ? <span className="font-mono">{saved.name}</span> : "New HTTP tool"}
-        description={saved ? undefined : "Describe one request. Agents fill in the parameters you leave open; everything else is fixed."}
+        title={<span className="font-mono">{saved.name}</span>}
       >
         <div className="overflow-x-auto rounded-xl border bg-card px-4 py-3 shadow-xs">
           <RequestLine method={form.method} baseUrl={form.base_url} path={form.path_template} size="lg" />
         </div>
-        {saved && saved.source.type !== "manual" && (
+        {saved.source.type !== "manual" && (
           <ImportedNote
             tool={saved}
             onReset={async () => {
@@ -151,173 +352,39 @@ export function ToolEditor({ projectId, toolId }: { projectId: string; toolId: s
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
         <form onSubmit={save} className="min-w-0 space-y-6" noValidate>
-          {serverErr && (
-            <Alert variant="destructive">
-              <AlertTitle>{serverErr.code === "validation" ? "Fix these before saving" : "Couldn't save"}</AlertTitle>
-              <AlertDescription>
-                {serverErr.fields.length === 0 ? (
-                  serverErr.message
-                ) : (
-                  <ul className="list-disc pl-4">
-                    {(generalErrors.length ? generalErrors : serverErr.fields).map((f, i) => (
-                      <li key={i}>{f.message}</li>
-                    ))}
-                  </ul>
-                )}
-              </AlertDescription>
-            </Alert>
-          )}
+          {errorAlert}
 
-          <Section title="What the agent sees" description="The name and description are how an agent decides when to use this tool.">
-            <Field id="t-name" label="Name" error={err("name")} hint="Letters, digits, _ and -. Up to 64 characters.">
-              <Input id="t-name" value={form.name} onChange={(e) => set({ name: e.target.value })} className="font-mono" placeholder="get_user" aria-invalid={!!err("name")} />
-            </Field>
-            <Field id="t-desc" label="Description" error={err("description")}>
-              <Textarea id="t-desc" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="Fetch one user by id. Returns name, email and created date." className="min-h-20" />
-            </Field>
-            <Field id="t-tags" label="Tags" error={err("tags")} hint="Comma-separated. Project filters and tool search use them.">
-              <Input id="t-tags" value={form.tagsText} onChange={(e) => set({ tagsText: e.target.value })} placeholder="users, admin" />
-            </Field>
-            <div className="flex items-center gap-2">
-              <Switch id="t-enabled" checked={form.enabled} onCheckedChange={(v) => set({ enabled: v })} />
-              <Label htmlFor="t-enabled">Visible to agents</Label>
-            </div>
-            <ApprovalSwitch
-              id="t-approval"
-              checked={form.requireApproval ?? approvalDefault(form.method)}
-              onChange={(v) => set({ requireApproval: v })}
-            />
-          </Section>
-
-          <Section title="Request" description="Use {name} in the path for values the agent fills in.">
-            <div className="grid gap-3 sm:grid-cols-[8rem_1fr]">
-              <Field id="t-method" label="Method">
-                <Select value={form.method} onValueChange={(v) => set({ method: v as HttpMethod })}>
-                  <SelectTrigger id="t-method" className="w-full font-mono">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {METHODS.map((m) => (
-                      <SelectItem key={m} value={m} className="font-mono">
-                        {m}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field id="t-base" label="Base URL" error={err("kind.base_url")}>
-                <Input id="t-base" value={form.base_url} onChange={(e) => set({ base_url: e.target.value })} className="font-mono" placeholder="https://api.example.com/v1" aria-invalid={!!err("kind.base_url")} />
-              </Field>
-            </div>
-            <Field id="t-path" label="Path" error={err("kind.path_template")} hint="Leaving this field adds a parameter for any new {placeholder}.">
-              <Input
-                id="t-path"
-                value={form.path_template}
-                onChange={(e) => set({ path_template: e.target.value })}
-                onBlur={() => {
-                  const synced = syncPathParams(form.path_template, rows.map((r) => r.def));
-                  if (synced.length !== rows.length) setRows([...rows, ...synced.slice(rows.length).map(toRow)]);
-                }}
-                className="font-mono"
-                placeholder="/users/{id}"
-                aria-invalid={!!err("kind.path_template")}
-              />
-            </Field>
-            <div className="grid gap-3 sm:grid-cols-[1fr_10rem]">
-              <Field id="t-auth" label="Auth" error={err("kind.auth_ref")}>
-                <Select value={form.auth_ref ?? "none"} onValueChange={(v) => set({ auth_ref: v === "none" ? null : v })}>
-                  <SelectTrigger id="t-auth" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No auth</SelectItem>
-                    {auths.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.name}: {describeAuth(a.kind)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field id="t-timeout" label="Timeout (ms)" error={err("kind.timeout_ms")}>
-                <Input id="t-timeout" value={form.timeout} onChange={(e) => set({ timeout: e.target.value })} inputMode="numeric" className="font-mono" aria-invalid={!!err("kind.timeout_ms")} />
-              </Field>
-            </div>
-            {auths.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                Need a key or token? <a className="underline" href={href.project(projectId, "auth")}>Add an auth config</a> first.
-              </p>
-            )}
-          </Section>
-
-          <Section title="Parameters" description="Each parameter is an argument the agent fills in, unless you give it a fixed value.">
-            <ParamsEditor rows={rows} onChange={setRows} serverErrors={rowServerErrors} />
-          </Section>
-
-          <Section title="Body" description="Sent as JSON. Use body parameters for a few fields, or one schema for the whole body.">
-            <Field id="t-bodymode" label="Body comes from">
-              <Select value={form.bodyMode} onValueChange={(v) => set({ bodyMode: v as ToolForm["bodyMode"] })}>
-                <SelectTrigger id="t-bodymode" className="w-full sm:w-80">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="fields">Parameters set to go in Body</SelectItem>
-                  <SelectItem value="schema">One JSON schema for the whole body</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-            {form.bodyMode === "schema" && (
-              <Field id="t-bodyschema" label="Body JSON Schema" error={err("kind.body_schema")} hint="The agent passes the whole body as one argument named body.">
-                <Textarea id="t-bodyschema" value={form.bodySchemaText} onChange={(e) => set({ bodySchemaText: e.target.value })} className="min-h-40 font-mono text-xs" spellCheck={false} aria-invalid={!!err("kind.body_schema")} />
-              </Field>
-            )}
-          </Section>
-
-          <Section title="Response" description="Trim what the agent gets back, so it spends fewer tokens on fields it doesn't need.">
-            <Field
-              id="t-shape"
-              label="Response shape (jq)"
-              error={err("response_shape")}
-              hint="Applied to successful JSON responses. Leave empty to return the body as is. Null stripping and the size limit are set per project in Settings."
-            >
-              <Textarea
-                id="t-shape"
-                value={form.responseShape}
-                onChange={(e) => set({ responseShape: e.target.value })}
-                placeholder={'map({id, name, status})   or   .items[] | {id, title}'}
-                className="min-h-16 font-mono text-xs"
-                spellCheck={false}
-                aria-invalid={!!err("response_shape")}
-              />
-            </Field>
-          </Section>
+          {steps.map((s) => (
+            <Section key={s.title} title={s.title} description={s.description ?? ""}>
+              {s.content}
+            </Section>
+          ))}
 
           <div className="sticky bottom-0 -mx-1 flex flex-wrap items-center gap-3 border-t bg-background/95 px-1 py-3 backdrop-blur">
-            <Button type="submit" disabled={busy || (!!saved && !dirty)}>
-              {saved ? "Save tool" : "Create tool"}
+            <Button type="submit" disabled={busy || !dirty}>
+              Save tool
             </Button>
-            {saved && dirty && <span className="text-sm text-muted-foreground">Unsaved changes</span>}
+            {dirty && <span className="text-sm text-muted-foreground">Unsaved changes</span>}
             <span className="flex-1" />
-            {saved &&
-              (confirmDelete ? (
-                <>
-                  <Button type="button" variant="destructive" onClick={() => void remove()}>
-                    Delete {saved.name}
-                  </Button>
-                  <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)}>
-                    Keep it
-                  </Button>
-                </>
-              ) : (
-                <Button type="button" variant="ghost" className="text-destructive" onClick={() => setConfirmDelete(true)}>
-                  Delete tool
+            {confirmDelete ? (
+              <>
+                <Button type="button" variant="destructive" onClick={() => void remove()}>
+                  Delete {saved.name}
                 </Button>
-              ))}
+                <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)}>
+                  Keep it
+                </Button>
+              </>
+            ) : (
+              <Button type="button" variant="ghost" className="text-destructive" onClick={() => setConfirmDelete(true)}>
+                Delete tool
+              </Button>
+            )}
           </div>
         </form>
 
         <aside className="lg:sticky lg:top-20">
-          <TestConsole projectId={projectId} toolId={saved?.id ?? null} version={saved?.updated_at ?? ""} dirty={dirty} />
+          <TestConsole projectId={projectId} toolId={saved.id} version={saved.updated_at} dirty={dirty} />
         </aside>
       </div>
     </div>

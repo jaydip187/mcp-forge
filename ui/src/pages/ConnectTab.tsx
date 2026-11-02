@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { KeyRoundIcon, PlusIcon, TriangleAlertIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
 import { CopyBlock } from "@/components/CopyBlock";
+import { StepDialog } from "@/components/StepDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -184,7 +185,10 @@ function KeysCard({
           </ul>
         )}
 
-        {creating ? (
+        <Button variant="outline" onClick={() => setCreating(true)}>
+          {keys && keys.length > 0 ? <PlusIcon /> : <KeyRoundIcon />} {keys && keys.length > 0 ? "New key" : "Create the first key"}
+        </Button>
+        {creating && (
           <NewKeyForm
             projectId={project.id}
             onCancel={() => setCreating(false)}
@@ -194,10 +198,6 @@ function KeysCard({
               await onChanged();
             }}
           />
-        ) : (
-          <Button variant="outline" onClick={() => setCreating(true)}>
-            {keys && keys.length > 0 ? <PlusIcon /> : <KeyRoundIcon />} {keys && keys.length > 0 ? "New key" : "Create the first key"}
-          </Button>
         )}
       </CardContent>
 
@@ -243,8 +243,7 @@ function NewKeyForm({
     void api.listTools(projectId).then(setTools);
   }, [projectId]);
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
+  async function submit() {
     const days = EXPIRY.find((x) => x.value === expiry)?.days ?? null;
     try {
       const { key, secret } = await api.createKey(projectId, {
@@ -261,60 +260,80 @@ function NewKeyForm({
   }
 
   return (
-    <form onSubmit={submit} className="grid gap-4 rounded-xl border p-4">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-1.5">
-          <Label htmlFor="k-name">Name</Label>
-          <Input id="k-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="laptop, ci, alice" required aria-invalid={!!fieldError(err, "name")} />
-          {fieldError(err, "name") && <p className="text-xs text-destructive">{fieldError(err, "name")}</p>}
-        </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor="k-expiry">Expires</Label>
-          <Select value={expiry} onValueChange={setExpiry}>
-            <SelectTrigger id="k-expiry" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {EXPIRY.map((x) => (
-                <SelectItem key={x.value} value={x.value}>
-                  {x.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-      <div className="grid gap-2">
-        <div className="flex items-center gap-2">
-          <Checkbox id="k-all" checked={allTools} onCheckedChange={(v) => setAllTools(v === true)} />
-          <Label htmlFor="k-all" className="font-normal">
-            All tools agents can see
-          </Label>
-        </div>
-        {!allTools && (
-          <div className="grid max-h-56 gap-1.5 overflow-y-auto rounded-lg border p-3 sm:grid-cols-2">
-            {tools === null && <p className="text-xs text-muted-foreground">Loading tools…</p>}
-            {tools?.length === 0 && <p className="text-xs text-muted-foreground">This project has no tools yet.</p>}
-            {tools?.map((t) => (
-              <label key={t.id} className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={picked.includes(t.name)}
-                  onCheckedChange={(v) => setPicked(v === true ? [...picked, t.name] : picked.filter((n) => n !== t.name))}
-                />
-                <span className="truncate font-mono">{t.name}</span>
-              </label>
-            ))}
-          </div>
-        )}
-        {fieldError(err, "tools") && <p className="text-xs text-destructive">{fieldError(err, "tools")}</p>}
-      </div>
-      <div className="flex gap-2">
-        <Button type="submit">Create key</Button>
-        <Button type="button" variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </form>
+    <StepDialog
+      title="New access key"
+      description="Each client or teammate gets its own key. It's shown once, then stored only as a hash."
+      steps={[
+        {
+          title: "Name and expiry",
+          description: "Name it after who or what uses it, so you know which key to delete later.",
+          fields: ["name", "expires_at"],
+          content: (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <Label htmlFor="k-name">Name</Label>
+                  <Input id="k-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="laptop, ci, alice" required aria-invalid={!!fieldError(err, "name")} />
+                  {fieldError(err, "name") && <p className="text-xs text-destructive">{fieldError(err, "name")}</p>}
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="k-expiry">Expires</Label>
+                  <Select value={expiry} onValueChange={setExpiry}>
+                    <SelectTrigger id="k-expiry" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EXPIRY.map((x) => (
+                        <SelectItem key={x.value} value={x.value}>
+                          {x.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </>
+          ),
+        },
+        {
+          title: "Which tools",
+          description: "Limit the key to some tools, or let it use every tool agents can see.",
+          fields: ["tools"],
+          content: (
+            <>
+              <div className="grid gap-2">
+                <div className="flex items-center gap-2">
+                  <Checkbox id="k-all" checked={allTools} onCheckedChange={(v) => setAllTools(v === true)} />
+                  <Label htmlFor="k-all" className="font-normal">
+                    All tools agents can see
+                  </Label>
+                </div>
+                {!allTools && (
+                  <div className="grid max-h-56 gap-1.5 overflow-y-auto rounded-lg border p-3 sm:grid-cols-2">
+                    {tools === null && <p className="text-xs text-muted-foreground">Loading tools…</p>}
+                    {tools?.length === 0 && <p className="text-xs text-muted-foreground">This project has no tools yet.</p>}
+                    {tools?.map((t) => (
+                      <label key={t.id} className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={picked.includes(t.name)}
+                          onCheckedChange={(v) => setPicked(v === true ? [...picked, t.name] : picked.filter((n) => n !== t.name))}
+                        />
+                        <span className="truncate font-mono">{t.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {fieldError(err, "tools") && <p className="text-xs text-destructive">{fieldError(err, "tools")}</p>}
+              </div>
+            </>
+          ),
+        },
+      ]}
+      errorFields={err instanceof ApiError ? err.fields.map((f) => f.field) : []}
+      submitLabel="Create key"
+      onSubmit={submit}
+      onClose={onCancel}
+    />
   );
 }
 

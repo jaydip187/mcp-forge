@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { api, ApiError } from "@/api";
 import { PageHeader } from "@/components/PageHeader";
 import { Field, Section } from "@/components/FormSection";
+import { StepDialog, type FormStep } from "@/components/StepDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -107,8 +108,8 @@ export function ChainToolEditor({ projectId, tool }: { projectId: string; tool: 
   const err = (field: string) => serverErr?.fields.find((f) => f.field === field)?.message;
   const others = tools.filter((t) => t.name !== (saved?.name ?? form.name));
 
-  async function save(e: FormEvent) {
-    e.preventDefault();
+  async function save(e?: FormEvent) {
+    e?.preventDefault();
     setBusy(true);
     try {
       const t = saved ? await api.updateTool(projectId, saved.id, input) : await api.createTool(projectId, input);
@@ -135,175 +136,228 @@ export function ChainToolEditor({ projectId, tool }: { projectId: string; tool: 
     }
   }
 
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        back={{ href: href.project(projectId), label: "Tools" }}
-        title={saved ? <span className="font-mono">{saved.name}</span> : "New chain"}
-        description="Calls other tools of this project in order, feeding each step from the inputs and earlier results. Agents see one tool."
-      />
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
-        <form onSubmit={save} className="min-w-0 space-y-6" noValidate>
-          {serverErr && (
-            <Alert variant="destructive">
-              <AlertTitle>{serverErr.code === "validation" ? "Fix these before saving" : "Couldn't save"}</AlertTitle>
-              <AlertDescription>
-                {serverErr.fields.length === 0 ? (
-                  serverErr.message
-                ) : (
-                  <ul className="list-disc pl-4">
-                    {serverErr.fields.map((f, i) => (
-                      <li key={i}>{f.message}</li>
+  const steps: FormStep[] = [
+    {
+      title: "What the agent sees",
+      description: "The name and description are how an agent decides when to use this tool.",
+      fields: ["name", "description", "tags", "enabled", "require_approval"],
+      content: (
+        <>
+          <Field id="c-name" label="Name" error={err("name")} hint="Letters, digits, _ and -. Up to 64 characters.">
+            <Input id="c-name" value={form.name} onChange={(e) => set({ name: e.target.value })} className="font-mono" placeholder="user_overview" />
+          </Field>
+          <Field id="c-desc" label="Description" hint="Say what the chain is for. Left empty, agents only see a line listing the steps.">
+            <Textarea id="c-desc" value={form.description} onChange={(e) => set({ description: e.target.value })} className="min-h-20" placeholder="A user's profile and their repositories in one call." />
+          </Field>
+          <Field id="c-tags" label="Tags" hint="Comma-separated.">
+            <Input id="c-tags" value={form.tagsText} onChange={(e) => set({ tagsText: e.target.value })} />
+          </Field>
+          <div className="flex items-center gap-2">
+            <Switch id="c-enabled" checked={form.enabled} onCheckedChange={(v) => set({ enabled: v })} />
+            <Label htmlFor="c-enabled">Visible to agents</Label>
+          </div>
+          <ApprovalSwitch id="c-approval" checked={form.requireApproval} onChange={(v) => set({ requireApproval: v })} />
+          <p className="-mt-2 text-xs text-muted-foreground">A step that needs approval makes the whole chain wait for one approval.</p>
+        </>
+      ),
+    },
+    {
+      title: "Inputs",
+      description: "What the agent passes. Steps read them as .input.name.",
+      fields: ["kind.params"],
+      content: (
+        <>
+          {form.params.map((p, i) => (
+            <div key={i} className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_8rem_auto_auto] sm:items-end">
+              <Field id={`ci-name-${i}`} label="Name" error={err(`kind.params[${i}].name`)}>
+                <Input id={`ci-name-${i}`} value={p.name} onChange={(e) => setParam(i, { name: e.target.value })} className="font-mono" />
+              </Field>
+              <Field id={`ci-type-${i}`} label="Type">
+                <Select value={paramType(p)} onValueChange={(v) => setParam(i, { schema: { ...p.schema, type: v as SqlParamType } })}>
+                  <SelectTrigger id={`ci-type-${i}`} className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SQL_PARAM_TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {t}
+                      </SelectItem>
                     ))}
-                  </ul>
-                )}
-              </AlertDescription>
-            </Alert>
-          )}
-
-          <Section title="What the agent sees" description="The name and description are how an agent decides when to use this tool.">
-            <Field id="c-name" label="Name" error={err("name")} hint="Letters, digits, _ and -. Up to 64 characters.">
-              <Input id="c-name" value={form.name} onChange={(e) => set({ name: e.target.value })} className="font-mono" placeholder="user_overview" />
-            </Field>
-            <Field id="c-desc" label="Description" hint="Say what the chain is for. Left empty, agents only see a line listing the steps.">
-              <Textarea id="c-desc" value={form.description} onChange={(e) => set({ description: e.target.value })} className="min-h-20" placeholder="A user's profile and their repositories in one call." />
-            </Field>
-            <Field id="c-tags" label="Tags" hint="Comma-separated.">
-              <Input id="c-tags" value={form.tagsText} onChange={(e) => set({ tagsText: e.target.value })} />
-            </Field>
-            <div className="flex items-center gap-2">
-              <Switch id="c-enabled" checked={form.enabled} onCheckedChange={(v) => set({ enabled: v })} />
-              <Label htmlFor="c-enabled">Visible to agents</Label>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <div className="flex h-9 items-center gap-2">
+                <Checkbox id={`ci-req-${i}`} checked={p.required} onCheckedChange={(v) => setParam(i, { required: v === true })} />
+                <Label htmlFor={`ci-req-${i}`}>Required</Label>
+              </div>
+              <Button type="button" variant="ghost" size="icon" aria-label={`Remove ${p.name || "input"}`} onClick={() => set({ params: form.params.filter((_, j) => j !== i) })}>
+                <Trash2Icon />
+              </Button>
+              <Input className="sm:col-span-4" value={p.description ?? ""} onChange={(e) => setParam(i, { description: e.target.value })} placeholder="What the agent should pass (optional)" aria-label={`Description of ${p.name}`} />
             </div>
-            <ApprovalSwitch id="c-approval" checked={form.requireApproval} onChange={(v) => set({ requireApproval: v })} />
-            <p className="-mt-2 text-xs text-muted-foreground">A step that needs approval makes the whole chain wait for one approval.</p>
-          </Section>
-
-          <Section title="Inputs" description="What the agent passes. Steps read them as .input.name.">
-            {form.params.map((p, i) => (
-              <div key={i} className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_8rem_auto_auto] sm:items-end">
-                <Field id={`ci-name-${i}`} label="Name" error={err(`kind.params[${i}].name`)}>
-                  <Input id={`ci-name-${i}`} value={p.name} onChange={(e) => setParam(i, { name: e.target.value })} className="font-mono" />
-                </Field>
-                <Field id={`ci-type-${i}`} label="Type">
-                  <Select value={paramType(p)} onValueChange={(v) => setParam(i, { schema: { ...p.schema, type: v as SqlParamType } })}>
-                    <SelectTrigger id={`ci-type-${i}`} className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SQL_PARAM_TYPES.map((t) => (
-                        <SelectItem key={t} value={t}>
-                          {t}
+          ))}
+          <div>
+            <Button type="button" variant="outline" size="sm" onClick={() => set({ params: [...form.params, { name: "", schema: { type: "string" }, required: true, description: null }] })}>
+              <PlusIcon /> Add input
+            </Button>
+          </div>
+        </>
+      ),
+    },
+    {
+      title: "Steps",
+      description: "Each step's arguments are a jq expression over {input, steps, last}: the inputs, every earlier result, and the previous one.",
+      fields: ["kind.steps"],
+      content: (
+        <>
+          {form.steps.map((s, i) => (
+            <div key={i} className="grid gap-2 rounded-md border p-3">
+              <div className="flex items-end gap-2">
+                <span className="pb-2 font-mono text-sm text-muted-foreground">{i + 1}.</span>
+                <div className="flex-1">
+                  <Field id={`cs-tool-${i}`} label="Tool" error={err(`kind.steps[${i}].tool`)}>
+                    <Select value={s.tool || "none"} onValueChange={(v) => setStep(i, { tool: v === "none" ? "" : v })}>
+                      <SelectTrigger id={`cs-tool-${i}`} className="w-full font-mono">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none" disabled>
+                          Pick a tool
                         </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <div className="flex h-9 items-center gap-2">
-                  <Checkbox id={`ci-req-${i}`} checked={p.required} onCheckedChange={(v) => setParam(i, { required: v === true })} />
-                  <Label htmlFor={`ci-req-${i}`}>Required</Label>
+                        {others.map((t) => (
+                          <SelectItem key={t.id} value={t.name} className="font-mono">
+                            {t.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
                 </div>
-                <Button type="button" variant="ghost" size="icon" aria-label={`Remove ${p.name || "input"}`} onClick={() => set({ params: form.params.filter((_, j) => j !== i) })}>
+                <Button type="button" variant="ghost" size="icon" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)}>
+                  <ArrowUpIcon />
+                </Button>
+                <Button type="button" variant="ghost" size="icon" aria-label="Move down" disabled={i === form.steps.length - 1} onClick={() => move(i, 1)}>
+                  <ArrowDownIcon />
+                </Button>
+                <Button type="button" variant="ghost" size="icon" aria-label={`Remove step ${i + 1}`} disabled={form.steps.length === 1} onClick={() => set({ steps: form.steps.filter((_, j) => j !== i) })}>
                   <Trash2Icon />
                 </Button>
-                <Input className="sm:col-span-4" value={p.description ?? ""} onChange={(e) => setParam(i, { description: e.target.value })} placeholder="What the agent should pass (optional)" aria-label={`Description of ${p.name}`} />
               </div>
-            ))}
-            <div>
-              <Button type="button" variant="outline" size="sm" onClick={() => set({ params: [...form.params, { name: "", schema: { type: "string" }, required: true, description: null }] })}>
-                <PlusIcon /> Add input
-              </Button>
+              <Field id={`cs-args-${i}`} label="Arguments (jq)" error={err(`kind.steps[${i}].args`)}>
+                <Textarea
+                  id={`cs-args-${i}`}
+                  value={s.args}
+                  onChange={(e) => setStep(i, { args: e.target.value })}
+                  className="min-h-16 font-mono text-xs"
+                  spellCheck={false}
+                  placeholder={i === 0 ? "{login: .input.login}" : "{owner: .last.login}"}
+                />
+              </Field>
             </div>
-          </Section>
+          ))}
+          {err("kind.steps") && <p className="text-sm text-destructive">{err("kind.steps")}</p>}
+          <div>
+            <Button type="button" variant="outline" size="sm" disabled={form.steps.length >= 10} onClick={() => set({ steps: [...form.steps, { tool: "", args: "" }] })}>
+              <PlusIcon /> Add step
+            </Button>
+          </div>
+        </>
+      ),
+    },
+    {
+      title: "Result",
+      description: "What the agent gets. Without an output expression, it's the last step's result.",
+      fields: ["kind.output", "response_shape"],
+      content: (
+        <>
+          <Field id="c-output" label="Output (jq over {input, steps})" error={err("kind.output")}>
+            <Textarea id="c-output" value={form.output} onChange={(e) => set({ output: e.target.value })} className="min-h-16 font-mono text-xs" spellCheck={false} placeholder="{user: .steps[0].login, repos: [.steps[1][].name]}" />
+          </Field>
+          <Field id="c-shape" label="Response shape (jq)" error={err("response_shape")} hint="Applied after the output, like for any tool.">
+            <Textarea id="c-shape" value={form.responseShape} onChange={(e) => set({ responseShape: e.target.value })} className="min-h-12 font-mono text-xs" spellCheck={false} />
+          </Field>
+        </>
+      ),
+    },
+  ];
 
-          <Section title="Steps" description="Each step's arguments are a jq expression over {input, steps, last}: the inputs, every earlier result, and the previous one.">
-            {form.steps.map((s, i) => (
-              <div key={i} className="grid gap-2 rounded-md border p-3">
-                <div className="flex items-end gap-2">
-                  <span className="pb-2 font-mono text-sm text-muted-foreground">{i + 1}.</span>
-                  <div className="flex-1">
-                    <Field id={`cs-tool-${i}`} label="Tool" error={err(`kind.steps[${i}].tool`)}>
-                      <Select value={s.tool || "none"} onValueChange={(v) => setStep(i, { tool: v === "none" ? "" : v })}>
-                        <SelectTrigger id={`cs-tool-${i}`} className="w-full font-mono">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none" disabled>
-                            Pick a tool
-                          </SelectItem>
-                          {others.map((t) => (
-                            <SelectItem key={t.id} value={t.name} className="font-mono">
-                              {t.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  </div>
-                  <Button type="button" variant="ghost" size="icon" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)}>
-                    <ArrowUpIcon />
-                  </Button>
-                  <Button type="button" variant="ghost" size="icon" aria-label="Move down" disabled={i === form.steps.length - 1} onClick={() => move(i, 1)}>
-                    <ArrowDownIcon />
-                  </Button>
-                  <Button type="button" variant="ghost" size="icon" aria-label={`Remove step ${i + 1}`} disabled={form.steps.length === 1} onClick={() => set({ steps: form.steps.filter((_, j) => j !== i) })}>
-                    <Trash2Icon />
-                  </Button>
-                </div>
-                <Field id={`cs-args-${i}`} label="Arguments (jq)" error={err(`kind.steps[${i}].args`)}>
-                  <Textarea
-                    id={`cs-args-${i}`}
-                    value={s.args}
-                    onChange={(e) => setStep(i, { args: e.target.value })}
-                    className="min-h-16 font-mono text-xs"
-                    spellCheck={false}
-                    placeholder={i === 0 ? "{login: .input.login}" : "{owner: .last.login}"}
-                  />
-                </Field>
-              </div>
-            ))}
-            {err("kind.steps") && <p className="text-sm text-destructive">{err("kind.steps")}</p>}
-            <div>
-              <Button type="button" variant="outline" size="sm" disabled={form.steps.length >= 10} onClick={() => set({ steps: [...form.steps, { tool: "", args: "" }] })}>
-                <PlusIcon /> Add step
-              </Button>
-            </div>
-          </Section>
+  const description = "Calls other tools of this project in order, feeding each step from the inputs and earlier results. Agents see one tool.";
 
-          <Section title="Result" description="What the agent gets. Without an output expression, it's the last step's result.">
-            <Field id="c-output" label="Output (jq over {input, steps})" error={err("kind.output")}>
-              <Textarea id="c-output" value={form.output} onChange={(e) => set({ output: e.target.value })} className="min-h-16 font-mono text-xs" spellCheck={false} placeholder="{user: .steps[0].login, repos: [.steps[1][].name]}" />
-            </Field>
-            <Field id="c-shape" label="Response shape (jq)" error={err("response_shape")} hint="Applied after the output, like for any tool.">
-              <Textarea id="c-shape" value={form.responseShape} onChange={(e) => set({ responseShape: e.target.value })} className="min-h-12 font-mono text-xs" spellCheck={false} />
-            </Field>
-          </Section>
+  const banner = (
+    <>
+      {serverErr && (
+        <Alert variant="destructive">
+          <AlertTitle>{serverErr.code === "validation" ? "Fix these before saving" : "Couldn't save"}</AlertTitle>
+          <AlertDescription>
+            {serverErr.fields.length === 0 ? (
+              serverErr.message
+            ) : (
+              <ul className="list-disc pl-4">
+                {serverErr.fields.map((f, i) => (
+                  <li key={i}>{f.message}</li>
+                ))}
+              </ul>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+    </>
+  );
+
+  if (!saved)
+    return (
+      <StepDialog
+        title="New chain"
+        description={description}
+        steps={steps}
+        errorFields={(serverErr?.fields ?? []).map((f) => f.field)}
+        banner={banner}
+        submitLabel="Create tool"
+        busy={busy}
+        onSubmit={() => save()}
+        onClose={() => navigate(href.project(projectId))}
+      />
+    );
+
+  return (
+    <div className="space-y-6">
+      <PageHeader back={{ href: href.project(projectId), label: "Tools" }} title={<span className="font-mono">{saved.name}</span>} description={description} />
+
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
+        <form onSubmit={save} className="min-w-0 space-y-6" noValidate>
+          {banner}
+
+          {steps.map((s) => (
+            <Section key={s.title} title={s.title} description={s.description ?? ""}>
+              {s.content}
+            </Section>
+          ))}
 
           <div className="sticky bottom-0 -mx-1 flex flex-wrap items-center gap-3 border-t bg-background/95 px-1 py-3 backdrop-blur">
-            <Button type="submit" disabled={busy || (!!saved && !dirty)}>
-              {saved ? "Save tool" : "Create tool"}
+            <Button type="submit" disabled={busy || !dirty}>
+              Save tool
             </Button>
-            {saved && dirty && <span className="text-sm text-muted-foreground">Unsaved changes</span>}
+            {dirty && <span className="text-sm text-muted-foreground">Unsaved changes</span>}
             <span className="flex-1" />
-            {saved &&
-              (confirmDelete ? (
-                <>
-                  <Button type="button" variant="destructive" onClick={() => void remove()}>
-                    Delete {saved.name}
-                  </Button>
-                  <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)}>
-                    Keep it
-                  </Button>
-                </>
-              ) : (
-                <Button type="button" variant="ghost" className="text-destructive" onClick={() => setConfirmDelete(true)}>
-                  Delete tool
+            {confirmDelete ? (
+              <>
+                <Button type="button" variant="destructive" onClick={() => void remove()}>
+                  Delete {saved.name}
                 </Button>
-              ))}
+                <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)}>
+                  Keep it
+                </Button>
+              </>
+            ) : (
+              <Button type="button" variant="ghost" className="text-destructive" onClick={() => setConfirmDelete(true)}>
+                Delete tool
+              </Button>
+            )}
           </div>
         </form>
+
         <aside className="lg:sticky lg:top-20">
-          <TestConsole projectId={projectId} toolId={saved?.id ?? null} version={saved?.updated_at ?? ""} dirty={dirty} />
+          <TestConsole projectId={projectId} toolId={saved.id} version={saved.updated_at} dirty={dirty} />
         </aside>
       </div>
     </div>
