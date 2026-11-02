@@ -1713,7 +1713,7 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "forge-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "serde",
@@ -1725,7 +1725,7 @@ dependencies = [
 
 [[package]]
 name = "forge-exec-http"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "forge-core",
@@ -1746,7 +1746,7 @@ dependencies = [
 
 [[package]]
 name = "forge-exec-nosql"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "forge-core",
@@ -1769,7 +1769,7 @@ dependencies = [
 
 [[package]]
 name = "forge-exec-sql"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "duckdb",
@@ -1795,7 +1795,7 @@ dependencies = [
 
 [[package]]
 name = "forge-importers"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "forge-core",
  "graphql-parser",
@@ -1808,7 +1808,7 @@ dependencies = [
 
 [[package]]
 name = "forge-mcp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "forge-core",
@@ -1829,7 +1829,7 @@ dependencies = [
 
 [[package]]
 name = "forge-store"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "forge-core",
@@ -3018,7 +3018,7 @@ checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
 name = "mcp-forge"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "argon2",
