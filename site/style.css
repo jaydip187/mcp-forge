@@ -84,19 +84,50 @@ h2.kicker { font-size: .82rem; max-width: none; }
 .eyebrow { display: inline-flex; align-items: center; gap: .55rem; font-size: .88rem; color: var(--muted); border: 1px solid var(--rule); background: rgb(255 255 255 / .03); border-radius: 999px; padding: .35rem .9rem; margin: 0 0 1.4rem; }
 .eyebrow .dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--teal); box-shadow: 0 0 0 4px rgb(79 224 200 / .18); }
 
-/* Hero */
-.hero { position: relative; overflow: hidden; padding-block: clamp(3.5rem, 8vw, 6.5rem) clamp(3rem, 6vw, 5rem); text-align: center; }
+/* Hero: the pitch on the left, a live example on the right */
+.hero { position: relative; overflow: hidden; padding-block: clamp(3.5rem, 8vw, 6.5rem) clamp(3.5rem, 7vw, 5.5rem); }
 .glow { position: absolute; inset: -20% -10% auto; height: 46rem; pointer-events: none; background:
-  radial-gradient(38rem 22rem at 30% 30%, rgb(79 224 200 / .2), transparent 70%),
-  radial-gradient(34rem 22rem at 72% 26%, rgb(165 148 255 / .2), transparent 70%); filter: blur(10px); }
-.hero-head { position: relative; display: grid; justify-items: center; }
-.hero h1 { font-size: clamp(2.6rem, 6.4vw, 5.2rem); max-width: 15ch; letter-spacing: -0.02em; margin-bottom: .45em; }
+  radial-gradient(38rem 22rem at 25% 35%, rgb(79 224 200 / .18), transparent 70%),
+  radial-gradient(34rem 24rem at 78% 40%, rgb(165 148 255 / .2), transparent 70%); filter: blur(10px); }
+.hero-split { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: clamp(2rem, 5vw, 4.5rem); align-items: center; }
+.hero h1 { font-size: clamp(2.6rem, 5.6vw, 4.6rem); max-width: 12ch; letter-spacing: -0.02em; margin-bottom: .45em; }
 .lede { font-size: 1.2rem; color: var(--muted); max-width: 60ch; }
-.hero .lede { margin-inline: auto; }
+.hero .lede { max-width: 46ch; }
 .actions { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1.6rem 0 1rem; }
-.hero .actions { justify-content: center; }
+@media (max-width: 960px) { .hero-split { grid-template-columns: 1fr; } }
 
-/* The app window in the hero */
+/* The live example */
+.demo { position: relative; margin: 0; border: 1px solid var(--rule); border-radius: 20px; background: color-mix(in srgb, var(--paper) 82%, transparent); backdrop-filter: blur(12px); box-shadow: 0 40px 100px -40px rgb(165 148 255 / .45), 0 0 0 1px rgb(255 255 255 / .03) inset; padding: 1.1rem 1.25rem 1.35rem; font-size: .92rem; }
+.demo-bar { display: flex; align-items: center; gap: .55rem; margin: 0 0 1rem; padding-bottom: .8rem; border-bottom: 1px solid var(--rule); color: var(--muted); font-size: .8rem; font-weight: 600; }
+.demo-live { width: .5rem; height: .5rem; border-radius: 50%; background: var(--teal); box-shadow: 0 0 0 4px rgb(79 224 200 / .18); }
+.demo-lanes { margin-left: auto; font-weight: 400; }
+.demo-lanes i { font-style: normal; color: var(--teal); }
+.demo-flow { list-style: none; margin: 0; padding: 0 0 0 1.5rem; display: grid; gap: .7rem; position: relative; }
+.demo-flow::before { content: ""; position: absolute; left: .4rem; top: .6rem; bottom: .6rem; width: 2px; border-radius: 2px; background: linear-gradient(var(--teal), var(--violet)); opacity: .35; }
+.demo-flow::after { content: ""; position: absolute; left: calc(.4rem - 3px); top: .6rem; width: 8px; height: 8px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 12px 2px rgb(79 224 200 / .7); opacity: 0; }
+.demo-flow li { position: relative; }
+.demo-flow li::before { content: ""; position: absolute; left: calc(-1.1rem - 4px); top: .85rem; width: 8px; height: 8px; border-radius: 50%; background: var(--bg); border: 2px solid var(--teal); }
+.demo-flow .who { display: block; font-size: .7rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--code-dim); margin-bottom: .25rem; }
+.demo .msg { border-radius: 14px; padding: .6rem .8rem; line-height: 1.45; }
+.demo .msg.user { background: rgb(255 255 255 / .06); }
+.demo .msg.agent { background: var(--mist); border: 1px solid rgb(79 224 200 / .3); }
+.demo .msg.agent::before { border-color: var(--violet); }
+.demo .step { padding: .1rem 0; }
+.demo .step code { display: block; background: var(--code-bg); border: 1px solid var(--rule); border-radius: 8px; padding: .45rem .6rem; font-size: .78rem; color: var(--code-ink); overflow-wrap: anywhere; }
+.demo .step code b { color: var(--code-tool); font-weight: 600; }
+.demo .step code b.m { color: var(--code-key); }
+.demo .step em { display: inline-block; margin-top: .3rem; font-style: normal; font-size: .75rem; color: var(--muted); }
+.demo .json code { color: var(--code-key); }
+@media (prefers-reduced-motion: no-preference) {
+  .js .demo.play .demo-flow li { animation: line-in 500ms var(--d) cubic-bezier(.2, .7, .2, 1) both; }
+  .js .demo.play .demo-flow::after { animation: travel 5.2s 200ms ease-in-out both; }
+  .js .demo-live { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes travel { 0% { opacity: 1; top: .6rem; } 95% { opacity: 1; top: calc(100% - 1.4rem); } 100% { opacity: 0; top: calc(100% - 1.4rem); } }
+}
+
+/* The app window, below the hero */
+.showcase .app { margin-top: 2rem; }
+
 .app { position: relative; margin: clamp(2.5rem, 5vw, 4rem) auto 0; max-width: 64rem; text-align: left; border: 1px solid var(--rule); border-radius: 16px; background: var(--paper); box-shadow: 0 40px 120px -40px rgb(79 224 200 / .35), 0 0 0 1px rgb(255 255 255 / .03) inset; overflow: hidden; }
 .app-bar { display: flex; align-items: center; gap: .45rem; padding: .7rem 1rem; border-bottom: 1px solid var(--rule); background: var(--paper-2); }
 .app-bar i { width: .7rem; height: .7rem; border-radius: 50%; background: rgb(255 255 255 / .14); }

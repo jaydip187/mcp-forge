@@ -111,57 +111,30 @@
 
 <section class="hero">
   <div class="glow" aria-hidden="true"></div>
-  <div class="wrap hero-head">
-    <p class="eyebrow"><span class="dot" aria-hidden="true"></span> Open source · self-hosted · read-only by default</p>
-    <h1>Your APIs and databases. <span class="grad">Agent-ready.</span></h1>
-    <p class="lede">mcp-forge turns HTTP and GraphQL endpoints, SQL queries and NoSQL operations into curated
-    <abbr title="Model Context Protocol">MCP</abbr> tools for Claude and other agents.
-    You decide which tools exist, what they are called, and exactly what comes back.</p>
-    <div class="actions">
-      <a class="btn primary" href="#install">Install mcp-forge</a>
-      <a class="btn" href="docs/">Read the guide</a>
-    </div>
-    <p class="fine">One binary with a web UI. macOS, Linux and Windows. MIT or Apache-2.0. No telemetry.</p>
-  </div>
-
-  <div class="wrap">
-    <figure class="app" aria-label="The mcp-forge web UI: a project's tools, each with its kind, and the test console showing what an agent gets back.">
-      <div class="app-bar" aria-hidden="true"><i></i><i></i><i></i><span>127.0.0.1:7410 / github</span></div>
-      <div class="app-body" aria-hidden="true">
-        <aside class="app-side">
-          <p class="app-brand"><b>m</b> mcp-forge</p>
-          <p class="app-label">Projects</p>
-          <p class="app-nav on">github</p>
-          <p class="app-nav">shop</p>
-          <p class="app-nav">support</p>
-          <p class="app-label">Server</p>
-          <p class="app-nav">Approvals <em>1</em></p>
-          <p class="app-nav">Users</p>
-        </aside>
-        <div class="app-main">
-          <div class="app-head">
-            <p class="app-title">github</p>
-            <p class="app-url">http://127.0.0.1:7410/mcp/github</p>
-          </div>
-          <p class="app-tabs"><span class="on">Tools</span><span>Specs</span><span>Auth</span><span>Databases</span><span>Context</span><span>Quality</span><span>Calls</span><span>Connect</span></p>
-          <ul class="app-tools">
-            <li style="--i:0"><b>get_repo</b><span class="chip get">GET</span><code>/repos/{owner}/{repo}</code><i class="sw on"></i></li>
-            <li style="--i:1"><b>user</b><span class="chip">GraphQL</span><code>query User($login)</code><i class="sw on"></i></li>
-            <li style="--i:2"><b>recent_orders</b><span class="chip">SQL</span><code>shop · SELECT id, status…</code><i class="sw on"></i></li>
-            <li style="--i:3"><b>orders_for</b><span class="chip">NoSQL</span><code>mongo · find orders</code><i class="sw on"></i></li>
-            <li style="--i:4"><b>user_overview</b><span class="chip">Chain</span><code>get_user → repos</code><i class="sw on"></i></li>
-            <li style="--i:5"><b>close_issue</b><span class="chip del">PATCH</span><code>/issues/{n} · needs approval</code><i class="sw"></i></li>
-          </ul>
-        </div>
-        <div class="app-console">
-          <p class="app-label">Test console · get_repo</p>
-          <p class="app-arg">owner <span>rust-lang</span></p>
-          <p class="app-arg">repo <span>rust</span></p>
-          <p class="app-run">Run</p>
-          <p class="app-label">Agent sees · 200 · 184 ms</p>
-          <pre><code><span class="ln" style="--d:900ms">{"name": "rust-lang/rust",</span><span class="ln" style="--d:1050ms"> "stars": 104000,</span><span class="ln" style="--d:1200ms"> "language": "Rust"}</span></code></pre>
-        </div>
+  <div class="wrap hero-split">
+    <div class="hero-copy">
+      <p class="eyebrow"><span class="dot" aria-hidden="true"></span> Open source · self-hosted · read-only by default</p>
+      <h1>Your APIs and databases. <span class="grad">Agent-ready.</span></h1>
+      <p class="lede">mcp-forge turns HTTP and GraphQL endpoints, SQL queries and NoSQL operations into curated
+      <abbr title="Model Context Protocol">MCP</abbr> tools for Claude and other agents.
+      You decide which tools exist, what they are called, and exactly what comes back.</p>
+      <div class="actions">
+        <a class="btn primary" href="#install">Install mcp-forge</a>
+        <a class="btn" href="docs/">Read the guide</a>
       </div>
+      <p class="fine">One binary with a web UI. macOS, Linux and Windows. MIT or Apache-2.0. No telemetry.</p>
+    </div>
+
+    <figure class="demo" data-demo aria-label="Example: asked how many stars rust-lang/rust has, Claude calls the get_repo tool; mcp-forge sends GET to the GitHub API, trims the response of about a hundred fields to three with a jq shape, and Claude answers that it has about 104,000 stars.">
+      <p class="demo-bar" aria-hidden="true"><span class="demo-live"></span>Live example<span class="demo-lanes">Claude <i>→</i> mcp-forge <i>→</i> GitHub API</span></p>
+      <ol class="demo-flow" aria-hidden="true">
+        <li class="msg user" style="--d:200ms"><span class="who">You</span>How many stars does rust-lang/rust have?</li>
+        <li class="step" style="--d:1200ms"><span class="who">Claude calls a tool</span><code><b>get_repo</b>(owner: "rust-lang", repo: "rust")</code></li>
+        <li class="step" style="--d:2200ms"><span class="who">mcp-forge sends</span><code><b class="m">GET</b> api.github.com/repos/rust-lang/rust</code><em>200 · about 100 fields</em></li>
+        <li class="step" style="--d:3200ms"><span class="who">Response shape (jq)</span><code>{name: .full_name, stars: .stargazers_count, language}</code></li>
+        <li class="step json" style="--d:4100ms"><span class="who">The agent gets 3 fields</span><code>{"name": "rust-lang/rust", "stars": 104000, "language": "Rust"}</code></li>
+        <li class="msg agent" style="--d:5100ms"><span class="who">Claude</span>rust-lang/rust has about 104,000 stars, and it's written in Rust.</li>
+      </ol>
     </figure>
   </div>
 </section>
@@ -179,6 +152,49 @@
     </ul>
   </div>
   <p class="wrap clients">Agents connect from <strong>Claude Code</strong>, <strong>Claude Desktop</strong>, <strong>claude.ai</strong> connectors and any MCP client, over streamable HTTP or stdio.</p>
+</section>
+
+<section class="wrap section showcase" aria-labelledby="web-ui">
+  <p class="kicker">The web UI</p>
+  <h2 id="web-ui">Every tool in one place, tried before an agent sees it.</h2>
+  <figure class="app" aria-label="The mcp-forge web UI: a project's tools, each with its kind, and the test console showing what an agent gets back.">
+    <div class="app-bar" aria-hidden="true"><i></i><i></i><i></i><span>127.0.0.1:7410 / github</span></div>
+    <div class="app-body" aria-hidden="true">
+      <aside class="app-side">
+        <p class="app-brand"><b>m</b> mcp-forge</p>
+        <p class="app-label">Projects</p>
+        <p class="app-nav on">github</p>
+        <p class="app-nav">shop</p>
+        <p class="app-nav">support</p>
+        <p class="app-label">Server</p>
+        <p class="app-nav">Approvals <em>1</em></p>
+        <p class="app-nav">Users</p>
+      </aside>
+      <div class="app-main">
+        <div class="app-head">
+          <p class="app-title">github</p>
+          <p class="app-url">http://127.0.0.1:7410/mcp/github</p>
+        </div>
+        <p class="app-tabs"><span class="on">Tools</span><span>Specs</span><span>Auth</span><span>Databases</span><span>Context</span><span>Quality</span><span>Calls</span><span>Connect</span></p>
+        <ul class="app-tools">
+          <li style="--i:0"><b>get_repo</b><span class="chip get">GET</span><code>/repos/{owner}/{repo}</code><i class="sw on"></i></li>
+          <li style="--i:1"><b>user</b><span class="chip">GraphQL</span><code>query User($login)</code><i class="sw on"></i></li>
+          <li style="--i:2"><b>recent_orders</b><span class="chip">SQL</span><code>shop · SELECT id, status…</code><i class="sw on"></i></li>
+          <li style="--i:3"><b>orders_for</b><span class="chip">NoSQL</span><code>mongo · find orders</code><i class="sw on"></i></li>
+          <li style="--i:4"><b>user_overview</b><span class="chip">Chain</span><code>get_user → repos</code><i class="sw on"></i></li>
+          <li style="--i:5"><b>close_issue</b><span class="chip del">PATCH</span><code>/issues/{n} · needs approval</code><i class="sw"></i></li>
+        </ul>
+      </div>
+      <div class="app-console">
+        <p class="app-label">Test console · get_repo</p>
+        <p class="app-arg">owner <span>rust-lang</span></p>
+        <p class="app-arg">repo <span>rust</span></p>
+        <p class="app-run">Run</p>
+        <p class="app-label">Agent sees · 200 · 184 ms</p>
+        <pre><code><span class="ln" style="--d:900ms">{"name": "rust-lang/rust",</span><span class="ln" style="--d:1050ms"> "stars": 104000,</span><span class="ln" style="--d:1200ms"> "language": "Rust"}</span></code></pre>
+      </div>
+    </div>
+  </figure>
 </section>
 
 <section class="wrap section" aria-labelledby="uses">
