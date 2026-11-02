@@ -3,6 +3,7 @@ import { FileTextIcon, MessageSquareTextIcon, PlusIcon, Trash2Icon } from "lucid
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
+import { StepDialog, type FormStep } from "@/components/StepDialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -84,7 +85,7 @@ export function ContextTab({ project, onSaved }: { project: Project; onSaved: (p
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {resources.length === 0 && editingRes === null && (
+          {resources.length === 0 && (
             <p className="text-sm text-muted-foreground">No resources yet.</p>
           )}
           <ul className="divide-y rounded-md border empty:hidden">
@@ -103,7 +104,12 @@ export function ContextTab({ project, onSaved }: { project: Project; onSaved: (p
               </li>
             ))}
           </ul>
-          {editingRes !== null ? (
+          {canWrite && (
+            <Button size="sm" variant="outline" onClick={() => setEditingRes("new")}>
+              <PlusIcon /> Add resource
+            </Button>
+          )}
+          {editingRes !== null && (
             <ResourceForm
               key={editingRes === "new" ? "new" : editingRes.id}
               projectId={project.id}
@@ -112,13 +118,8 @@ export function ContextTab({ project, onSaved }: { project: Project; onSaved: (p
                 setEditingRes(null);
                 await load();
               }}
+              onClose={() => setEditingRes(null)}
             />
-          ) : (
-            canWrite && (
-              <Button size="sm" variant="outline" onClick={() => setEditingRes("new")}>
-                <PlusIcon /> Add resource
-              </Button>
-            )
           )}
         </CardContent>
       </Card>
@@ -132,7 +133,7 @@ export function ContextTab({ project, onSaved }: { project: Project; onSaved: (p
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {prompts.length === 0 && editingPrompt === null && <p className="text-sm text-muted-foreground">No prompts yet.</p>}
+          {prompts.length === 0 && <p className="text-sm text-muted-foreground">No prompts yet.</p>}
           <ul className="divide-y rounded-md border empty:hidden">
             {prompts.map((p) => (
               <li key={p.id} className="space-y-2 px-3 py-2">
@@ -158,7 +159,12 @@ export function ContextTab({ project, onSaved }: { project: Project; onSaved: (p
               </li>
             ))}
           </ul>
-          {editingPrompt !== null ? (
+          {canWrite && (
+            <Button size="sm" variant="outline" onClick={() => setEditingPrompt("new")}>
+              <PlusIcon /> Add prompt
+            </Button>
+          )}
+          {editingPrompt !== null && (
             <PromptForm
               key={editingPrompt === "new" ? "new" : editingPrompt.id}
               projectId={project.id}
@@ -167,13 +173,8 @@ export function ContextTab({ project, onSaved }: { project: Project; onSaved: (p
                 setEditingPrompt(null);
                 await load();
               }}
+              onClose={() => setEditingPrompt(null)}
             />
-          ) : (
-            canWrite && (
-              <Button size="sm" variant="outline" onClick={() => setEditingPrompt("new")}>
-                <PlusIcon /> Add prompt
-              </Button>
-            )
           )}
         </CardContent>
       </Card>
@@ -223,7 +224,17 @@ export function ContextTab({ project, onSaved }: { project: Project; onSaved: (p
   );
 }
 
-function ResourceForm({ projectId, existing, onDone }: { projectId: string; existing: ResourceDef | null; onDone: () => Promise<void> }) {
+function ResourceForm({
+  projectId,
+  existing,
+  onDone,
+  onClose,
+}: {
+  projectId: string;
+  existing: ResourceDef | null;
+  onDone: () => Promise<void>;
+  onClose: () => void;
+}) {
   const [draft, setDraft] = useState<ResourceInput>(
     existing
       ? { name: existing.name, description: existing.description, mime_type: existing.mime_type, content: existing.content }
@@ -232,8 +243,7 @@ function ResourceForm({ projectId, existing, onDone }: { projectId: string; exis
   const [err, setErr] = useState<unknown>(null);
   const [confirm, setConfirm] = useState(false);
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
+  async function submit() {
     try {
       if (existing) await api.updateResource(projectId, existing.id, draft);
       else await api.createResource(projectId, draft);
@@ -252,59 +262,79 @@ function ResourceForm({ projectId, existing, onDone }: { projectId: string; exis
     await onDone();
   }
 
+  const steps: FormStep[] = [
+    {
+      title: "About",
+      description: "Agents see the name and description when they pick context to read.",
+      fields: ["name", "description", "mime_type"],
+      content: (
+        <>
+          <div className="grid gap-3 sm:grid-cols-[1fr_12rem]">
+            <div className="grid gap-1.5">
+              <Label htmlFor="r-name">Name</Label>
+              <Input id="r-name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="font-mono" placeholder="style_guide" aria-invalid={!!fieldMsg(err, "name")} />
+              {fieldMsg(err, "name") && <p className="text-xs text-destructive">{fieldMsg(err, "name")}</p>}
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="r-mime">Format</Label>
+              <Select value={draft.mime_type} onValueChange={(v) => setDraft({ ...draft, mime_type: v })}>
+                <SelectTrigger id="r-mime" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RESOURCE_MIME_TYPES.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="r-desc">Description</Label>
+            <Input id="r-desc" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="How we name things in support replies" />
+          </div>
+        </>
+      ),
+    },
+    {
+      title: "Content",
+      description: "The document itself, sent as is when an agent reads it.",
+      fields: ["content"],
+      content: (
+        <>
+          <div className="grid gap-1.5">
+            <Label htmlFor="r-content">Content</Label>
+            <Textarea id="r-content" value={draft.content} onChange={(e) => setDraft({ ...draft, content: e.target.value })} className="min-h-64 font-mono text-xs" spellCheck={false} aria-invalid={!!fieldMsg(err, "content")} />
+            {fieldMsg(err, "content") && <p className="text-xs text-destructive">{fieldMsg(err, "content")}</p>}
+          </div>
+        </>
+      ),
+    },
+  ];
+
   return (
-    <form onSubmit={submit} className="grid gap-3 rounded-md border bg-muted/30 p-3">
-      <div className="grid gap-3 sm:grid-cols-[1fr_12rem]">
-        <div className="grid gap-1.5">
-          <Label htmlFor="r-name">Name</Label>
-          <Input id="r-name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="font-mono" placeholder="style_guide" aria-invalid={!!fieldMsg(err, "name")} />
-          {fieldMsg(err, "name") && <p className="text-xs text-destructive">{fieldMsg(err, "name")}</p>}
-        </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor="r-mime">Format</Label>
-          <Select value={draft.mime_type} onValueChange={(v) => setDraft({ ...draft, mime_type: v })}>
-            <SelectTrigger id="r-mime" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {RESOURCE_MIME_TYPES.map((m) => (
-                <SelectItem key={m} value={m}>
-                  {m}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-      <div className="grid gap-1.5">
-        <Label htmlFor="r-desc">Description</Label>
-        <Input id="r-desc" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="How we name things in support replies" />
-      </div>
-      <div className="grid gap-1.5">
-        <Label htmlFor="r-content">Content</Label>
-        <Textarea id="r-content" value={draft.content} onChange={(e) => setDraft({ ...draft, content: e.target.value })} className="min-h-40 font-mono text-xs" spellCheck={false} aria-invalid={!!fieldMsg(err, "content")} />
-        {fieldMsg(err, "content") && <p className="text-xs text-destructive">{fieldMsg(err, "content")}</p>}
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Button type="submit" size="sm">
-          {existing ? "Save resource" : "Add resource"}
-        </Button>
-        <Button type="button" size="sm" variant="outline" onClick={() => void onDone()}>
-          Cancel
-        </Button>
-        <span className="flex-1" />
-        {existing &&
-          (confirm ? (
-            <Button type="button" size="sm" variant="destructive" onClick={() => void remove()}>
-              Delete {existing.name}
-            </Button>
-          ) : (
-            <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => setConfirm(true)}>
-              <Trash2Icon /> Delete
-            </Button>
-          ))}
-      </div>
-    </form>
+    <StepDialog
+      title={existing ? `Edit ${existing.name}` : "Add resource"}
+      steps={steps}
+      errorFields={err instanceof ApiError ? err.fields.map((f) => f.field) : []}
+      submitLabel={existing ? "Save resource" : "Add resource"}
+      onSubmit={submit}
+      onClose={onClose}
+      extraActions={
+        existing &&
+        (confirm ? (
+          <Button type="button" variant="destructive" onClick={() => void remove()}>
+            Delete {existing.name}
+          </Button>
+        ) : (
+          <Button type="button" variant="ghost" className="text-destructive" onClick={() => setConfirm(true)}>
+            <Trash2Icon /> Delete
+          </Button>
+        ))
+      }
+    />
   );
 }
 
@@ -352,7 +382,17 @@ function PromptPreview({ projectId, prompt }: { projectId: string; prompt: Promp
   );
 }
 
-function PromptForm({ projectId, existing, onDone }: { projectId: string; existing: PromptDef | null; onDone: () => Promise<void> }) {
+function PromptForm({
+  projectId,
+  existing,
+  onDone,
+  onClose,
+}: {
+  projectId: string;
+  existing: PromptDef | null;
+  onDone: () => Promise<void>;
+  onClose: () => void;
+}) {
   const [draft, setDraft] = useState<PromptInput>(
     existing
       ? { name: existing.name, description: existing.description, arguments: existing.arguments, template: existing.template }
@@ -379,8 +419,7 @@ function PromptForm({ projectId, existing, onDone }: { projectId: string; existi
   const setArg = (i: number, patch: Partial<PromptArg>) =>
     setDraft({ ...draft, arguments: draft.arguments.map((a, j) => (j === i ? { ...a, ...patch } : a)) });
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
+  async function submit() {
     const body = withTemplateArgs();
     setDraft(body);
     try {
@@ -403,78 +442,108 @@ function PromptForm({ projectId, existing, onDone }: { projectId: string; existi
 
   const argErrors = err instanceof ApiError ? err.fields.filter((f) => f.field.startsWith("arguments")).map((f) => f.message) : [];
 
-  return (
-    <form onSubmit={submit} className="grid gap-3 rounded-md border bg-muted/30 p-3">
-      <div className="grid gap-1.5">
-        <Label htmlFor="p-name">Name</Label>
-        <Input id="p-name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="font-mono" placeholder="triage_ticket" aria-invalid={!!fieldMsg(err, "name")} />
-        {fieldMsg(err, "name") && <p className="text-xs text-destructive">{fieldMsg(err, "name")}</p>}
-      </div>
-      <div className="grid gap-1.5">
-        <Label htmlFor="p-desc">Description</Label>
-        <Input id="p-desc" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="Look up a ticket and draft a reply" />
-      </div>
-      <div className="grid gap-1.5">
-        <Label htmlFor="p-template">Template</Label>
-        <Textarea
-          id="p-template"
-          value={draft.template}
-          onChange={(e) => setDraft({ ...draft, template: e.target.value })}
-          onBlur={syncArgs}
-          className="min-h-32 font-mono text-xs"
-          placeholder={"Look up ticket {{ticket}} with the support tools, then draft a reply in a {{tone}} tone."}
-          aria-invalid={!!fieldMsg(err, "template")}
-        />
-        {fieldMsg(err, "template") && <p className="text-xs text-destructive">{fieldMsg(err, "template")}</p>}
-      </div>
-      {draft.arguments.length > 0 && (
-        <div className="grid gap-2">
-          <p className="text-sm font-medium">Arguments</p>
-          {draft.arguments.map((a, i) => (
-            <div key={i} className="grid gap-2 sm:grid-cols-[10rem_1fr_auto_auto] sm:items-center">
-              <Input value={a.name} onChange={(e) => setArg(i, { name: e.target.value })} className="font-mono" aria-label="Argument name" />
-              <Input value={a.description} onChange={(e) => setArg(i, { description: e.target.value })} placeholder="What to pass (optional)" aria-label={`Description of ${a.name}`} />
-              <div className="flex items-center gap-1.5">
-                <Checkbox id={`pa-req-${i}`} checked={a.required} onCheckedChange={(v) => setArg(i, { required: v === true })} />
-                <Label htmlFor={`pa-req-${i}`} className="font-normal">
-                  Required
-                </Label>
-              </div>
-              <Button type="button" variant="ghost" size="icon" aria-label={`Remove ${a.name}`} onClick={() => setDraft({ ...draft, arguments: draft.arguments.filter((_, j) => j !== i) })}>
-                <Trash2Icon />
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-      {argErrors.length > 0 && (
-        <Alert variant="destructive">
-          <AlertDescription>
-            {argErrors.map((m, i) => (
-              <p key={i}>{m}</p>
-            ))}
-          </AlertDescription>
-        </Alert>
-      )}
-      <div className="flex flex-wrap gap-2">
-        <Button type="submit" size="sm">
-          {existing ? "Save prompt" : "Add prompt"}
-        </Button>
-        <Button type="button" size="sm" variant="outline" onClick={() => void onDone()}>
-          Cancel
-        </Button>
-        <span className="flex-1" />
-        {existing &&
-          (confirm ? (
-            <Button type="button" size="sm" variant="destructive" onClick={() => void remove()}>
-              Delete {existing.name}
-            </Button>
+  const steps: FormStep[] = [
+    {
+      title: "About",
+      description: "In Claude, the name becomes a slash command and the description says what it does.",
+      fields: ["name", "description"],
+      content: (
+        <>
+          <div className="grid gap-1.5">
+            <Label htmlFor="p-name">Name</Label>
+            <Input id="p-name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="font-mono" placeholder="triage_ticket" aria-invalid={!!fieldMsg(err, "name")} />
+            {fieldMsg(err, "name") && <p className="text-xs text-destructive">{fieldMsg(err, "name")}</p>}
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="p-desc">Description</Label>
+            <Input id="p-desc" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="Look up a ticket and draft a reply" />
+          </div>
+        </>
+      ),
+    },
+    {
+      title: "Template",
+      description: "The instructions. Write {{name}} where a value goes; each one becomes an argument.",
+      fields: ["template"],
+      content: (
+        <>
+          <div className="grid gap-1.5">
+            <Label htmlFor="p-template">Template</Label>
+            <Textarea
+              id="p-template"
+              value={draft.template}
+              onChange={(e) => setDraft({ ...draft, template: e.target.value })}
+              onBlur={syncArgs}
+              className="min-h-48 font-mono text-xs"
+              placeholder={"Look up ticket {{ticket}} with the support tools, then draft a reply in a {{tone}} tone."}
+              aria-invalid={!!fieldMsg(err, "template")}
+            />
+            {fieldMsg(err, "template") && <p className="text-xs text-destructive">{fieldMsg(err, "template")}</p>}
+          </div>
+        </>
+      ),
+    },
+    {
+      title: "Arguments",
+      description: "What the person fills in. Say what to pass, and whether it can be left out.",
+      fields: ["arguments"],
+      content: (
+        <>
+          {draft.arguments.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No arguments. Add {"{{name}}"} to the template to make one.</p>
           ) : (
-            <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => setConfirm(true)}>
-              <Trash2Icon /> Delete
-            </Button>
-          ))}
-      </div>
-    </form>
+            <div className="grid gap-2">
+              {draft.arguments.map((a, i) => (
+                <div key={i} className="grid gap-2 sm:grid-cols-[10rem_1fr_auto_auto] sm:items-center">
+                  <Input value={a.name} onChange={(e) => setArg(i, { name: e.target.value })} className="font-mono" aria-label="Argument name" />
+                  <Input value={a.description} onChange={(e) => setArg(i, { description: e.target.value })} placeholder="What to pass (optional)" aria-label={`Description of ${a.name}`} />
+                  <div className="flex items-center gap-1.5">
+                    <Checkbox id={`pa-req-${i}`} checked={a.required} onCheckedChange={(v) => setArg(i, { required: v === true })} />
+                    <Label htmlFor={`pa-req-${i}`} className="font-normal">
+                      Required
+                    </Label>
+                  </div>
+                  <Button type="button" variant="ghost" size="icon" aria-label={`Remove ${a.name}`} onClick={() => setDraft({ ...draft, arguments: draft.arguments.filter((_, j) => j !== i) })}>
+                    <Trash2Icon />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          {argErrors.length > 0 && (
+            <Alert variant="destructive">
+              <AlertDescription>
+                {argErrors.map((m, i) => (
+                  <p key={i}>{m}</p>
+                ))}
+              </AlertDescription>
+            </Alert>
+          )}
+        </>
+      ),
+    },
+  ];
+
+  return (
+    <StepDialog
+      title={existing ? `Edit ${existing.name}` : "Add prompt"}
+      steps={steps}
+      errorFields={err instanceof ApiError ? err.fields.map((f) => f.field) : []}
+      submitLabel={existing ? "Save prompt" : "Add prompt"}
+      onSubmit={submit}
+      onClose={onClose}
+      extraActions={
+        existing &&
+        (confirm ? (
+          <Button type="button" variant="destructive" onClick={() => void remove()}>
+            Delete {existing.name}
+          </Button>
+        ) : (
+          <Button type="button" variant="ghost" className="text-destructive" onClick={() => setConfirm(true)}>
+            <Trash2Icon /> Delete
+          </Button>
+        ))
+      }
+    />
   );
 }

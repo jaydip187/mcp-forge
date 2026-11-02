@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { UserPlusIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
 import { PageHeader } from "@/components/PageHeader";
+import { StepDialog } from "@/components/StepDialog";
 import { PasswordInput } from "@/components/PasswordInput";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -30,6 +31,7 @@ export function UsersPage() {
   const { projects } = useProjects();
   const [users, setUsers] = useState<UserView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -54,6 +56,11 @@ export function UsersPage() {
       <PageHeader
         title="Users"
         description="Admins can do everything. Members see only the projects you give them, and can view or change each one."
+        actions={
+          <Button onClick={() => setAdding(true)}>
+            <UserPlusIcon /> Add user
+          </Button>
+        }
       />
       {error && (
         <Alert variant="destructive">
@@ -71,7 +78,15 @@ export function UsersPage() {
           ))}
         </ul>
       )}
-      <NewUserCard onCreated={load} />
+      {adding && (
+        <NewUserDialog
+          onClose={() => setAdding(false)}
+          onCreated={async () => {
+            setAdding(false);
+            await load();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -190,20 +205,16 @@ function UserCard({ user: u, me, projects, onChanged }: { user: UserView; me: bo
   );
 }
 
-function NewUserCard({ onCreated }: { onCreated: () => Promise<void> }) {
+function NewUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => Promise<void> }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<Role>("member");
   const [err, setErr] = useState<unknown>(null);
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
+  async function submit() {
     try {
       await api.createUser({ username: username.trim(), password, role });
-      toast.success(`Added ${username.trim()}${role === "member" ? ": now give them projects above" : ""}`);
-      setUsername("");
-      setPassword("");
-      setErr(null);
+      toast.success(`Added ${username.trim()}${role === "member" ? ": now give them projects on their card" : ""}`);
       await onCreated();
     } catch (e) {
       setErr(e);
@@ -212,40 +223,45 @@ function NewUserCard({ onCreated }: { onCreated: () => Promise<void> }) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Add a user</CardTitle>
-        <CardDescription>Share the password with them; they can change it from their user menu.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={submit} className="grid gap-4 sm:grid-cols-[1fr_1fr_8rem_auto] sm:items-end">
-          <div className="grid gap-1.5">
-            <Label htmlFor="nu-name">Username</Label>
-            <Input id="nu-name" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" aria-invalid={!!fieldError(err, "username")} />
-            {fieldError(err, "username") && <p className="text-xs text-destructive">{fieldError(err, "username")}</p>}
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="nu-pw">Password</Label>
-            <PasswordInput id="nu-pw" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" aria-invalid={!!fieldError(err, "password")} />
-            {fieldError(err, "password") && <p className="text-xs text-destructive">{fieldError(err, "password")}</p>}
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="nu-role">Role</Label>
-            <Select value={role} onValueChange={(v) => setRole(v as Role)}>
-              <SelectTrigger id="nu-role" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="member">Member</SelectItem>
-                <SelectItem value="admin">Admin</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <Button type="submit">
-            <UserPlusIcon /> Add user
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+    <StepDialog
+      title="Add a user"
+      description="Share the password with them; they can change it from their user menu."
+      steps={[
+        {
+          title: "Account",
+          fields: ["username", "password", "role"],
+          content: (
+            <>
+              <div className="grid gap-1.5">
+                <Label htmlFor="nu-name">Username</Label>
+                <Input id="nu-name" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" aria-invalid={!!fieldError(err, "username")} />
+                {fieldError(err, "username") && <p className="text-xs text-destructive">{fieldError(err, "username")}</p>}
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="nu-pw">Password</Label>
+                <PasswordInput id="nu-pw" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" aria-invalid={!!fieldError(err, "password")} />
+                {fieldError(err, "password") && <p className="text-xs text-destructive">{fieldError(err, "password")}</p>}
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="nu-role">Role</Label>
+                <Select value={role} onValueChange={(v) => setRole(v as Role)}>
+                  <SelectTrigger id="nu-role" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="member">Member</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
+          ),
+        },
+      ]}
+      errorFields={err instanceof ApiError ? err.fields.map((f) => f.field) : []}
+      submitLabel="Add user"
+      onSubmit={submit}
+      onClose={onClose}
+    />
   );
 }

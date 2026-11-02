@@ -7,6 +7,7 @@ import { buildSnippets } from "./snippets";
 import { parseTyped, placeholders, slugify, splitTemplate, syncPathParams } from "./template";
 import { buildToolInput, newForm, paramIndex, type RowText } from "./toolForm";
 import type { ParamDef } from "../types";
+import { owns } from "../components/StepDialog";
 
 const param = (p: Partial<ParamDef>): ParamDef => ({
   name: "x",
@@ -533,5 +534,20 @@ describe("quality", () => {
 
   it("routes the quality tab", () => {
     expect(parseRoute("#/p/x/quality")).toEqual({ name: "project", projectId: "x", tab: "quality" });
+  });
+});
+
+describe("step dialog", () => {
+  const step = { title: "Request", content: null, fields: ["kind.params", "name"] };
+  it("sends a field error to the step that shows the field", () => {
+    expect(owns(step, "name")).toBe(true);
+    expect(owns(step, "kind.params")).toBe(true);
+    expect(owns(step, "kind.params[2].name")).toBe(true);
+    expect(owns(step, "kind.params.0")).toBe(true);
+  });
+  it("doesn't match fields that only start the same way", () => {
+    expect(owns(step, "names")).toBe(false);
+    expect(owns(step, "kind.params_extra")).toBe(false);
+    expect(owns({ title: "x", content: null }, "name")).toBe(false);
   });
 });

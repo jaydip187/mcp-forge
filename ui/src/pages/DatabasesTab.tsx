@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { BotIcon, CircleCheckIcon, DatabaseIcon, PlugZapIcon, TriangleAlertIcon } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { BotIcon, CircleCheckIcon, DatabaseIcon, PlugZapIcon, PlusIcon, TriangleAlertIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
 import { EmptyState } from "@/components/EmptyState";
+import { StepDialog, type FormStep } from "@/components/StepDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -94,7 +94,7 @@ const EMPTY: DbConnectionInput = {
 
 export function DatabasesTab({ projectId }: { projectId: string }) {
   const [conns, setConns] = useState<DbConnection[] | null>(null);
-  const [editing, setEditing] = useState<DbConnection | null>(null);
+  const [editing, setEditing] = useState<DbConnection | "new" | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [reports, setReports] = useState<Record<string, ConnectionReport | "running">>({});
   const [tools, setTools] = useState<Tool[]>([]);
@@ -126,7 +126,7 @@ export function DatabasesTab({ projectId }: { projectId: string }) {
       await api.deleteConnection(projectId, c.id);
       toast.success(`Deleted ${c.name}`);
       setConfirmDelete(null);
-      if (editing?.id === c.id) setEditing(null);
+      if (editing !== "new" && editing?.id === c.id) setEditing(null);
       await load();
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : String(e));
@@ -148,95 +148,103 @@ export function DatabasesTab({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
-      <section className="min-w-0 space-y-3">
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <p className="max-w-prose text-sm text-muted-foreground">
           A connection lets SQL tools query a database. Queries are read-only: each one runs in a read-only
           transaction with a time limit, and anything but a single SELECT is refused before it reaches the database.
         </p>
-        {!conns ? (
-          <Skeleton className="h-24 w-full" />
-        ) : conns.length === 0 ? (
-          <EmptyState
-            icon={DatabaseIcon}
-            title="No databases yet"
-            description="Add a connection with the form, then create database tools for it on the Tools tab."
-          />
-        ) : (
-          <ul className="divide-y overflow-hidden rounded-xl border bg-card">
-            {conns.map((c) => {
-              const report = reports[c.id];
-              return (
-                <li key={c.id} className="space-y-3 px-4 py-3">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium">{c.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {DRIVER_LABEL[c.driver]} · {MODE_LABEL[c.access_mode].short}
-                        {c.access_mode !== "read_only" && ` (≤${c.max_affected_rows} rows per write${c.allow_ddl ? ", DDL on" : ""})`} · up to{" "}
-                        {c.row_limit} rows · {c.timeout_ms / 1000}s limit
-                        {c.column_masks.length > 0 && ` · ${c.column_masks.length} masked column${c.column_masks.length > 1 ? "s" : ""}`}
-                        {(() => {
-                          const what = isSqlDriver(c.driver) ? "table" : "name";
-                          const n = c.table_allowlist.length;
-                          return ` · ${n ? `${n} allowed ${what}${n > 1 ? "s" : ""}` : `all ${what}s allowed`}`;
-                        })()}
-                      </p>
-                      <p className="font-mono text-xs text-muted-foreground">{c.dsn_ref}</p>
-                    </div>
-                    {confirmDelete === c.id ? (
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="destructive" onClick={() => void remove(c)}>
-                          Delete
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => setConfirmDelete(null)}>
-                          Keep
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        <Button size="sm" variant="outline" onClick={() => void test(c)} disabled={report === "running"}>
-                          <PlugZapIcon /> {report === "running" ? "Testing…" : "Test"}
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => setAgentPanel(agentPanel === c.id ? null : c.id)} aria-expanded={agentPanel === c.id}>
-                          <BotIcon /> Agent tools
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => setEditing(c)}>
-                          Edit
-                        </Button>
-                        <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setConfirmDelete(c.id)}>
-                          Delete
-                        </Button>
-                      </div>
-                    )}
+        <Button className="shrink-0" onClick={() => setEditing("new")}>
+          <PlusIcon /> Add database
+        </Button>
+      </div>
+      {!conns ? (
+        <Skeleton className="h-24 w-full" />
+      ) : conns.length === 0 ? (
+        <EmptyState
+          icon={DatabaseIcon}
+          title="No databases yet"
+          description="Add a connection, then create database tools for it on the Tools tab."
+        >
+          <Button onClick={() => setEditing("new")}>Add a database</Button>
+        </EmptyState>
+      ) : (
+        <ul className="divide-y overflow-hidden rounded-xl border bg-card">
+          {conns.map((c) => {
+            const report = reports[c.id];
+            return (
+              <li key={c.id} className="space-y-3 px-4 py-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium">{c.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {DRIVER_LABEL[c.driver]} · {MODE_LABEL[c.access_mode].short}
+                      {c.access_mode !== "read_only" && ` (≤${c.max_affected_rows} rows per write${c.allow_ddl ? ", DDL on" : ""})`} · up to{" "}
+                      {c.row_limit} rows · {c.timeout_ms / 1000}s limit
+                      {c.column_masks.length > 0 && ` · ${c.column_masks.length} masked column${c.column_masks.length > 1 ? "s" : ""}`}
+                      {(() => {
+                        const what = isSqlDriver(c.driver) ? "table" : "name";
+                        const n = c.table_allowlist.length;
+                        return ` · ${n ? `${n} allowed ${what}${n > 1 ? "s" : ""}` : `all ${what}s allowed`}`;
+                      })()}
+                    </p>
+                    <p className="font-mono text-xs text-muted-foreground">{c.dsn_ref}</p>
                   </div>
-                  {report && report !== "running" && <Report report={report} />}
-                  {agentPanel === c.id && (
-                    <AgentTools
-                      projectId={projectId}
-                      conn={c}
-                      existing={explorationTools(c)}
-                      onAdded={async () => {
-                        await load();
-                      }}
-                    />
+                  {confirmDelete === c.id ? (
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="destructive" onClick={() => void remove(c)}>
+                        Delete
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setConfirmDelete(null)}>
+                        Keep
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" onClick={() => void test(c)} disabled={report === "running"}>
+                        <PlugZapIcon /> {report === "running" ? "Testing…" : "Test"}
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setAgentPanel(agentPanel === c.id ? null : c.id)} aria-expanded={agentPanel === c.id}>
+                        <BotIcon /> Agent tools
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setEditing(c)}>
+                        Edit
+                      </Button>
+                      <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setConfirmDelete(c.id)}>
+                        Delete
+                      </Button>
+                    </div>
                   )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+                </div>
+                {report && report !== "running" && <Report report={report} />}
+                {agentPanel === c.id && (
+                  <AgentTools
+                    projectId={projectId}
+                    conn={c}
+                    existing={explorationTools(c)}
+                    onAdded={async () => {
+                      await load();
+                    }}
+                  />
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
-      <ConnectionForm
-        key={editing?.id ?? "new"}
-        projectId={projectId}
-        existing={editing}
-        onDone={async () => {
-          setEditing(null);
-          await load();
-        }}
-      />
+      {editing && (
+        <ConnectionForm
+          key={editing === "new" ? "new" : editing.id}
+          projectId={projectId}
+          existing={editing === "new" ? null : editing}
+          onDone={async () => {
+            setEditing(null);
+            await load();
+          }}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   );
 }
@@ -384,10 +392,12 @@ function ConnectionForm({
   projectId,
   existing,
   onDone,
+  onClose,
 }: {
   projectId: string;
   existing: DbConnection | null;
   onDone: () => Promise<void>;
+  onClose: () => void;
 }) {
   const [draft, setDraft] = useState<DbConnectionInput>(existing ?? EMPTY);
   const [masksText, setMasksText] = useState((existing?.column_masks ?? []).join("\n"));
@@ -402,8 +412,7 @@ function ConnectionForm({
   // Confirmation is needed when this save turns full access on.
   const needsConfirm = draft.access_mode === "full_access" && existing?.access_mode !== "full_access";
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
+  async function submit() {
     const input: DbConnectionInput = {
       ...draft,
       name: draft.name.trim(),
@@ -426,16 +435,6 @@ function ConnectionForm({
       if (existing) await api.updateConnection(projectId, existing.id, input, confirmFull);
       else await api.createConnection(projectId, input, confirmFull);
       toast.success(existing ? `Saved ${input.name}` : `Added ${input.name}`);
-      if (!existing) {
-        setDraft(EMPTY);
-        setMasksText("");
-        setAllowText("");
-        setFilesText("");
-        setRowLimit(String(EMPTY.row_limit));
-        setTimeoutText(String(EMPTY.timeout_ms));
-        setMaxRows(String(EMPTY.max_affected_rows));
-        setConfirmFull(false);
-      }
       setErr(null);
       await onDone();
     } catch (e) {
@@ -447,14 +446,13 @@ function ConnectionForm({
   const maskErr = err instanceof ApiError ? err.fields.find((f) => f.field.startsWith("column_masks"))?.message : undefined;
   const allowErr = err instanceof ApiError ? err.fields.find((f) => f.field.startsWith("table_allowlist"))?.message : undefined;
   const filesErr = err instanceof ApiError ? err.fields.find((f) => f.field.startsWith("file_allowlist"))?.message : undefined;
-  return (
-    <Card className="h-fit">
-      <CardHeader>
-        <CardTitle>{existing ? `Edit ${existing.name}` : "Add database"}</CardTitle>
-        <CardDescription>The connection string stays outside mcp-forge, like other secrets.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={submit} className="grid gap-4">
+  const steps: FormStep[] = [
+    {
+      title: "Connection",
+      description: "Which database, and where its connection string lives. The string itself stays outside mcp-forge, like other secrets.",
+      fields: ["name", "driver", "dsn_ref"],
+      content: (
+        <>
           <div className="grid gap-1.5">
             <Label htmlFor="d-name">Name</Label>
             <Input id="d-name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="shop" required aria-invalid={!!fe("name")} />
@@ -490,6 +488,18 @@ function ConnectionForm({
               <code className="break-all">{DSN_EXAMPLE[draft.driver]}</code>.
             </p>
           </div>
+          {err instanceof ApiError && err.fields.some((f) => f.field === "dsn_ref") && (
+            <p className="text-xs text-destructive">{fe("dsn_ref")}</p>
+          )}
+        </>
+      ),
+    },
+    {
+      title: "Limits and privacy",
+      description: "How much one query may return, what agents may look at, and which values they never see.",
+      fields: ["row_limit", "timeout_ms", "table_allowlist", "file_allowlist", "column_masks"],
+      content: (
+        <>
           <div className="grid grid-cols-2 gap-2">
             <div className="grid gap-1.5">
               <Label htmlFor="d-rows">Row limit</Label>
@@ -548,6 +558,15 @@ function ConnectionForm({
               </p>
             )}
           </div>
+        </>
+      ),
+    },
+    {
+      title: "What agents may do",
+      description: "Read only, or also write. Writes are capped, can be tried first and are all audited.",
+      fields: ["access_mode", "max_affected_rows", "allow_ddl"],
+      content: (
+        <>
           <div className="grid gap-1.5">
             <Label htmlFor="d-mode">What agents may do</Label>
             <Select value={draft.access_mode} onValueChange={(v) => setDraft({ ...draft, access_mode: v as AccessMode })}>
@@ -627,28 +646,32 @@ function ConnectionForm({
             </Alert>
           )}
           {fe("access_mode") && <p className="text-xs text-destructive">{fe("access_mode")}</p>}
-          {err instanceof ApiError && err.fields.length === 0 && (
-            <Alert variant="destructive">
-              <AlertDescription>
-                {err.status === 400 && err.message.includes("dsn_ref")
-                  ? "That looks like a connection string, not a reference. Put it in an environment variable or the keyring and use env:NAME or keyring:NAME."
-                  : err.message}
-              </AlertDescription>
-            </Alert>
-          )}
-          {err instanceof ApiError && err.fields.some((f) => f.field === "dsn_ref") && (
-            <p className="text-xs text-destructive">{fe("dsn_ref")}</p>
-          )}
-          <div className="flex gap-2">
-            <Button type="submit">{existing ? "Save database" : "Add database"}</Button>
-            {existing && (
-              <Button type="button" variant="ghost" onClick={() => void onDone()}>
-                Cancel
-              </Button>
-            )}
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+        </>
+      ),
+    },
+  ];
+
+  return (
+    <StepDialog
+      title={existing ? `Edit ${existing.name}` : "Add database"}
+      steps={steps}
+      errorFields={err instanceof ApiError ? err.fields.map((f) => f.field) : []}
+      banner={
+        <>
+                    {err instanceof ApiError && err.fields.length === 0 && (
+                      <Alert variant="destructive">
+                        <AlertDescription>
+                          {err.status === 400 && err.message.includes("dsn_ref")
+                            ? "That looks like a connection string, not a reference. Put it in an environment variable or the keyring and use env:NAME or keyring:NAME."
+                            : err.message}
+                        </AlertDescription>
+                      </Alert>
+                    )}
+        </>
+      }
+      submitLabel={existing ? "Save database" : "Add database"}
+      onSubmit={submit}
+      onClose={onClose}
+    />
   );
 }
