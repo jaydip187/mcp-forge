@@ -1,11 +1,11 @@
-// Hero examples, install tabs, copy buttons, scroll reveals and the docs
+// Hero examples, the feature tour, install tabs, copy buttons, scroll reveals and the docs
 // contents highlight. Everything here is optional: without it the page is
 // static and complete.
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-// Hero: replay one example's timeline. The pressed button's progress bar
-// (a CSS animation) ends after a few seconds and moves on to the next one,
-// so hover and focus pause both together.
+// Hero and feature tour: replay one example's timeline. The pressed button's
+// progress bar (a CSS animation) ends after a few seconds and moves on to the
+// next one, so hover and focus pause both together.
 for (const forge of document.querySelectorAll("[data-forge]")) {
   const buttons = [...forge.querySelectorAll("[data-show]")];
   const show = (button) => {

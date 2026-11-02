@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>mcp-forge: turn HTTP APIs and SQL databases into MCP tools</title>
-<meta name="description" content="mcp-forge is a self-hosted, open-source server that turns HTTP APIs (OpenAPI, Swagger) and SQL databases (PostgreSQL, MySQL, SQLite) into curated MCP tools for Claude and other AI agents. One binary, web UI, read-only by default.">
+<title>mcp-forge: turn your APIs and databases into MCP tools</title>
+<meta name="description" content="mcp-forge is a self-hosted, open-source server that turns HTTP and GraphQL APIs (OpenAPI, Swagger, Postman) and SQL and NoSQL databases (PostgreSQL, MySQL, SQLite, MongoDB, Redis and more) into curated MCP tools for Claude and other AI agents. One binary, web UI, read-only by default.">
 <link rel="canonical" href="https://jaydip187.github.io/mcp-forge/">
 <meta name="robots" content="index, follow">
 <meta name="theme-color" content="#1e6e6a" media="(prefers-color-scheme: light)">
@@ -13,7 +13,7 @@
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="mcp-forge">
-<meta property="og:title" content="mcp-forge: turn HTTP APIs and SQL databases into MCP tools">
+<meta property="og:title" content="mcp-forge: turn your APIs and databases into MCP tools">
 <meta property="og:description" content="Self-hosted server that gives Claude and other AI agents curated tools for your APIs and databases. Open source, one binary, read-only by default.">
 <meta property="og:url" content="https://jaydip187.github.io/mcp-forge/">
 <meta property="og:image" content="https://jaydip187.github.io/mcp-forge/og.png">
@@ -21,7 +21,7 @@
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="mcp-forge turns an HTTP request or SQL query into a tool an AI agent can call.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="mcp-forge: turn HTTP APIs and SQL databases into MCP tools">
+<meta name="twitter:title" content="mcp-forge: turn your APIs and databases into MCP tools">
 <meta name="twitter:description" content="Self-hosted server that gives Claude and other AI agents curated tools for your APIs and databases.">
 <meta name="twitter:image" content="https://jaydip187.github.io/mcp-forge/og.png">
 
@@ -39,7 +39,7 @@
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "macOS, Linux, Windows",
       "license": "https://github.com/jaydip187/mcp-forge#license",
-      "description": "Self-hosted server that turns HTTP APIs and SQL databases into curated Model Context Protocol (MCP) tools for AI agents.",
+      "description": "Self-hosted server that turns HTTP and GraphQL APIs and SQL and NoSQL databases into curated Model Context Protocol (MCP) tools for AI agents.",
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
     },
     {
@@ -98,6 +98,7 @@
     </a>
     <nav aria-label="Main">
       <a href="#install">Install</a>
+      <a href="#features">Features</a>
       <a href="#databases">Databases</a>
       <a href="#security">Security</a>
       <a href="#faq">FAQ</a>
@@ -113,7 +114,7 @@
   <div class="wrap hero-grid">
     <div class="hero-copy">
       <h1>Give AI agents your APIs and databases, on your terms.</h1>
-      <p class="lede">mcp-forge turns HTTP endpoints and SQL queries into curated
+      <p class="lede">mcp-forge turns HTTP and GraphQL endpoints, SQL queries and NoSQL operations into curated
       <abbr title="Model Context Protocol">MCP</abbr> tools for Claude and other agents.
       You decide which tools exist, what they are called, and exactly what comes back.
       One self-hosted binary with a web UI. Read-only by default.</p>
@@ -209,6 +210,139 @@ docker run -d --name mcp-forge -p 127.0.0.1:7410:7410 -v mcp-forge-data:/data \
   </ol>
 </section>
 
+<section id="features" class="band">
+  <div class="wrap">
+    <h2>What it does, one feature at a time</h2>
+    <p class="measure note">Each feature plays a short example. Pick one to watch it, or let them run in turn.</p>
+
+    <div class="tour" data-forge>
+      <ul class="tour-list" aria-label="Features">
+        <li><button type="button" aria-pressed="true" aria-controls="tour-steps" data-show="steps"><strong>Guided setup</strong><span>Every form one step at a time, checked as you go</span></button></li>
+        <li><button type="button" aria-pressed="false" aria-controls="tour-graphql" data-show="graphql"><strong>GraphQL</strong><span>One query or mutation, variables typed</span></button></li>
+        <li><button type="button" aria-pressed="false" aria-controls="tour-nosql" data-show="nosql"><strong>NoSQL</strong><span>MongoDB, Redis, DynamoDB, Elasticsearch</span></button></li>
+        <li><button type="button" aria-pressed="false" aria-controls="tour-chain" data-show="chain"><strong>Chained tools</strong><span>Several calls, one tool for the agent</span></button></li>
+        <li><button type="button" aria-pressed="false" aria-controls="tour-context" data-show="context"><strong>Resources and prompts</strong><span>Documents to read, templates to reuse</span></button></li>
+        <li><button type="button" aria-pressed="false" aria-controls="tour-quality" data-show="quality"><strong>Description quality</strong><span>A score for how well tools explain themselves</span></button></li>
+        <li><button type="button" aria-pressed="false" aria-controls="tour-approvals" data-show="approvals"><strong>Approvals</strong><span>A person says yes before anything changes</span></button></li>
+      </ul>
+
+      <div class="tour-stage">
+        <div class="tour-scene is-playing" id="tour-steps" data-example="steps" role="group" aria-label="Guided setup">
+          <div class="scene mock-scene" role="img" aria-label="A New HTTP tool dialog. The name get repo is refused on Next because it has a space; after it is changed to get_repo, Next moves on to the Request step, and the last step creates the tool.">
+            <div class="mock-frame f1" style="--start:0ms; --len:1700ms">
+              <div class="mock-dialog">
+                <p class="mock-title">New HTTP tool</p>
+                <ol class="mock-steps"><li class="on">1</li><li>2</li><li>3</li><li>4</li><li>5</li></ol>
+                <p class="mock-step">Step 1 of 5 · What the agent sees</p>
+                <p class="mock-label">Name</p><p class="mock-input">get repo<i class="caret"></i></p>
+                <p class="mock-label">Description</p><p class="mock-input">Look up a GitHub repository.</p>
+                <p class="mock-foot"><span class="mock-btn ghost">Cancel</span><span class="mock-btn press">Next</span></p>
+              </div>
+            </div>
+            <div class="mock-frame f2" style="--start:1700ms; --len:1900ms">
+              <div class="mock-dialog">
+                <p class="mock-title">New HTTP tool</p>
+                <ol class="mock-steps"><li class="bad">1</li><li>2</li><li>3</li><li>4</li><li>5</li></ol>
+                <p class="mock-alert"><strong>Fix this to continue</strong>Name: must be 1–64 characters of a-z, A-Z, 0-9, _ or -</p>
+                <p class="mock-label">Name</p><p class="mock-input bad">get repo</p>
+                <p class="mock-label">Description</p><p class="mock-input">Look up a GitHub repository.</p>
+                <p class="mock-foot"><span class="mock-btn ghost">Cancel</span><span class="mock-btn">Next</span></p>
+              </div>
+            </div>
+            <div class="mock-frame f3" style="--start:3600ms; --len:1500ms">
+              <div class="mock-dialog">
+                <p class="mock-title">New HTTP tool</p>
+                <ol class="mock-steps"><li class="on">1</li><li>2</li><li>3</li><li>4</li><li>5</li></ol>
+                <p class="mock-step">Step 1 of 5 · What the agent sees</p>
+                <p class="mock-label">Name</p><p class="mock-input">get_repo<i class="caret"></i></p>
+                <p class="mock-label">Description</p><p class="mock-input">Look up a GitHub repository.</p>
+                <p class="mock-foot"><span class="mock-btn ghost">Cancel</span><span class="mock-btn press">Next</span></p>
+              </div>
+            </div>
+            <div class="mock-frame f4" style="--start:5100ms; --len:1600ms">
+              <div class="mock-dialog">
+                <p class="mock-title">New HTTP tool</p>
+                <ol class="mock-steps"><li class="done">✓</li><li class="on">2</li><li>3</li><li>4</li><li>5</li></ol>
+                <p class="mock-step">Step 2 of 5 · Request</p>
+                <p class="mock-label">Method and base URL</p><p class="mock-input"><b>GET</b> https://api.github.com</p>
+                <p class="mock-label">Path</p><p class="mock-input">/repos/{owner}/{repo}</p>
+                <p class="mock-foot"><span class="mock-btn ghost">Back</span><span class="mock-btn press">Next</span></p>
+              </div>
+            </div>
+            <div class="mock-frame f5 last" style="--start:6700ms">
+              <div class="mock-dialog">
+                <p class="mock-title">New HTTP tool</p>
+                <ol class="mock-steps"><li class="done">✓</li><li class="done">✓</li><li class="done">✓</li><li class="done">✓</li><li class="on">5</li></ol>
+                <p class="mock-step">Step 5 of 5 · Response</p>
+                <p class="mock-label">Response shape (jq)</p><p class="mock-input">{name: .full_name, stars: .stargazers_count}</p>
+                <p class="mock-foot"><span class="mock-btn ghost">Back</span><span class="mock-btn press">Create tool</span></p>
+              </div>
+              <p class="mock-toast">✓ Tool created</p>
+            </div>
+          </div>
+          <p class="tour-caption">New tools, databases, auth configs, resources, prompts and keys open in a dialog with numbered steps. <strong>Next</strong> asks the server about the step first, so a mistake is caught where you made it.</p>
+        </div>
+
+        <div class="tour-scene" id="tour-graphql" data-example="graphql" role="group" aria-label="GraphQL" hidden>
+          <div class="scene">
+            <p class="pane-title">You describe</p>
+            <pre><code><span class="ln" style="--d:100ms"><span class="c"># endpoint https://api.github.com/graphql</span></span><span class="ln" style="--d:250ms"><span class="k">query</span> Repo(<span class="p">$owner</span>: String!, <span class="p">$name</span>: String!) {</span><span class="ln" style="--d:400ms">  repository(owner: <span class="p">$owner</span>, name: <span class="p">$name</span>) {</span><span class="ln" style="--d:550ms">    stargazerCount</span><span class="ln" style="--d:700ms">  }</span><span class="ln" style="--d:850ms">}</span></code></pre>
+            <p class="pane-title rule" style="--d:1300ms">The agent sees</p>
+            <pre><code><span class="ln" style="--d:1500ms"><span class="t">repo</span>(owner, name)</span><span class="ln" style="--d:1700ms"><span class="c">→ owner = "rust-lang", name = "rust"</span></span><span class="ln" style="--d:1900ms">{"repository": {"stargazerCount": 104000}}</span></code></pre>
+          </div>
+          <p class="tour-caption">Each <code>$variable</code> becomes a typed argument. Values travel as GraphQL variables, never pasted into the document. Import a whole schema by introspection if you prefer.</p>
+        </div>
+
+        <div class="tour-scene" id="tour-nosql" data-example="nosql" role="group" aria-label="NoSQL" hidden>
+          <div class="scene">
+            <p class="pane-title">You describe</p>
+            <pre><code><span class="ln" style="--d:100ms"><span class="c"># MongoDB · shop · read only</span></span><span class="ln" style="--d:250ms"><span class="k">find</span> orders</span><span class="ln" style="--d:400ms">{"filter": {"customer": "<span class="p">{{customer}}</span>",</span><span class="ln" style="--d:550ms">            "status": "<span class="p">{{status}}</span>"},</span><span class="ln" style="--d:700ms"> "limit": 20}</span></code></pre>
+            <p class="pane-title rule" style="--d:1000ms">The agent sees</p>
+            <pre><code><span class="ln" style="--d:1200ms"><span class="t">orders_for</span>(customer, status)</span><span class="ln" style="--d:1400ms"><span class="c">→ status = {"$ne": null}</span></span><span class="ln" style="--d:1600ms">refused: status takes a string, not an operator</span></code></pre>
+          </div>
+          <p class="tour-caption">Each <code>{{name}}</code> is a typed argument that fills in a whole value, never an operator or a key. <code>$where</code> never runs, and allowed names, masked fields and row limits apply to every NoSQL tool.</p>
+        </div>
+
+        <div class="tour-scene" id="tour-chain" data-example="chain" role="group" aria-label="Chained tools" hidden>
+          <div class="scene">
+            <p class="pane-title">You describe</p>
+            <pre><code><span class="ln" style="--d:100ms"><span class="t">user_overview</span>(login)</span><span class="ln" style="--d:300ms"> <span class="k">1</span> get_user  {login: .input.login}</span><span class="ln" style="--d:500ms"> <span class="k">2</span> repos     {owner: .steps[0].login}</span><span class="ln" style="--d:700ms"> <span class="c">output</span>    {name: .steps[0].name, repos: .last | length}</span></code></pre>
+            <p class="pane-title rule" style="--d:1200ms">The agent sees</p>
+            <pre><code><span class="ln" style="--d:1400ms"><span class="t">user_overview</span>(login = "ada")</span><span class="ln" style="--d:1600ms"><span class="c">→ two requests, one answer</span></span><span class="ln" style="--d:1800ms">{"name": "Ada Lovelace", "repos": 12}</span></code></pre>
+          </div>
+          <p class="tour-caption">A chain calls other tools of the project in order, with jq between steps. The agent makes one call; the Calls tab shows every step, and a failing step stops the chain.</p>
+        </div>
+
+        <div class="tour-scene" id="tour-context" data-example="context" role="group" aria-label="Resources and prompts" hidden>
+          <div class="scene">
+            <p class="pane-title">You write</p>
+            <pre><code><span class="ln" style="--d:100ms"><span class="k">prompt</span> <span class="t">summarize_user</span>(login, tone)</span><span class="ln" style="--d:300ms">Use user_overview for <span class="p">{{login}}</span> and write</span><span class="ln" style="--d:450ms">a <span class="p">{{tone}}</span> two-line summary.</span><span class="ln" style="--d:650ms">&nbsp;</span><span class="ln" style="--d:800ms"><span class="k">resource</span> style_guide <span class="c">forge://resources/style_guide</span></span></code></pre>
+            <p class="pane-title rule" style="--d:1200ms">In Claude</p>
+            <pre><code><span class="ln" style="--d:1400ms"><span class="t">/summarize_user</span> ada friendly</span><span class="ln" style="--d:1600ms"><span class="c">→ Use user_overview for ada and write a friendly two-line summary.</span></span></code></pre>
+          </div>
+          <p class="tour-caption">Prompts show up as slash commands; resources as context you can attach. Database schemas and imported specs can be shared as resources too.</p>
+        </div>
+
+        <div class="tour-scene" id="tour-quality" data-example="quality" role="group" aria-label="Description quality" hidden>
+          <div class="scene">
+            <p class="pane-title">Quality tab</p>
+            <pre><code><span class="ln" style="--d:100ms">get_user       <span class="bar" style="--w:95%; --d:300ms"><i></i></span> 95</span><span class="ln" style="--d:250ms">user_overview  <span class="bar" style="--w:90%; --d:450ms"><i></i></span> 90</span><span class="ln" style="--d:400ms">repos          <span class="bar warn" style="--w:65%; --d:600ms"><i></i></span> 65</span><span class="ln" style="--d:1100ms"><span class="c">  · parameter per_page has no description</span></span><span class="ln" style="--d:1250ms"><span class="c">    say the range and default, e.g. "1–100, default 30"</span></span><span class="ln" style="--d:1600ms">&nbsp;</span><span class="ln" style="--d:1750ms"><span class="k">Improve with Claude</span> → suggested wording, side by side</span></code></pre>
+          </div>
+          <p class="tour-caption">Agents pick tools by name and description. The checks run locally; asking Claude for better wording is optional, uses your own key, and changes nothing until you apply it.</p>
+        </div>
+
+        <div class="tour-scene" id="tour-approvals" data-example="approvals" role="group" aria-label="Approvals" hidden>
+          <div class="scene">
+            <p class="pane-title">An agent calls a tool that needs approval</p>
+            <pre><code><span class="ln" style="--d:100ms"><span class="t">close_issue</span>(number = 42)</span><span class="ln" style="--d:400ms"><span class="pulse" style="--d:600ms">⏸</span> waiting for a person on the Approvals page…</span><span class="ln" style="--d:2600ms"><span class="k">✓</span> approved by ada after 12 s</span><span class="ln" style="--d:2900ms"><span class="c">→ the request is sent; the call log records who decided</span></span></code></pre>
+          </div>
+          <p class="tour-caption">Tools that change things can wait for a person. Clients that support it show Approve and Decline in their own app; no answer in time refuses the call, and refused calls never reach your API.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section class="wrap section split">
   <div>
     <h2>HTTP APIs, shaped for agents</h2>
@@ -241,8 +375,9 @@ docker run -d --name mcp-forge -p 127.0.0.1:7410:7410 -v mcp-forge-data:/data \
   <div class="wrap split">
     <div>
       <h2>SQL databases, read-only until you say otherwise</h2>
-      <p>Connect PostgreSQL, MySQL or SQLite. Publish saved queries with typed <code>:name</code> parameters, and optionally let agents list tables, describe them and write their own SELECT statements. Values are always sent separately from the SQL, never pasted into it.</p>
+      <p>Connect PostgreSQL, MySQL, SQL Server, SQLite or ClickHouse. Publish saved queries with typed <code>:name</code> parameters, and optionally let agents list tables, describe them and write their own SELECT statements. Values are always sent separately from the SQL, never pasted into it.</p>
       <p>Mask sensitive columns such as <code>users.password_hash</code> or <code>*.email</code>, and limit which tables agents may explore.</p>
+      <p>MongoDB, Redis, DynamoDB and Elasticsearch connect the same way, with the same access modes, allowed names, masks and limits.</p>
     </div>
     <div class="table-wrap">
       <table>

@@ -169,6 +169,95 @@ abbr { text-decoration: none; }
   .js .steps[data-reveal].in-view > li { background-size: 100% 2px; }
 }
 
+/* Feature tour: features on the left, the chosen one plays on the right.
+   Same mechanics as the hero (site.js [data-forge]): the pressed button's
+   progress bar ends, and the next feature plays. */
+.tour { display: grid; grid-template-columns: minmax(0, 19rem) minmax(0, 1fr); gap: clamp(1.5rem, 4vw, 3rem); margin-top: 2rem; align-items: start; }
+.tour-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .3rem; }
+.tour-list button { position: relative; overflow: hidden; display: grid; gap: .1rem; width: 100%; text-align: left; font: inherit; color: var(--muted); background: transparent; border: 1.5px solid transparent; border-radius: 10px; padding: .6rem .85rem; cursor: pointer; transition: background-color .2s, border-color .2s; }
+.tour-list button strong { font: 600 1rem var(--display); color: var(--ink); }
+.tour-list button span { font-size: .88rem; line-height: 1.4; }
+.tour-list button:hover { border-color: var(--rule); }
+.tour-list button[aria-pressed="true"] { background: var(--paper); border-color: var(--teal); }
+/* Every scene shares one grid cell, so switching never changes the height. */
+.tour-stage { display: grid; min-width: 0; }
+.tour-scene { grid-area: 1 / 1; min-width: 0; }
+.tour-scene[hidden] { display: block; visibility: hidden; }
+.scene { background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--rule); border-radius: 14px; padding: 1.1rem 1.25rem 1.25rem; min-height: 21rem; }
+.scene pre { margin: 0; font: .84rem/1.65 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.scene .rule { border-top: 1px dashed color-mix(in srgb, var(--code-dim) 45%, transparent); padding-top: .8rem; margin-top: .9rem; }
+.tour-caption { margin: .9rem 0 0; color: var(--muted); font-size: .95rem; max-width: 62ch; min-height: 4.8em; }
+.bar { display: inline-block; width: 9rem; height: .55rem; border-radius: 99px; background: color-mix(in srgb, var(--code-dim) 30%, transparent); vertical-align: .05em; overflow: hidden; }
+.bar i { display: block; height: 100%; width: var(--w); background: var(--code-key); border-radius: inherit; transform-origin: left; }
+.bar.warn i { background: var(--code-tool); }
+.pulse { display: inline-block; color: var(--code-tool); }
+
+/* The guided-setup scene: a small dialog going through its states. */
+.mock-scene { display: grid; place-items: center; background: var(--paper-2); color: var(--ink); font: .9rem/1.45 var(--body); }
+.mock-frame { grid-area: 1 / 1; width: min(26rem, 100%); position: relative; opacity: 0; }
+.mock-frame.f2 { opacity: 1; } /* Without motion: the step that catches a mistake. */
+.mock-dialog { background: var(--paper); border: 1px solid var(--rule); border-radius: 12px; box-shadow: 0 12px 32px -18px rgb(0 0 0 / .45); padding: 1rem 1.1rem .9rem; }
+.mock-dialog p { margin: 0; }
+.mock-title { font: 600 1.02rem var(--display); }
+.mock-steps { list-style: none; display: flex; align-items: center; gap: .55rem; padding: 0; margin: .65rem 0 .8rem; }
+.mock-steps li { display: grid; place-items: center; width: 1.45rem; height: 1.45rem; border-radius: 50%; border: 1.5px solid var(--rule); color: var(--muted); font-size: .72rem; font-weight: 700; }
+.mock-steps .on { background: var(--teal); border-color: var(--teal); color: var(--teal-ink); }
+.mock-steps .done { background: var(--mist); border-color: var(--teal); color: var(--teal); }
+.mock-steps .bad { background: #c62f2f; border-color: #c62f2f; color: #fff; }
+.mock-dialog .mock-step { color: var(--muted); font-size: .78rem; font-weight: 600; margin-bottom: .45rem; }
+.mock-dialog .mock-label { font-size: .78rem; font-weight: 600; margin-top: .55rem; }
+.mock-dialog .mock-input { margin-top: .2rem; border: 1.5px solid var(--rule); border-radius: 7px; padding: .3rem .55rem; font: .8rem/1.4 var(--mono); background: var(--paper); overflow-wrap: anywhere; }
+.mock-input b { color: var(--teal); }
+.mock-input.bad { border-color: #c62f2f; box-shadow: 0 0 0 3px color-mix(in srgb, #c62f2f 18%, transparent); }
+.mock-dialog .mock-alert { border: 1px solid color-mix(in srgb, #c62f2f 55%, transparent); background: color-mix(in srgb, #c62f2f 9%, var(--paper)); color: #b32222; border-radius: 8px; padding: .45rem .6rem; font-size: .78rem; margin-bottom: .2rem; }
+.mock-alert strong { display: block; }
+.mock-dialog .mock-foot { display: flex; justify-content: flex-end; gap: .45rem; margin-top: .9rem; padding-top: .7rem; border-top: 1px solid var(--rule); }
+.mock-btn { display: inline-block; font-size: .8rem; font-weight: 600; border-radius: 7px; padding: .3rem .8rem; background: var(--ink); color: var(--paper); }
+.mock-btn.ghost { background: transparent; color: var(--muted); }
+.mock-toast { position: absolute; right: -.4rem; bottom: -1rem; margin: 0; background: var(--ink); color: var(--paper); font-size: .8rem; font-weight: 600; border-radius: 8px; padding: .4rem .75rem; box-shadow: 0 10px 24px -12px rgb(0 0 0 / .5); }
+.caret { display: inline-block; width: 1px; height: 1em; background: currentColor; vertical-align: -.15em; margin-left: 1px; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .mock-alert { color: #ff9b9b; }
+}
+:root[data-theme="dark"] .mock-alert { color: #ff9b9b; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .js .tour-scene.is-playing .ln,
+  .js .tour-scene.is-playing .rule { animation: line-in 380ms var(--d, 0ms) cubic-bezier(.2, .7, .2, 1) both; }
+  .js .tour-scene.is-playing .bar i { animation: draw 900ms var(--d) cubic-bezier(.2, .7, .2, 1) both; }
+  .js .tour-scene.is-playing .pulse { animation: pulse 1s var(--d) ease-in-out 2 both; }
+  .js .tour-scene.is-playing .tour-caption { animation: line-in 500ms 200ms ease-out both; }
+
+  .js .tour-list button[aria-pressed="true"]::after { content: ""; position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; background: var(--teal); transform-origin: left; animation: progress 9s linear both; }
+  .js .tour.chosen .tour-list button::after { content: none; }
+  .js .tour:hover .tour-list button::after,
+  .js .tour:focus-within .tour-list button::after { animation-play-state: paused; }
+
+  /* Each state shows for its own window (--start, --len); the last one stays. */
+  .js .mock-frame,
+  .js .mock-frame.f2 { opacity: 0; }
+  .js .tour-scene.is-playing .mock-frame { animation: frame var(--len) var(--start) step-end forwards; }
+  .js .tour-scene.is-playing .mock-frame.last { animation: frame-last 300ms var(--start) ease-out forwards; }
+  .js .tour-scene.is-playing .mock-frame:first-child { animation-name: frame-first; animation-timing-function: ease-out; }
+  .js .tour-scene.is-playing .press { animation: press 260ms calc(var(--start) + var(--len, 1200ms) - 520ms) ease-in-out both; }
+  .js .tour-scene.is-playing .last .press { animation-delay: calc(var(--start) + 700ms); }
+  .js .tour-scene.is-playing .mock-toast { animation: toast 420ms calc(var(--start) + 1100ms) cubic-bezier(.3, 1.4, .5, 1) both; }
+  .js .tour-scene.is-playing .caret { animation: blink 1s steps(1) infinite; }
+
+  @keyframes frame { from { opacity: 1; } to { opacity: 0; } }
+  @keyframes frame-first { from { opacity: 0; transform: translateY(6px); } 8% { opacity: 1; transform: none; } 99.9% { opacity: 1; } to { opacity: 0; } }
+  @keyframes frame-last { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes press { 50% { transform: scale(.94); filter: brightness(1.25); } }
+  @keyframes toast { from { opacity: 0; transform: translateY(8px) scale(.96); } }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes pulse { 50% { opacity: .25; } }
+}
+
+@media (max-width: 900px) {
+  .tour { grid-template-columns: 1fr; }
+  .tour-list { grid-auto-flow: column; grid-auto-columns: minmax(12rem, 1fr); overflow-x: auto; padding-bottom: .4rem; }
+}
+
 /* Install */
 .tabs [role="tablist"] { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .75rem; }
 .tabs [role="tab"] { font: 600 .95rem var(--body); color: var(--ink); background: transparent; border: 1.5px solid var(--rule); border-radius: 999px; padding: .4rem .95rem; cursor: pointer; }
