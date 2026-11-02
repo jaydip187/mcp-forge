@@ -111,6 +111,23 @@ async function requestText(method: string, path: string): Promise<string> {
   return resp.text();
 }
 
+/**
+ * A `…/check` call: the field errors the server would refuse this input
+ * with, or none. Nothing is saved. Other failures throw as usual.
+ */
+async function check(path: string, body: unknown): Promise<FieldError[]> {
+  try {
+    await request<void>("POST", path, body);
+    return [];
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 422) return e.fields;
+    throw e;
+  }
+}
+
+/** `?id=` for checking an edit, which may keep its own name. */
+const editing = (id: string | undefined) => (id ? `?id=${encodeURIComponent(id)}` : "");
+
 const p = (projectId: string) => `/projects/${encodeURIComponent(projectId)}`;
 
 export const auth = {
@@ -136,6 +153,7 @@ export const api = {
   listTools: (pid: string) => request<Tool[]>("GET", `${p(pid)}/tools`),
   getTool: (pid: string, id: string) => request<Tool>("GET", `${p(pid)}/tools/${id}`),
   createTool: (pid: string, input: ToolInput) => request<Tool>("POST", `${p(pid)}/tools`, input),
+  checkTool: (pid: string, input: ToolInput) => check(`${p(pid)}/tools/check`, input),
   updateTool: (pid: string, id: string, input: ToolInput) => request<Tool>("PUT", `${p(pid)}/tools/${id}`, input),
   deleteTool: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/tools/${id}`),
   toolMcpView: (pid: string, id: string) => request<McpToolView>("GET", `${p(pid)}/tools/${id}/mcp`),
@@ -194,6 +212,7 @@ export const api = {
 
   listAuth: (pid: string) => request<AuthConfig[]>("GET", `${p(pid)}/auth-configs`),
   createAuth: (pid: string, input: AuthConfigInput) => request<AuthConfig>("POST", `${p(pid)}/auth-configs`, input),
+  checkAuth: (pid: string, input: AuthConfigInput, id?: string) => check(`${p(pid)}/auth-configs/check${editing(id)}`, input),
   updateAuth: (pid: string, id: string, input: AuthConfigInput) =>
     request<AuthConfig>("PUT", `${p(pid)}/auth-configs/${id}`, input),
   deleteAuth: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/auth-configs/${id}`),
@@ -212,6 +231,7 @@ export const api = {
     request<void>("PUT", `/users/${userId}/access/${pid}`, { access }),
   projectPeople: (pid: string) => request<ProjectPerson[]>("GET", `${p(pid)}/people`),
   listKeys: (pid: string) => request<ApiKey[]>("GET", `${p(pid)}/api-keys`),
+  checkKey: (pid: string, input: ApiKeyInput) => check(`${p(pid)}/api-keys/check`, input),
   createKey: (pid: string, input: ApiKeyInput) =>
     request<{ key: ApiKey; secret: string }>("POST", `${p(pid)}/api-keys`, input),
   deleteKey: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/api-keys/${id}`),
@@ -223,11 +243,13 @@ export const api = {
   listConnections: (pid: string) => request<DbConnection[]>("GET", `${p(pid)}/db-connections`),
   listResources: (pid: string) => request<ResourceDef[]>("GET", `${p(pid)}/resources`),
   createResource: (pid: string, input: ResourceInput) => request<ResourceDef>("POST", `${p(pid)}/resources`, input),
+  checkResource: (pid: string, input: ResourceInput, id?: string) => check(`${p(pid)}/resources/check${editing(id)}`, input),
   updateResource: (pid: string, id: string, input: ResourceInput) =>
     request<ResourceDef>("PUT", `${p(pid)}/resources/${encodeURIComponent(id)}`, input),
   deleteResource: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/resources/${encodeURIComponent(id)}`),
   listPrompts: (pid: string) => request<PromptDef[]>("GET", `${p(pid)}/prompts`),
   createPrompt: (pid: string, input: PromptInput) => request<PromptDef>("POST", `${p(pid)}/prompts`, input),
+  checkPrompt: (pid: string, input: PromptInput, id?: string) => check(`${p(pid)}/prompts/check${editing(id)}`, input),
   updatePrompt: (pid: string, id: string, input: PromptInput) =>
     request<PromptDef>("PUT", `${p(pid)}/prompts/${encodeURIComponent(id)}`, input),
   /** The prompt filled in with `args`: its text, or why it can't be (a missing required argument). */
@@ -239,6 +261,8 @@ export const api = {
   mcpResources: (pid: string) => request<McpResourceView[]>("GET", `${p(pid)}/mcp-resources`),
   readMcpResource: (pid: string, uri: string) =>
     request<{ uri: string; mime_type: string; text: string }>("GET", `${p(pid)}/mcp-resources/read?uri=${encodeURIComponent(uri)}`),
+  checkConnection: (pid: string, input: DbConnectionInput, confirmFullAccess = false, id?: string) =>
+    check(`${p(pid)}/db-connections/check${editing(id)}`, { ...input, confirm_full_access: confirmFullAccess }),
   createConnection: (pid: string, input: DbConnectionInput, confirmFullAccess = false) =>
     request<DbConnection>("POST", `${p(pid)}/db-connections`, { ...input, confirm_full_access: confirmFullAccess }),
   updateConnection: (pid: string, id: string, input: DbConnectionInput, confirmFullAccess = false) =>

@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { api, ApiError } from "@/api";
 import { CopyBlock } from "@/components/CopyBlock";
 import { EmptyState } from "@/components/EmptyState";
-import { StepDialog, type FormStep } from "@/components/StepDialog";
+import { checkError, StepDialog, type FormStep } from "@/components/StepDialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -230,13 +230,15 @@ function AuthForm({
     setScopesText("");
   }
 
+  function buildInput(): AuthConfigInput {
+    if (!("scopes" in draft.kind)) return draft;
+    const scopes = scopesText.split(/[\s,]+/).filter(Boolean);
+    const kind = draft.kind.type === "oauth2_client_credentials" ? { ...draft.kind, scopes, audience: draft.kind.audience?.trim() || null } : { ...draft.kind, scopes };
+    return { ...draft, kind };
+  }
+
   async function submit() {
-    let input = draft;
-    if ("scopes" in draft.kind) {
-      const scopes = scopesText.split(/[\s,]+/).filter(Boolean);
-      const kind = draft.kind.type === "oauth2_client_credentials" ? { ...draft.kind, scopes, audience: draft.kind.audience?.trim() || null } : { ...draft.kind, scopes };
-      input = { ...draft, kind };
-    }
+    const input = buildInput();
     try {
       if (existing) await api.updateAuth(projectId, existing.id, input);
       else await api.createAuth(projectId, input);
@@ -358,6 +360,8 @@ function AuthForm({
       submitLabel={existing ? "Save auth config" : "Add auth config"}
       onSubmit={submit}
       onClose={onClose}
+      check={() => api.checkAuth(projectId, buildInput(), existing?.id)}
+      showErrors={(found) => setErr(checkError(found))}
     />
   );
 }

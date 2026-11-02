@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { api, ApiError } from "@/api";
 import { PageHeader } from "@/components/PageHeader";
 import { Field, Section } from "@/components/FormSection";
-import { StepDialog, type FormStep } from "@/components/StepDialog";
+import { asProblems, checkError, StepDialog, type FormStep } from "@/components/StepDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,7 +25,7 @@ import {
 } from "@/lib/graphqlForm";
 import { describeAuth } from "@/pages/AuthTab";
 import { TestConsole } from "@/pages/TestConsole";
-import type { AuthConfig, Tool } from "@/types";
+import type { AuthConfig, Tool, FieldError } from "@/types";
 
 /** Editor for GraphQL tools: one query or mutation against an endpoint. */
 export function GraphqlToolEditor({ projectId, tool }: { projectId: string; tool: Tool | null }) {
@@ -91,6 +91,12 @@ export function GraphqlToolEditor({ projectId, tool }: { projectId: string; tool
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  /** For Next: what the form or the server would refuse now. */
+  async function check(): Promise<FieldError[]> {
+    const result = buildGraphqlInput(form);
+    return result.ok ? api.checkTool(projectId, result.input) : asProblems(result.fieldErrors);
   }
 
   const steps: FormStep[] = [
@@ -231,7 +237,7 @@ export function GraphqlToolEditor({ projectId, tool }: { projectId: string; tool
 
   const banner = (
     <>
-      {serverErr && (
+      {serverErr && serverErr.code !== "check" && (
         <Alert variant="destructive">
           <AlertTitle>{serverErr.code === "validation" ? "Fix these before saving" : "Couldn't save"}</AlertTitle>
           <AlertDescription>
@@ -262,6 +268,11 @@ export function GraphqlToolEditor({ projectId, tool }: { projectId: string; tool
         busy={busy}
         onSubmit={() => save()}
         onClose={() => navigate(href.project(projectId))}
+        check={check}
+        showErrors={(found) => {
+          setLocalErr({});
+          setServerErr(checkError(found));
+        }}
       />
     );
 

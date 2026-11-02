@@ -270,7 +270,7 @@ impl Store {
 
     /// A tool may only reference an auth config or DB connection from its
     /// own project.
-    pub(crate) async fn check_auth_ref(
+    pub async fn check_auth_ref(
         &self,
         project_id: Uuid,
         input: &ToolInput,

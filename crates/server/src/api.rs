@@ -10,8 +10,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Extension, Json, Router};
 use forge_core::{
-    AuthConfig, AuthConfigInput, DbConnection, DbConnectionInput, Project, ProjectInput, SqlMode,
-    ToolDef, ToolInput, ToolKind,
+    AuthConfig, AuthConfigInput, DbConnection, DbConnectionInput, Project, ProjectInput, SecretRef,
+    SqlMode, ToolDef, ToolInput, ToolKind, ValidationErrors,
 };
 use forge_exec_http::ExecError;
 use forge_exec_sql::SqlError;
@@ -27,6 +27,18 @@ use crate::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/projects", get(list_projects).post(create_project))
+        .route(
+            "/projects/{project_id}/tools/check",
+            axum::routing::post(check_tool),
+        )
+        .route(
+            "/projects/{project_id}/auth-configs/check",
+            axum::routing::post(check_auth_config),
+        )
+        .route(
+            "/projects/{project_id}/db-connections/check",
+            axum::routing::post(check_connection),
+        )
         .route(
             "/projects/{project_id}",
             get(get_project).put(update_project).delete(delete_project),
@@ -240,6 +252,148 @@ async fn delete_project(
     s.store.delete_project(id).await?;
     s.changes.notify(id);
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ---- checks -----------------------------------------------------------------
+//
+// `POST …/check` runs the validation of create without saving anything and
+// reports every problem at once (create stops at the first failing check), so
+// the UI can check one step of a form before moving on to the next.
+
+/// Keeps the field errors of a check in `errs` instead of stopping at them.
+pub(crate) fn collect(errs: &mut ValidationErrors, r: ApiResult<()>) -> ApiResult<()> {
+    match r {
+        Err(ApiError::Store(StoreError::Validation(e))) => {
+            for f in e.errors {
+                if !errs.errors.contains(&f) {
+                    errs.errors.push(f);
+                }
+            }
+            Ok(())
+        }
+        r => r,
+    }
+}
+
+/// A validation result as an API result, for [`collect`].
+pub(crate) fn invalid_if(r: Result<(), ValidationErrors>) -> ApiResult<()> {
+    r.map_err(|e| ApiError::Store(e.into()))
+}
+
+/// 204 when the input would save, otherwise 422 listing every problem.
+pub(crate) fn checked(errs: ValidationErrors) -> ApiResult<StatusCode> {
+    invalid_if(errs.into_result())?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Takes a secret reference out of a check payload before it is parsed: a bad
+/// one is reported on `field` and replaced, so the rest of the form is still
+/// checked. Messages never contain the value itself.
+pub(crate) fn take_secret_ref(body: &mut Value, field: &str, errs: &mut ValidationErrors) {
+    let text = body.get(field).and_then(Value::as_str).unwrap_or_default();
+    if let Err(m) = SecretRef::parse(text) {
+        errs.push(field, m);
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert(field.to_owned(), json!("env:UNCHECKED"));
+        }
+    }
+}
+
+/// `?id=` on a check: the item being edited, which may keep its own name.
+#[derive(Deserialize)]
+pub(crate) struct CheckQuery {
+    pub id: Option<Uuid>,
+}
+
+pub(crate) fn parse_check<T: serde::de::DeserializeOwned>(body: Value) -> ApiResult<T> {
+    serde_json::from_value(body).map_err(|e| ApiError::BadRequest(e.to_string()))
+}
+
+async fn check_tool(
+    State(s): State<AppState>,
+    ApiPath(project_id): ApiPath<Uuid>,
+    ApiJson(input): ApiJson<ToolInput>,
+) -> ApiResult<StatusCode> {
+    let mut errs = ValidationErrors::default();
+    collect(&mut errs, invalid_if(input.validate()))?;
+    collect(&mut errs, check_shape(&input))?;
+    collect(&mut errs, check_sql(&s, project_id, &input).await)?;
+    collect(
+        &mut errs,
+        s.store
+            .check_auth_ref(project_id, &input)
+            .await
+            .map_err(ApiError::Store),
+    )?;
+    let tools = s.store.list_tools(project_id).await?;
+    if tools.iter().any(|t| t.name == input.name) {
+        errs.push(
+            "name",
+            format!(
+                "a tool named `{}` already exists in this project",
+                input.name
+            ),
+        );
+    }
+    checked(errs)
+}
+
+async fn check_auth_config(
+    State(s): State<AppState>,
+    ApiPath(project_id): ApiPath<Uuid>,
+    axum::extract::Query(q): axum::extract::Query<CheckQuery>,
+    ApiJson(mut body): ApiJson<Value>,
+) -> ApiResult<StatusCode> {
+    let mut errs = ValidationErrors::default();
+    take_secret_ref(&mut body, "secret_ref", &mut errs);
+    let input: AuthConfigInput = parse_check(body)?;
+    collect(&mut errs, invalid_if(input.validate()))?;
+    let configs = s.store.list_auth_configs(project_id).await?;
+    if configs
+        .iter()
+        .any(|c| c.name == input.name && Some(c.id) != q.id)
+    {
+        errs.push(
+            "name",
+            format!(
+                "an auth config named `{}` already exists in this project",
+                input.name
+            ),
+        );
+    }
+    checked(errs)
+}
+
+async fn check_connection(
+    State(s): State<AppState>,
+    ApiPath(project_id): ApiPath<Uuid>,
+    axum::extract::Query(q): axum::extract::Query<CheckQuery>,
+    ApiJson(mut body): ApiJson<Value>,
+) -> ApiResult<StatusCode> {
+    let mut errs = ValidationErrors::default();
+    take_secret_ref(&mut body, "dsn_ref", &mut errs);
+    let req: ConnectionRequest = parse_check(body)?;
+    let conns = s.store.list_connections(project_id).await?;
+    let before = conns
+        .iter()
+        .find(|c| Some(c.id) == q.id)
+        .map(|c| c.access_mode);
+    collect(&mut errs, check_driver(&req))?;
+    collect(&mut errs, check_full_access(&req, before))?;
+    collect(&mut errs, invalid_if(req.input.validate()))?;
+    if conns
+        .iter()
+        .any(|c| c.name == req.input.name && Some(c.id) != q.id)
+    {
+        errs.push(
+            "name",
+            format!(
+                "a connection named `{}` already exists in this project",
+                req.input.name
+            ),
+        );
+    }
+    checked(errs)
 }
 
 // ---- tools ------------------------------------------------------------------

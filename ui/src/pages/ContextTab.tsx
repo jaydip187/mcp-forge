@@ -3,7 +3,7 @@ import { FileTextIcon, MessageSquareTextIcon, PlusIcon, Trash2Icon } from "lucid
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
-import { StepDialog, type FormStep } from "@/components/StepDialog";
+import { checkError, StepDialog, type FormStep } from "@/components/StepDialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -322,6 +322,8 @@ function ResourceForm({
       submitLabel={existing ? "Save resource" : "Add resource"}
       onSubmit={submit}
       onClose={onClose}
+      check={() => api.checkResource(projectId, draft, existing?.id)}
+      showErrors={(found) => setErr(checkError(found))}
       extraActions={
         existing &&
         (confirm ? (
@@ -532,6 +534,8 @@ function PromptForm({
       submitLabel={existing ? "Save prompt" : "Add prompt"}
       onSubmit={submit}
       onClose={onClose}
+      check={() => api.checkPrompt(projectId, withTemplateArgs(), existing?.id)}
+      showErrors={(found) => setErr(checkError(found))}
       extraActions={
         existing &&
         (confirm ? (

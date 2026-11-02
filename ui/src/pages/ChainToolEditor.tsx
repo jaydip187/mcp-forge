@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { api, ApiError } from "@/api";
 import { PageHeader } from "@/components/PageHeader";
 import { Field, Section } from "@/components/FormSection";
-import { StepDialog, type FormStep } from "@/components/StepDialog";
+import { checkError, StepDialog, type FormStep } from "@/components/StepDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -285,7 +285,7 @@ export function ChainToolEditor({ projectId, tool }: { projectId: string; tool: 
 
   const banner = (
     <>
-      {serverErr && (
+      {serverErr && serverErr.code !== "check" && (
         <Alert variant="destructive">
           <AlertTitle>{serverErr.code === "validation" ? "Fix these before saving" : "Couldn't save"}</AlertTitle>
           <AlertDescription>
@@ -316,6 +316,8 @@ export function ChainToolEditor({ projectId, tool }: { projectId: string; tool: 
         busy={busy}
         onSubmit={() => save()}
         onClose={() => navigate(href.project(projectId))}
+        check={() => api.checkTool(projectId, input)}
+        showErrors={(found) => setServerErr(checkError(found))}
       />
     );
 

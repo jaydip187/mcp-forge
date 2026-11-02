@@ -4,7 +4,7 @@ import { toast } from "sonner";
 
 import { api, ApiError } from "@/api";
 import { CopyBlock } from "@/components/CopyBlock";
-import { StepDialog } from "@/components/StepDialog";
+import { checkError, StepDialog } from "@/components/StepDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -243,14 +243,18 @@ function NewKeyForm({
     void api.listTools(projectId).then(setTools);
   }, [projectId]);
 
-  async function submit() {
+  function buildInput() {
     const days = EXPIRY.find((x) => x.value === expiry)?.days ?? null;
+    return {
+      name: name.trim(),
+      tools: allTools ? null : picked,
+      expires_at: days === null ? null : new Date(Date.now() + days * 86_400_000).toISOString(),
+    };
+  }
+
+  async function submit() {
     try {
-      const { key, secret } = await api.createKey(projectId, {
-        name: name.trim(),
-        tools: allTools ? null : picked,
-        expires_at: days === null ? null : new Date(Date.now() + days * 86_400_000).toISOString(),
-      });
+      const { key, secret } = await api.createKey(projectId, buildInput());
       setErr(null);
       await onCreated(key.name, secret);
     } catch (e) {
@@ -333,6 +337,8 @@ function NewKeyForm({
       submitLabel="Create key"
       onSubmit={submit}
       onClose={onCancel}
+      check={() => api.checkKey(projectId, buildInput())}
+      showErrors={(found) => setErr(checkError(found))}
     />
   );
 }

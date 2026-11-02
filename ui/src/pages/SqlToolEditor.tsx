@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { api, ApiError } from "@/api";
 import { PageHeader } from "@/components/PageHeader";
 import { Field, Section } from "@/components/FormSection";
-import { StepDialog, type FormStep } from "@/components/StepDialog";
+import { asProblems, checkError, StepDialog, type FormStep } from "@/components/StepDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -18,7 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { href, navigate } from "@/lib/router";
 import { buildSqlInput, enumText, EXPLORATION_LABEL, looksLikeWrite, newSqlForm, withEnum, paramType, sqlFormFromTool, sqlParamIndex, syncSqlParams, type SqlForm } from "@/lib/sqlForm";
 import { TestConsole } from "@/pages/TestConsole";
-import { DRIVER_LABEL, SQL_PARAM_TYPES, type DbConnection, type SqlParam, type SqlParamType, type Tool } from "@/types";
+import { DRIVER_LABEL, SQL_PARAM_TYPES, type DbConnection, type SqlParam, type SqlParamType, type Tool, type FieldError } from "@/types";
 
 /** Editor for curated read-only SQL query tools. */
 export function SqlToolEditor({ projectId, tool }: { projectId: string; tool: Tool | null }) {
@@ -91,6 +91,12 @@ export function SqlToolEditor({ projectId, tool }: { projectId: string; tool: To
   }
 
   const general = (serverErr?.fields ?? []).filter((f) => f.field === "kind.mode.params" || f.field === "response_shape");
+
+  /** For Next: what the form or the server would refuse now. */
+  async function check(): Promise<FieldError[]> {
+    const result = buildSqlInput(form);
+    return result.ok ? api.checkTool(projectId, result.input) : asProblems(result.fieldErrors);
+  }
 
   const steps: FormStep[] = [
     {
@@ -335,7 +341,7 @@ export function SqlToolEditor({ projectId, tool }: { projectId: string; tool: To
           </AlertDescription>
         </Alert>
       )}
-      {serverErr && (
+      {serverErr && serverErr.code !== "check" && (
         <Alert variant="destructive">
           <AlertTitle>{serverErr.code === "validation" ? "Fix these before saving" : "Couldn't save"}</AlertTitle>
           <AlertDescription>
@@ -366,6 +372,11 @@ export function SqlToolEditor({ projectId, tool }: { projectId: string; tool: To
         busy={busy}
         onSubmit={() => save()}
         onClose={() => navigate(href.project(projectId))}
+        check={check}
+        showErrors={(found) => {
+          setLocalErr({});
+          setServerErr(checkError(found));
+        }}
       />
     );
 

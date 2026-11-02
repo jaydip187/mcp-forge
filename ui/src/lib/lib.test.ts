@@ -8,6 +8,7 @@ import { parseTyped, placeholders, slugify, splitTemplate, syncPathParams } from
 import { buildToolInput, newForm, paramIndex, type RowText } from "./toolForm";
 import type { ParamDef } from "../types";
 import { owns } from "../components/StepDialog";
+import { problemField } from "./fields";
 
 const param = (p: Partial<ParamDef>): ParamDef => ({
   name: "x",
@@ -549,5 +550,16 @@ describe("step dialog", () => {
     expect(owns(step, "names")).toBe(false);
     expect(owns(step, "kind.params_extra")).toBe(false);
     expect(owns({ title: "x", content: null }, "name")).toBe(false);
+  });
+});
+
+describe("problem field names", () => {
+  it("puts server field paths into words", () => {
+    expect(problemField("name")).toBe("Name");
+    expect(problemField("kind.base_url")).toBe("Base URL");
+    expect(problemField("kind.params[1].name")).toBe("Parameter 2 name");
+    expect(problemField("kind.mode.sql")).toBe("SQL");
+    expect(problemField("dsn_ref")).toBe("Connection string reference");
+    expect(problemField("column_masks[0]")).toBe("Column masks 1");
   });
 });
