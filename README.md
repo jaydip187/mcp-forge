@@ -1,7 +1,7 @@
 # mcp-forge
 
-Turn HTTP APIs and SQL databases into **curated MCP tools** for Claude and other AI agents, from one
-self-hosted binary with a web UI.
+Turn HTTP and GraphQL APIs, SQL and NoSQL databases into **curated MCP tools** for Claude and other AI
+agents, from one self-hosted binary with a web UI.
 
 - **HTTP APIs**: describe requests by hand, or import an OpenAPI 3.x / Swagger 2.0 spec, a Postman
   collection, a HAR file or curl commands, then rename, trim and reshape what agents see (jq).
