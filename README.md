@@ -88,30 +88,39 @@ password to create the first account. After that the UI asks you to sign in.
 
 ### 2. Create a project
 
-Click **+** next to *Projects*, name it `github`. A project is one MCP server: agents connect to
+Click **New project** (or **+** next to *Projects* in the sidebar), name it `github` and click
+**Create project**. A project is one MCP server: agents connect to
 `http://127.0.0.1:7410/mcp/github` and see that project's tools.
 
 ### 3. Add a tool
 
-Click **New tool → HTTP request** and fill in:
+Click **New tool → HTTP request**. A dialog walks you through the tool one step at a time:
 
-| Field       | Value                                     |
-|-------------|-------------------------------------------|
-| Name        | `get_repo`                                |
-| Description | `Look up a GitHub repository: stars, language, open issues.` |
-| Method      | `GET`                                     |
-| Base URL    | `https://api.github.com`                  |
-| Path        | `/repos/{owner}/{repo}`                   |
+| Step                | Fill in |
+|---------------------|---------|
+| What the agent sees | Name `get_repo`, description `Look up a GitHub repository: stars, language, open issues.` |
+| Request             | Method `GET`, base URL `https://api.github.com`, path `/repos/{owner}/{repo}` |
+| Parameters          | Nothing to do: `owner` and `repo` were added from the path |
+| Body                | Nothing for a GET |
+| Response            | Optionally, a response shape (below) |
 
-Leave the path field: `owner` and `repo` appear as required parameters. Optionally add a
-**Response shape** so the agent gets only what it needs:
+**Next** checks the step against the server before moving on, so a bad name or URL is caught
+on the step where you typed it, with the field marked, instead of when you save.
+
+Leaving the path field adds `owner` and `repo` as required parameters. On the last step,
+optionally add a **Response shape** so the agent gets only what it needs:
 
 ```jq
 {name: .full_name, stars: .stargazers_count, language, open_issues: .open_issues_count}
 ```
 
-Click **Create tool**, then try it in the **Test console** on the right (`owner` = `rust-lang`,
-`repo` = `rust`). *Agent sees* is exactly what an agent will get back.
+Click **Create tool**. You land on the tool's page; try it in the **Test console** on the right
+(`owner` = `rust-lang`, `repo` = `rust`). *Agent sees* is exactly what an agent will get back.
+Editing a tool later happens on that page, with the same sections one under another.
+
+> Everything you create in the web UI works this way: databases, auth configs, resources,
+> prompts and access keys open in the same step-by-step dialog from an **Add** button on their
+> tab, and **Edit** opens it again with the current values.
 
 > Have an OpenAPI or Swagger spec, a Postman collection, a HAR file or a few curl commands? Use
 > **Import** on the Tools tab instead: upload a file, paste text or give a URL, filter the
@@ -638,6 +647,12 @@ or machine with `import` or *Settings → Import tools.yaml*. Imported tools bec
 
 The server also exposes `GET /healthz` and a REST API under `/api` (the UI uses it). Scripts
 authenticate to `/api` with the admin token (`Authorization: Bearer <token>`).
+
+To validate without saving, POST the same body to `…/check` instead: `tools/check`,
+`auth-configs/check`, `db-connections/check`, `resources/check`, `prompts/check` and
+`api-keys/check` under `/api/projects/{id}/`. The answer is `204` when it would save, or `422`
+listing every problem at once (creating stops at the first). Add `?id=<item id>` when checking
+an edit, so the item may keep its own name.
 
 ## Troubleshooting
 

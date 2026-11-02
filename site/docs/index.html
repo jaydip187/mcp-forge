@@ -107,31 +107,32 @@ mcp-forge --version</code></pre>
   <p>Open <code>http://127.0.0.1:7410</code>. On first run there is no account yet, so the server prints a one-time setup code in its log:</p>
 <pre class="code"><code><span class="c">no accounts yet: … setup code ABCD-EFGH-JKLM</span></code></pre>
   <p>Enter the code in the browser with a username and password to create the first account. Data lives in <code>~/.mcp-forge</code>; change it with <code>--data-dir</code>.</p>
-  <p>Next, click <strong>+</strong> next to <em>Projects</em> and create a project called <code>github</code>. A project is one MCP server: agents connect to <code>http://127.0.0.1:7410/mcp/github</code> and see that project's tools.</p>
+  <p>Next, click <strong>New project</strong> (or <strong>+</strong> next to <em>Projects</em> in the sidebar) and create a project called <code>github</code>. A project is one MCP server: agents connect to <code>http://127.0.0.1:7410/mcp/github</code> and see that project's tools.</p>
 </section>
 
 <section id="http-tool">
   <h2>Example: a GitHub API tool</h2>
   <p>Goal: let an agent answer "How many stars does rust-lang/rust have?" without handing it the whole GitHub API.</p>
-  <p>In the <code>github</code> project, click <strong>New HTTP tool</strong> and fill in:</p>
+  <p>In the <code>github</code> project, click <strong>New tool → HTTP request</strong>. A dialog walks you through the tool one step at a time:</p>
   <div class="table-wrap">
     <table>
-      <thead><tr><th scope="col">Field</th><th scope="col">Value</th></tr></thead>
+      <thead><tr><th scope="col">Step</th><th scope="col">Fill in</th></tr></thead>
       <tbody>
-        <tr><th scope="row">Name</th><td><code>get_repo</code></td></tr>
-        <tr><th scope="row">Description</th><td>Look up a GitHub repository: stars, language, open issues.</td></tr>
-        <tr><th scope="row">Method</th><td><code>GET</code></td></tr>
-        <tr><th scope="row">Base URL</th><td><code>https://api.github.com</code></td></tr>
-        <tr><th scope="row">Path</th><td><code>/repos/{owner}/{repo}</code></td></tr>
+        <tr><th scope="row">What the agent sees</th><td>Name <code>get_repo</code>, description “Look up a GitHub repository: stars, language, open issues.”</td></tr>
+        <tr><th scope="row">Request</th><td>Method <code>GET</code>, base URL <code>https://api.github.com</code>, path <code>/repos/{owner}/{repo}</code></td></tr>
+        <tr><th scope="row">Parameters</th><td>Nothing to do: <code>owner</code> and <code>repo</code> were added from the path</td></tr>
+        <tr><th scope="row">Body</th><td>Nothing for a GET</td></tr>
+        <tr><th scope="row">Response</th><td>Optionally, a response shape (below)</td></tr>
       </tbody>
     </table>
   </div>
+  <p><strong>Next</strong> checks each step against the server before moving on. A bad name or URL is caught on the step where you typed it, with the field marked, instead of when you save. Databases, auth configs, resources, prompts and access keys open in the same kind of dialog from an <strong>Add</strong> button on their tab.</p>
   <p>Each <code>{placeholder}</code> in the path becomes a required parameter, so the agent sees <code>owner</code> and <code>repo</code>. Values are percent-encoded, so an agent can't sneak in <code>/</code>, <code>?</code> or <code>..</code>.</p>
 
   <h3>Shape the response</h3>
   <p>GitHub returns about a hundred fields. Add a <strong>Response shape</strong>, a jq expression applied before the agent sees anything:</p>
 <pre class="code"><code>{name: .full_name, stars: .stargazers_count, language, open_issues: .open_issues_count}</code></pre>
-  <p>Click <strong>Create tool</strong>, then try it in the <strong>Test console</strong> with <code>owner</code> = <code>rust-lang</code> and <code>repo</code> = <code>rust</code>. <em>Agent sees</em> shows exactly what an agent will get back, for example:</p>
+  <p>Click <strong>Create tool</strong>. You land on the tool's page; try it in the <strong>Test console</strong> with <code>owner</code> = <code>rust-lang</code> and <code>repo</code> = <code>rust</code>. <em>Agent sees</em> shows exactly what an agent will get back, for example:</p>
 <pre class="code"><code>{
   "name": "rust-lang/rust",
   "stars": 104000,
@@ -176,7 +177,7 @@ mcp-forge serve
 <span class="c"># Windows PowerShell</span>
 $env:GITHUB_TOKEN = "ghp_..."
 mcp-forge serve</code></pre>
-  <p>On the project's <strong>Auth</strong> tab, add an auth config named <code>github</code> of type <em>Bearer token</em> with reference <code>env:GITHUB_TOKEN</code>, then pick it in the <em>Auth</em> field of <code>get_repo</code>. Three kinds are available:</p>
+  <p>On the project's <strong>Auth</strong> tab, click <strong>Add auth config</strong> and create one named <code>github</code> of type <em>Bearer token</em> with reference <code>env:GITHUB_TOKEN</code>, then pick it in the <em>Auth</em> field of <code>get_repo</code>. Three kinds are available:</p>
   <ul class="plain">
     <li><strong>Bearer token</strong> sends <code>Authorization: Bearer &lt;secret&gt;</code>.</li>
     <li><strong>API key</strong> sends the secret as a header or query parameter with the name you choose, such as <code>X-API-Key</code>.</li>
@@ -201,10 +202,10 @@ mcp-forge serve</code></pre>
       </tbody>
     </table>
   </div>
-  <p>On the <strong>Databases</strong> tab, add a connection named <code>shop</code> with driver PostgreSQL and reference <code>env:SHOP_DB_URL</code>. Click <strong>Test</strong>: it shows the server version, the login, and whether that login can change data.</p>
+  <p>On the <strong>Databases</strong> tab, click <strong>Add database</strong> and create a connection named <code>shop</code> with driver PostgreSQL and reference <code>env:SHOP_DB_URL</code>. Click <strong>Test</strong>: it shows the server version, the login, and whether that login can change data.</p>
 
   <h3>2. Publish a saved query</h3>
-  <p>Click <strong>New SQL tool</strong>, name it <code>recent_orders</code>, choose the <code>shop</code> connection and enter one statement:</p>
+  <p>On the Tools tab, click <strong>New tool → SQL query</strong>, name it <code>recent_orders</code>, choose the <code>shop</code> connection and enter one statement:</p>
 <pre class="code"><code>SELECT id, status, total
 FROM orders
 WHERE customer_id = :customer_id
