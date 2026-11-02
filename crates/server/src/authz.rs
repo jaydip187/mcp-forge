@@ -642,12 +642,13 @@ fn decode_basic(b64: &str) -> Option<(String, String)> {
     Some((dec(id)?, dec(secret)?))
 }
 
-/// Checks the client's identity. `Err` is the response to send.
+/// Checks the client's identity. `Err` is the response to send (boxed:
+/// a `Response` is large, and the happy path shouldn't carry its size).
 async fn authenticate_client(
     s: &AppState,
     headers: &HeaderMap,
     form: &TokenForm,
-) -> Result<String, Response> {
+) -> Result<String, Box<Response>> {
     let (id, secret, via_basic) = client_credentials(headers, form);
     let invalid = || {
         let mut r = oauth_error(
@@ -661,17 +662,19 @@ async fn authenticate_client(
         }
         r
     };
-    let Some(id) = id else { return Err(invalid()) };
+    let Some(id) = id else {
+        return Err(Box::new(invalid()));
+    };
     let (client, secret_hash) = match s.store.get_oauth_client(&id).await {
         Ok(Some(c)) => c,
-        Ok(None) => return Err(invalid()),
+        Ok(None) => return Err(Box::new(invalid())),
         Err(e) => {
             tracing::error!(error = %e, "token: client lookup");
-            return Err(oauth_error(
+            return Err(Box::new(oauth_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "server_error",
                 "internal error",
-            ));
+            )));
         }
     };
     if let Some(expected) = secret_hash {
@@ -679,7 +682,7 @@ async fn authenticate_client(
             constant_time_eq(forge_store::key_hash(&s).as_bytes(), expected.as_bytes())
         });
         if !ok {
-            return Err(invalid());
+            return Err(Box::new(invalid()));
         }
     }
     Ok(client.client_id)
@@ -706,7 +709,7 @@ async fn token(
 ) -> Response {
     let client_id = match authenticate_client(&s, &headers, &form).await {
         Ok(id) => id,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let invalid_grant = |why: &str| oauth_error(StatusCode::BAD_REQUEST, "invalid_grant", why);
     let issued = match form.grant_type.as_deref() {
@@ -787,7 +790,7 @@ async fn revoke(
     Form(form): Form<TokenForm>,
 ) -> Response {
     if let Err(r) = authenticate_client(&s, &headers, &form).await {
-        return r;
+        return *r;
     }
     if let Some(t) = form.token.as_deref() {
         if let Err(e) = s.store.revoke_oauth_token(t).await {
