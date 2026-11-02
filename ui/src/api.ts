@@ -230,6 +230,9 @@ export const api = {
   createPrompt: (pid: string, input: PromptInput) => request<PromptDef>("POST", `${p(pid)}/prompts`, input),
   updatePrompt: (pid: string, id: string, input: PromptInput) =>
     request<PromptDef>("PUT", `${p(pid)}/prompts/${encodeURIComponent(id)}`, input),
+  /** The prompt filled in with `args`: its text, or why it can't be (a missing required argument). */
+  renderPrompt: (pid: string, id: string, args: Record<string, string>) =>
+    request<{ text?: string; error?: string }>("POST", `${p(pid)}/prompts/${encodeURIComponent(id)}/render`, { arguments: args }),
   deletePrompt: (pid: string, id: string) => request<void>("DELETE", `${p(pid)}/prompts/${encodeURIComponent(id)}`),
   lintProject: (pid: string) => request<LintReport>("GET", `${p(pid)}/lint`),
   improveTool: (pid: string, id: string) => request<Improvement>("POST", `${p(pid)}/tools/${encodeURIComponent(id)}/improve`, {}),

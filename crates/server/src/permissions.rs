@@ -29,6 +29,10 @@ pub fn need(method: &Method, path: &str) -> Need {
         ["projects"] => Need::Admin,
         // Deleting a project is admin-only.
         ["projects", _] if *method == Method::DELETE => Need::Admin,
+        // Filling a prompt in changes nothing.
+        ["projects", id, "prompts", _, "render"] if *method == Method::POST => {
+            Uuid::parse_str(id).map_or(Need::Admin, Need::Read)
+        }
         ["projects", id, ..] => match Uuid::parse_str(id) {
             Ok(pid) if read => Need::Read(pid),
             Ok(pid) => Need::Write(pid),

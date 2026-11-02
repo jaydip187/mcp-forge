@@ -165,7 +165,7 @@ export function ChainToolEditor({ projectId, tool }: { projectId: string; tool: 
             <Field id="c-name" label="Name" error={err("name")} hint="Letters, digits, _ and -. Up to 64 characters.">
               <Input id="c-name" value={form.name} onChange={(e) => set({ name: e.target.value })} className="font-mono" placeholder="user_overview" />
             </Field>
-            <Field id="c-desc" label="Description" hint="Leave empty to describe the steps.">
+            <Field id="c-desc" label="Description" hint="Say what the chain is for. Left empty, agents only see a line listing the steps.">
               <Textarea id="c-desc" value={form.description} onChange={(e) => set({ description: e.target.value })} className="min-h-20" placeholder="A user's profile and their repositories in one call." />
             </Field>
             <Field id="c-tags" label="Tags" hint="Comma-separated.">
