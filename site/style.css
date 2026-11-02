@@ -1,4 +1,4 @@
-/* One dark theme: deep teal-black surfaces, mint and violet light. */
+/* One dark theme: deep teal-black surfaces, mint and lime light. */
 :root {
   --bg: #070d0c;
   --paper: #0b1513;
@@ -9,15 +9,15 @@
   --rule: rgb(255 255 255 / .09);
   --teal: #4fe0c8;
   --teal-ink: #04110f;
-  --violet: #a594ff;
-  --grad: linear-gradient(100deg, #4fe0c8 0%, #8fd8ff 45%, #a594ff 100%);
+  --lime: #b8f08a;
+  --grad: linear-gradient(100deg, #4fe0c8 0%, #7fe8b0 50%, #b8f08a 100%);
   --mist: rgb(79 224 200 / .1);
   --code-bg: #060b0a;
   --code-ink: #d6e6e2;
   --code-dim: #7f9893;
   --code-key: #7fe8d6;
   --code-tool: #f2cd7a;
-  --focus: #8cc4ff;
+  --focus: #8ff0dc;
   --display: "Bricolage Grotesque", system-ui, sans-serif;
   --body: "Atkinson Hyperlegible Next", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
@@ -88,7 +88,7 @@ h2.kicker { font-size: .82rem; max-width: none; }
 .hero { position: relative; overflow: hidden; padding-block: clamp(3.5rem, 8vw, 6.5rem) clamp(3.5rem, 7vw, 5.5rem); }
 .glow { position: absolute; inset: -20% -10% auto; height: 46rem; pointer-events: none; background:
   radial-gradient(38rem 22rem at 25% 35%, rgb(79 224 200 / .18), transparent 70%),
-  radial-gradient(34rem 24rem at 78% 40%, rgb(165 148 255 / .2), transparent 70%); filter: blur(10px); }
+  radial-gradient(34rem 24rem at 78% 40%, rgb(184 240 138 / .2), transparent 70%); filter: blur(10px); }
 .hero-split { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: clamp(2rem, 5vw, 4.5rem); align-items: center; }
 .hero h1 { font-size: clamp(2.6rem, 5.6vw, 4.6rem); max-width: 12ch; letter-spacing: -0.02em; margin-bottom: .45em; }
 .lede { font-size: 1.2rem; color: var(--muted); max-width: 60ch; }
@@ -97,13 +97,13 @@ h2.kicker { font-size: .82rem; max-width: none; }
 @media (max-width: 960px) { .hero-split { grid-template-columns: 1fr; } }
 
 /* The live example */
-.demo { position: relative; margin: 0; border: 1px solid var(--rule); border-radius: 20px; background: color-mix(in srgb, var(--paper) 82%, transparent); backdrop-filter: blur(12px); box-shadow: 0 40px 100px -40px rgb(165 148 255 / .45), 0 0 0 1px rgb(255 255 255 / .03) inset; padding: 1.1rem 1.25rem 1.35rem; font-size: .92rem; }
+.demo { position: relative; margin: 0; border: 1px solid var(--rule); border-radius: 20px; background: color-mix(in srgb, var(--paper) 82%, transparent); backdrop-filter: blur(12px); box-shadow: 0 40px 100px -40px rgb(184 240 138 / .45), 0 0 0 1px rgb(255 255 255 / .03) inset; padding: 1.1rem 1.25rem 1.35rem; font-size: .92rem; }
 .demo-bar { display: flex; align-items: center; gap: .55rem; margin: 0 0 1rem; padding-bottom: .8rem; border-bottom: 1px solid var(--rule); color: var(--muted); font-size: .8rem; font-weight: 600; }
 .demo-live { width: .5rem; height: .5rem; border-radius: 50%; background: var(--teal); box-shadow: 0 0 0 4px rgb(79 224 200 / .18); }
 .demo-lanes { margin-left: auto; font-weight: 400; }
 .demo-lanes i { font-style: normal; color: var(--teal); }
 .demo-flow { list-style: none; margin: 0; padding: 0 0 0 1.5rem; display: grid; gap: .7rem; position: relative; }
-.demo-flow::before { content: ""; position: absolute; left: .4rem; top: .6rem; bottom: .6rem; width: 2px; border-radius: 2px; background: linear-gradient(var(--teal), var(--violet)); opacity: .35; }
+.demo-flow::before { content: ""; position: absolute; left: .4rem; top: .6rem; bottom: .6rem; width: 2px; border-radius: 2px; background: linear-gradient(var(--teal), var(--lime)); opacity: .35; }
 .demo-flow::after { content: ""; position: absolute; left: calc(.4rem - 3px); top: .6rem; width: 8px; height: 8px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 12px 2px rgb(79 224 200 / .7); opacity: 0; }
 .demo-flow li { position: relative; }
 .demo-flow li::before { content: ""; position: absolute; left: calc(-1.1rem - 4px); top: .85rem; width: 8px; height: 8px; border-radius: 50%; background: var(--bg); border: 2px solid var(--teal); }
@@ -111,7 +111,7 @@ h2.kicker { font-size: .82rem; max-width: none; }
 .demo .msg { border-radius: 14px; padding: .6rem .8rem; line-height: 1.45; }
 .demo .msg.user { background: rgb(255 255 255 / .06); }
 .demo .msg.agent { background: var(--mist); border: 1px solid rgb(79 224 200 / .3); }
-.demo .msg.agent::before { border-color: var(--violet); }
+.demo .msg.agent::before { border-color: var(--lime); }
 .demo .step { padding: .1rem 0; }
 .demo .step code { display: block; background: var(--code-bg); border: 1px solid var(--rule); border-radius: 8px; padding: .45rem .6rem; font-size: .78rem; color: var(--code-ink); overflow-wrap: anywhere; }
 .demo .step code b { color: var(--code-tool); font-weight: 600; }
@@ -153,7 +153,7 @@ h2.kicker { font-size: .82rem; max-width: none; }
 .app-tools li:first-child { border-top: 0; }
 .app-tools b { font: 600 .8rem var(--mono); overflow: hidden; text-overflow: ellipsis; }
 .app-tools code { background: none; padding: 0; color: var(--muted); font-size: .74rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.chip { font: 700 .66rem var(--mono); border-radius: 4px; padding: .1rem .35rem; background: rgb(165 148 255 / .16); color: var(--violet); }
+.chip { font: 700 .66rem var(--mono); border-radius: 4px; padding: .1rem .35rem; background: rgb(184 240 138 / .16); color: var(--lime); }
 .chip.get { background: rgb(79 224 200 / .14); color: var(--teal); }
 .chip.del { background: rgb(242 205 122 / .15); color: var(--code-tool); }
 .sw { width: 1.7rem; height: .95rem; border-radius: 99px; background: rgb(255 255 255 / .14); position: relative; }
@@ -204,7 +204,7 @@ h2.kicker { font-size: .82rem; max-width: none; }
 .card h3 { font-size: 1.15rem; font-weight: 600; margin-bottom: .5rem; }
 .card :where(p) { color: var(--muted); font-size: .97rem; margin: 0; }
 .card .arrow { color: var(--teal); font-size: .9rem; font-weight: 600; margin-top: .9rem; }
-.card-tag { font-size: .78rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--violet); margin-bottom: .7rem; }
+.card-tag { font-size: .78rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--lime); margin-bottom: .7rem; }
 @media (max-width: 900px) { .cards.three, .cards.grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 600px) { .cards.three, .cards.grid { grid-template-columns: 1fr; } }
 .more { margin-top: 2.5rem; }
