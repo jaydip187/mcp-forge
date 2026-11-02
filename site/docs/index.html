@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>mcp-forge guide: build MCP tools from APIs and databases</title>
-<meta name="description" content="Step-by-step guide to mcp-forge with worked examples: turn the GitHub API into an MCP tool, import an OpenAPI spec, publish safe SQL queries, connect Claude Code and Claude Desktop, and share tools as YAML.">
+<meta name="description" content="Step-by-step guide to mcp-forge with worked examples: turn the GitHub API into an MCP tool, import OpenAPI, Postman or curl, query GraphQL, publish safe SQL and NoSQL queries, chain tools, add prompts and approvals, and connect Claude.">
 <link rel="canonical" href="https://jaydip187.github.io/mcp-forge/docs/">
 <meta name="robots" content="index, follow">
 <meta name="theme-color" content="#1e6e6a" media="(prefers-color-scheme: light)">
@@ -14,7 +14,7 @@
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="mcp-forge">
 <meta property="og:title" content="mcp-forge guide: build MCP tools from APIs and databases">
-<meta property="og:description" content="Worked examples: a GitHub API tool, an OpenAPI import, safe SQL queries, and connecting Claude.">
+<meta property="og:description" content="Worked examples: GitHub API and GraphQL tools, spec imports, safe SQL and NoSQL queries, chains, prompts, approvals, and connecting Claude.">
 <meta property="og:url" content="https://jaydip187.github.io/mcp-forge/docs/">
 <meta property="og:image" content="https://jaydip187.github.io/mcp-forge/og.png">
 <meta property="og:image:width" content="1200">
@@ -76,12 +76,20 @@
     <summary>On this page</summary>
     <ol>
       <li><a href="#first-run">Install and first run</a></li>
+      <li><a href="#ui">Working in the web UI</a></li>
       <li><a href="#http-tool">Example: a GitHub API tool</a></li>
-      <li><a href="#openapi">Example: import an OpenAPI spec</a></li>
+      <li><a href="#openapi">Import a spec, Postman, HAR or curl</a></li>
       <li><a href="#secrets">Auth and secrets</a></li>
+      <li><a href="#graphql">Example: a GraphQL query</a></li>
       <li><a href="#sql">Example: a safe SQL query</a></li>
       <li><a href="#agent-sql">Let agents explore a database</a></li>
       <li><a href="#writes">Allowing writes</a></li>
+      <li><a href="#nosql">NoSQL databases</a></li>
+      <li><a href="#context">Resources and prompts</a></li>
+      <li><a href="#chains">Chained tools</a></li>
+      <li><a href="#quality">Description quality</a></li>
+      <li><a href="#approvals">Approvals</a></li>
+      <li><a href="#calls">Call log and audit</a></li>
       <li><a href="#connect">Connect Claude and other clients</a></li>
       <li><a href="#large-apis">Curating large APIs</a></li>
       <li><a href="#yaml">Share tools as YAML</a></li>
@@ -95,7 +103,7 @@
 <main id="main" class="doc">
 
 <h1>Guide</h1>
-<p class="lede">How to turn an HTTP API or a SQL database into tools that Claude and other AI agents can call, with an example for each step. Every example works on a fresh install.</p>
+<p class="lede">How to turn HTTP and GraphQL APIs, SQL and NoSQL databases into tools that Claude and other AI agents can call, with an example for each step. Every example works on a fresh install.</p>
 
 <section id="first-run">
   <h2>Install and first run</h2>
@@ -108,6 +116,20 @@ mcp-forge --version</code></pre>
 <pre class="code"><code><span class="c">no accounts yet: … setup code ABCD-EFGH-JKLM</span></code></pre>
   <p>Enter the code in the browser with a username and password to create the first account. Data lives in <code>~/.mcp-forge</code>; change it with <code>--data-dir</code>.</p>
   <p>Next, click <strong>New project</strong> (or <strong>+</strong> next to <em>Projects</em> in the sidebar) and create a project called <code>github</code>. A project is one MCP server: agents connect to <code>http://127.0.0.1:7410/mcp/github</code> and see that project's tools.</p>
+</section>
+
+<section id="ui">
+  <h2>Working in the web UI</h2>
+  <p>Each project has tabs: <strong>Tools</strong>, <strong>Specs</strong>, <strong>Auth</strong>, <strong>Databases</strong>, <strong>Context</strong>, <strong>Quality</strong>, <strong>Calls</strong>, <strong>Audit log</strong>, <strong>Connect</strong> and <strong>Settings</strong>.</p>
+  <p>Creating something always works the same way. <strong>New tool</strong> on the Tools tab, or <strong>Add</strong> on the Auth, Databases and Context tabs and <strong>New key</strong> on Connect, opens a dialog with numbered steps:</p>
+  <ul class="plain">
+    <li><strong>Next</strong> checks the step against the server before moving on. If something is wrong, the dialog stays on that step, marks the field and lists what to fix, for example “Name: must be 1–64 characters of a-z, A-Z, 0-9, _ or -”. A name that's already taken is caught there too.</li>
+    <li>Click a step number to go back; jumping ahead checks the steps in between. <strong>Enter</strong> moves to the next step.</li>
+    <li>The last step has the save button. If saving still finds a problem, the dialog opens the step that has it.</li>
+    <li>A click outside the dialog doesn't close it, so a half-filled form isn't lost. Press <strong>Esc</strong> or <strong>Cancel</strong> to leave.</li>
+  </ul>
+  <p><strong>Edit</strong> opens the same dialog with the current values. Tools are the exception: once created, a tool has its own page with every section one under another and the <strong>Test console</strong> beside it, so you can change a description and try it straight away.</p>
+  <p class="aside">Scripts can run the same checks: POST a body to <code>…/check</code> instead of creating it (see <a href="#cli">CLI reference</a>).</p>
 </section>
 
 <section id="http-tool">
@@ -143,16 +165,25 @@ mcp-forge --version</code></pre>
 </section>
 
 <section id="openapi">
-  <h2>Example: import an OpenAPI spec</h2>
+  <h2>Import a spec, Postman, HAR or curl</h2>
   <p>When an API publishes an OpenAPI 3.x or Swagger 2.0 description, import it instead of typing each tool. The public Swagger Petstore makes a good first try.</p>
   <ol class="howto">
     <li>Create a project called <code>petstore</code> and open its <strong>Tools</strong> tab.</li>
-    <li>Click <strong>Import API spec</strong> and paste <code>https://petstore3.swagger.io/api/v3/openapi.json</code>, or upload a JSON or YAML file.</li>
+    <li>Click <strong>Import</strong> and paste <code>https://petstore3.swagger.io/api/v3/openapi.json</code>, or upload a JSON or YAML file.</li>
     <li>Filter the operations by tag, path or method, and tick the ones you want. Fewer, well-described tools work better than hundreds.</li>
     <li>Click <strong>Import</strong>. Each operation becomes a tool with typed parameters taken from the spec.</li>
     <li>Rename tools, rewrite descriptions for the model, hide parameters or give them fixed values, and add response shapes, just like a hand-made tool.</li>
   </ol>
-  <p>When the API changes, import the spec again. mcp-forge matches operations to the tools they created and shows what will change before it changes anything.</p>
+  <p>When the API changes, import the spec again from the <strong>Specs</strong> tab. mcp-forge matches operations to the tools they created and shows what will change before it changes anything. Fields you edited by hand are kept.</p>
+
+  <h3>Postman collections, HAR files and curl commands</h3>
+  <p>These are converted to an OpenAPI document first, then imported like a spec, with the same preview, filters and re-import:</p>
+  <ul class="plain">
+    <li><strong>Postman collections</strong> (v2.0 and v2.1): folders become tags, request names become tool names, collection variables with values are filled in, and <code>:id</code> path segments become parameters.</li>
+    <li><strong>HAR files</strong> (browser dev tools → Network → <em>Save all as HAR</em>): only API calls are kept, repeats of the same endpoint merge, and id-like path segments such as <code>/users/42</code> become parameters.</li>
+    <li><strong>curl commands</strong>: paste one or several. <code>-X</code>, <code>-H</code>, <code>-d</code>, <code>--json</code>, <code>-G</code>, <code>-u</code> and <code>-F</code> are understood.</li>
+  </ul>
+  <p>Cookies, <code>Authorization</code> and other secret-looking headers never carry over; they become suggested auth configs instead. Example values from request bodies are dropped, and only their shape is kept.</p>
 </section>
 
 <section id="secrets">
@@ -183,6 +214,32 @@ mcp-forge serve</code></pre>
     <li><strong>API key</strong> sends the secret as a header or query parameter with the name you choose, such as <code>X-API-Key</code>.</li>
     <li><strong>Basic</strong> sends a username with the secret as the password.</li>
   </ul>
+
+  <h3>OAuth2</h3>
+  <p>For APIs that hand out tokens through OAuth2, such as Google, Microsoft, Salesforce or Auth0, two more types are available. The client secret is a reference like any other secret.</p>
+  <ul class="plain">
+    <li><strong>OAuth2: sign in</strong> (authorization code) acts as a person. Fill in the authorization URL, token URL, client ID and scopes, register the redirect URL the dialog shows (<code>http://127.0.0.1:7410/oauth/callback</code> by default) with the provider, save, and click <strong>Connect</strong> in the list. PKCE is always used.</li>
+    <li><strong>OAuth2: client credentials</strong> is for service accounts: token URL, client ID, scopes and an optional audience. There's no sign-in step.</li>
+  </ul>
+  <p>mcp-forge sends the access token as a bearer token, refreshes it shortly before it expires, and retries once with a fresh token if the API answers 401. Sign-in tokens are stored encrypted with <code>secret.key</code> in the data directory; keep that file with the database. Tokens never appear in the UI, exports or logs.</p>
+</section>
+
+<section id="graphql">
+  <h2>Example: a GraphQL query</h2>
+  <p>A GraphQL tool is one fixed query or mutation. Click <strong>New tool → GraphQL query or mutation</strong>, set the endpoint to <code>https://api.github.com/graphql</code> with the <code>github</code> auth config, and write the document:</p>
+<pre class="code"><code><span class="k">query</span> User(<span class="p">$login</span>: String!) {
+  user(login: <span class="p">$login</span>) {
+    name
+    bio
+  }
+}</code></pre>
+  <p>Each <code>$variable</code> becomes an argument, and <code>String!</code> makes <code>login</code> required. Add a description for each so the agent knows what to pass. Values are sent as GraphQL <code>variables</code>, never pasted into the document.</p>
+  <ul class="plain">
+    <li>Queries are marked read-only. Mutations are marked as changing data, and a read-only project hides them.</li>
+    <li>A response with <code>errors</code> fails the call with each message and its path, plus any partial data.</li>
+    <li>Auth configs, OAuth2, timeouts, response shapes and approvals work as for HTTP tools.</li>
+  </ul>
+  <p>To offer a whole API, use <strong>Import</strong>: give the endpoint and mcp-forge sends the standard introspection query, or upload the schema as SDL or a saved introspection result. Each query and mutation field becomes a tool with a generated selection set, three levels deep.</p>
 </section>
 
 <section id="sql">
@@ -199,10 +256,12 @@ mcp-forge serve</code></pre>
         <tr><th scope="row">PostgreSQL</th><td><code>postgres://user:PASSWORD@host:5432/db</code></td></tr>
         <tr><th scope="row">MySQL</th><td><code>mysql://user:PASSWORD@host:3306/db</code></td></tr>
         <tr><th scope="row">SQLite</th><td><code>/path/to/shop.db</code></td></tr>
+        <tr><th scope="row">SQL Server</th><td><code>mssql://user:PASSWORD@host:1433/db</code> (ADO.NET and JDBC strings work too; add <code>?trust_server_certificate=true</code> for self-signed certificates)</td></tr>
+        <tr><th scope="row">ClickHouse</th><td><code>https://user:PASSWORD@host:8443/db</code> (the HTTP interface; every query is sent with <code>readonly=2</code>)</td></tr>
       </tbody>
     </table>
   </div>
-  <p>On the <strong>Databases</strong> tab, click <strong>Add database</strong> and create a connection named <code>shop</code> with driver PostgreSQL and reference <code>env:SHOP_DB_URL</code>. Click <strong>Test</strong>: it shows the server version, the login, and whether that login can change data.</p>
+  <p>On the <strong>Databases</strong> tab, click <strong>Add database</strong>. The dialog has three steps: the connection, its limits and privacy settings, and what agents may do. Create a connection named <code>shop</code> with driver PostgreSQL and reference <code>env:SHOP_DB_URL</code>. Click <strong>Test</strong>: it shows the server version, the login, and whether that login can change data.</p>
 
   <h3>2. Publish a saved query</h3>
   <p>On the Tools tab, click <strong>New tool → SQL query</strong>, name it <code>recent_orders</code>, choose the <code>shop</code> connection and enter one statement:</p>
@@ -265,6 +324,94 @@ ORDER BY id DESC</code></pre>
   </ul>
 </section>
 
+<section id="nosql">
+  <h2>NoSQL databases</h2>
+  <p>MongoDB, Redis, DynamoDB and Elasticsearch connections are added on the same <strong>Databases</strong> tab, with the same access modes, allowed names, masks and limits as SQL:</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th scope="col">Database</th><th scope="col">Value of the variable</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">MongoDB</th><td><code>mongodb://reader:PASSWORD@host:27017/shop</code> (the database name is required)</td></tr>
+        <tr><th scope="row">Redis</th><td><code>redis://:PASSWORD@host:6379/0</code> (<code>rediss://</code> for TLS)</td></tr>
+        <tr><th scope="row">DynamoDB</th><td><code>dynamodb://ACCESS_KEY_ID:SECRET@us-east-1</code></td></tr>
+        <tr><th scope="row">Elasticsearch</th><td><code>https://reader:PASSWORD@host:9200</code> (or <code>?api_key=KEY</code>; OpenSearch works too)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>Example: orders for one customer in MongoDB</h3>
+  <p>Click <strong>New tool → NoSQL operation</strong>, pick the connection, the operation <code>find</code> and the collection <code>orders</code>, and give the body:</p>
+<pre class="code"><code>{"filter": {"customer": "<span class="p">{{customer}}</span>", "status": "<span class="p">{{status}}</span>"}, "limit": 20}</code></pre>
+  <p>Each <code>{{name}}</code> becomes a typed argument. A whole-string <code>"{{name}}"</code> is replaced by the value itself, never by text that could add an operator, and object keys are never filled in. Agents get <code>{documents, truncated}</code>.</p>
+  <ul class="plain">
+    <li>Only the listed operations run: no <code>EVAL</code> or <code>FLUSHALL</code>, no Elasticsearch scripts, no MongoDB <code>$where</code>, <code>$function</code>, <code>$out</code> or <code>$merge</code>.</li>
+    <li>Writes follow the access mode, are capped by <em>Most items one write may change</em>, can be tried with <code>dry_run</code>, and are listed on the Audit tab.</li>
+    <li><strong>Agent tools</strong> work as for SQL: list targets, describe one, and run an operation the agent writes itself.</li>
+  </ul>
+</section>
+
+<section id="context">
+  <h2>Resources and prompts</h2>
+  <p>Besides tools, a project can offer things to read and instructions to reuse. Manage both on the <strong>Context</strong> tab.</p>
+  <h3>Resources</h3>
+  <ul class="plain">
+    <li><strong>Your documents</strong> (<code>forge://resources/&lt;name&gt;</code>): Markdown, text, JSON, CSV or YAML written in mcp-forge, such as a style guide, a glossary or a runbook.</li>
+    <li><strong>Database schemas</strong> (<code>schema://&lt;connection&gt;</code>): offered while the connection's <em>Describe</em> agent tool is on, limited to the allowed tables, with masks applied.</li>
+    <li><strong>Imported specs</strong>, when <em>Share imported specs</em> is on.</li>
+  </ul>
+  <h3>Example: a prompt</h3>
+  <p>Click <strong>Add prompt</strong>. The dialog asks for a name and description, then the template, then the arguments:</p>
+<pre class="code"><code>Use user_overview for <span class="p">{{login}}</span> and write a <span class="p">{{tone}}</span> two-line summary.</code></pre>
+  <p>Each <code>{{name}}</code> becomes an argument, added for you when you leave the template step. Claude shows prompts as slash commands; other clients list them under prompts. <strong>Try</strong> next to a prompt fills it in with sample values, so you see exactly what an agent's app gets.</p>
+</section>
+
+<section id="chains">
+  <h2>Chained tools</h2>
+  <p>A chain calls other tools of the project in order and shows up to agents as one tool. Click <strong>New tool → Chain of tools</strong>. Each step names a tool and computes its arguments with jq over <code>{input, steps, last}</code>: the chain's inputs, every earlier result, and the previous one.</p>
+<pre class="code"><code><span class="c">inputs:</span>  login (required)
+<span class="c">step 1:</span>  get_user     {login: .input.login}
+<span class="c">step 2:</span>  list_repos   {owner: .last.login}
+<span class="c">output:</span>  {user: .steps[0].login, repos: [.steps[1][].name]}</code></pre>
+  <ul class="plain">
+    <li>Every step runs like a normal call, with argument checks, limits, masks and its own entry in the call log.</li>
+    <li>A failing step stops the chain, and the agent is told which step failed and why.</li>
+    <li>Up to 10 steps; chains may call chains three levels deep. Loops, missing tools and jq that doesn't compile are refused when you save.</li>
+    <li>A chain changes data if any step does: read-only projects hide it, and it gets a <code>dry_run</code> argument. If any step needs approval, the chain waits for one approval before it starts.</li>
+  </ul>
+</section>
+
+<section id="quality">
+  <h2>Description quality</h2>
+  <p>Agents choose tools by their names and descriptions. The <strong>Quality</strong> tab scores every tool, worst first, with a hint for each problem:</p>
+  <ul class="plain">
+    <li>missing or very short descriptions, and vague names such as <code>get</code> or <code>tool2</code>;</li>
+    <li>parameters without a description, with a hint that fits the parameter: the format for dates, the range and default for page sizes, where to find an id;</li>
+    <li>parameters that probably take a few fixed values but list none;</li>
+    <li>long responses with no response shape.</li>
+  </ul>
+  <p>The checks run inside mcp-forge. <strong>Improve with Claude</strong> is optional: put a reference to your Anthropic API key on the Quality tab (<code>env:ANTHROPIC_API_KEY</code>, never the key itself), and each tool with findings gets a button that suggests better wording side by side. Nothing changes until you click <strong>Apply</strong>.</p>
+</section>
+
+<section id="approvals">
+  <h2>Approvals</h2>
+  <p>Turn on <strong>Require approval</strong> for a tool, and agent calls to it wait for a person before anything is sent. New tools start with it on when they can change things, such as HTTP <code>DELETE</code> or SQL that writes.</p>
+  <ul class="plain">
+    <li>The call appears on the <strong>Approvals</strong> page with the tool, arguments and client; a badge in the sidebar counts waiting calls. <strong>Approve</strong> runs it; <strong>Deny</strong> refuses it.</li>
+    <li>Clients that support it also show Approve and Decline in their own app. Whichever answer comes first wins.</li>
+    <li>No answer within the project's timeout (300 seconds by default) refuses the call. Refused calls never reach your API or database, and the agent is told why.</li>
+    <li>Test console runs don't wait.</li>
+  </ul>
+</section>
+
+<section id="calls">
+  <h2>Call log and audit</h2>
+  <p>The <strong>Calls</strong> tab lists every tool call, from agents and from the test console: when, which tool, OK or error, how long it took, which client or access key, the arguments, and the error the agent was given. Chain calls show each step. Above the list are the error rate, median and 95th-percentile time, and a per-tool breakdown for the last 24 hours, 7 days or 30 days.</p>
+  <ul class="plain">
+    <li>Arguments whose names look secret, such as <code>password</code>, <code>token</code> or <code>api_key</code>, are stored as <code>[redacted]</code>.</li>
+    <li>Calls are kept for 30 days by default (<em>Settings → Call log</em>); 0 stops recording.</li>
+    <li>The <strong>Audit log</strong> tab records every database write in detail: tool, caller, statement, values, rows, and whether it was committed, undone or failed.</li>
+  </ul>
+</section>
+
 <section id="connect">
   <h2>Connect Claude and other clients</h2>
   <p>Each project's <strong>Connect</strong> tab has ready-to-copy versions of everything below.</p>
@@ -288,6 +435,14 @@ claude mcp add github -- mcp-forge stdio --project github</code></pre>
 }</code></pre>
   <p>Tool edits reach connected clients right away, so you can keep refining descriptions while an agent is connected. Over stdio, edits made in a running UI are picked up within a couple of seconds. If the server has an admin token, HTTP clients must send <code>Authorization: Bearer &lt;token&gt;</code>; the Connect tab adds the header to its snippets.</p>
   <p>Now ask Claude <em>"How many stars does rust-lang/rust have?"</em>. It calls <code>get_repo</code> and answers from the shaped response.</p>
+
+  <h3>Access keys</h3>
+  <p>Rather than sharing the admin token, give each client or teammate its own key: <strong>Connect → New key</strong>. The dialog asks for a name and an expiry, then which tools the key may use. The key is shown once (<code>mcpf_…</code>) and stored only as a hash. Clients send it as <code>Authorization: Bearer mcpf_…</code>; deleting the key cuts them off.</p>
+  <ul class="plain">
+    <li>On localhost, <code>/mcp</code> stays open unless you switch on <em>Require a key on this machine too</em>.</li>
+    <li>A key limited to some tools only lists and calls those.</li>
+    <li>Apps that support MCP sign-in, such as claude.ai custom connectors, need only the project URL: you sign in on mcp-forge and allow the app for that one project. <strong>Connect → Connected apps</strong> lists and disconnects them.</li>
+  </ul>
 </section>
 
 <section id="large-apis">
@@ -397,6 +552,8 @@ mcp-forge user remove NAME</code></pre>
       </tbody>
     </table>
   </div>
+  <h3>REST API</h3>
+  <p>The UI uses a REST API under <code>/api</code>; scripts authenticate with the admin token. To validate without saving, POST the same body to <code>…/check</code>: <code>tools/check</code>, <code>auth-configs/check</code>, <code>db-connections/check</code>, <code>resources/check</code>, <code>prompts/check</code> or <code>api-keys/check</code> under <code>/api/projects/{id}/</code>. The answer is <code>204</code> when it would save, or <code>422</code> listing every problem at once. Add <code>?id=&lt;item id&gt;</code> when checking an edit, so the item may keep its own name.</p>
 </section>
 
 <section id="troubleshooting">
