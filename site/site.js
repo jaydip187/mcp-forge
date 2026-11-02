@@ -1,4 +1,4 @@
-// Hero examples, the feature tour, install tabs, copy buttons, scroll reveals and the docs
+// Hero examples, the feature tour, install tabs, copy buttons, counters, scroll reveals and the docs
 // contents highlight. Everything here is optional: without it the page is
 // static and complete.
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -76,6 +76,30 @@ for (const button of document.querySelectorAll(".copy")) {
       button.classList.remove("done");
     }, 2000);
   });
+}
+
+// Numbers count up once when they scroll into view.
+const counters = document.querySelectorAll("[data-count]");
+if (!reduceMotion && "IntersectionObserver" in window) {
+  const count = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        count.unobserve(entry.target);
+        const el = entry.target;
+        const to = Number(el.dataset.count);
+        const start = performance.now();
+        const step = (now) => {
+          const t = Math.min(1, (now - start) / 900);
+          el.textContent = String(Math.round(to * (1 - (1 - t) ** 3)));
+          if (t < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      }
+    },
+    { threshold: 0.6 },
+  );
+  for (const el of counters) count.observe(el);
 }
 
 // Sequences build once when they scroll into view.

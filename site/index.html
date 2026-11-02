@@ -7,8 +7,7 @@
 <meta name="description" content="mcp-forge is a self-hosted, open-source server that turns HTTP and GraphQL APIs (OpenAPI, Swagger, Postman) and SQL and NoSQL databases (PostgreSQL, MySQL, SQLite, MongoDB, Redis and more) into curated MCP tools for Claude and other AI agents. One binary, web UI, read-only by default.">
 <link rel="canonical" href="https://jaydip187.github.io/mcp-forge/">
 <meta name="robots" content="index, follow">
-<meta name="theme-color" content="#1e6e6a" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0f1917" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#070d0c">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 
 <meta property="og:type" content="website">
@@ -93,17 +92,17 @@
 <header class="top">
   <div class="wrap top-inner">
     <a class="brand" href="./" aria-label="mcp-forge home">
-      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect width="32" height="32" rx="7" fill="currentColor"/><path d="M9 22V10l7 7 7-7v12" fill="none" stroke="var(--paper)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect width="32" height="32" rx="7" fill="currentColor"/><path d="M9 22V10l7 7 7-7v12" fill="none" stroke="var(--bg)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
       mcp-forge
     </a>
     <nav aria-label="Main">
-      <a href="#install">Install</a>
       <a href="#features">Features</a>
-      <a href="#databases">Databases</a>
+      <a href="#tour">Tour</a>
       <a href="#security">Security</a>
-      <a href="#faq">FAQ</a>
+      <a href="#new">New</a>
       <a href="docs/">Docs</a>
       <a class="gh" href="https://github.com/jaydip187/mcp-forge">GitHub</a>
+      <a class="btn primary small" href="#install">Install</a>
     </nav>
   </div>
 </header>
@@ -111,18 +110,111 @@
 <main id="main">
 
 <section class="hero">
-  <div class="wrap hero-grid">
-    <div class="hero-copy">
-      <h1>Give AI agents your APIs and databases, on your terms.</h1>
-      <p class="lede">mcp-forge turns HTTP and GraphQL endpoints, SQL queries and NoSQL operations into curated
-      <abbr title="Model Context Protocol">MCP</abbr> tools for Claude and other agents.
-      You decide which tools exist, what they are called, and exactly what comes back.
-      One self-hosted binary with a web UI. Read-only by default.</p>
-      <div class="actions">
-        <a class="btn primary" href="#install">Install mcp-forge</a>
-        <a class="btn" href="docs/">Read the guide</a>
+  <div class="glow" aria-hidden="true"></div>
+  <div class="wrap hero-head">
+    <p class="eyebrow"><span class="dot" aria-hidden="true"></span> Open source · self-hosted · read-only by default</p>
+    <h1>Your APIs and databases. <span class="grad">Agent-ready.</span></h1>
+    <p class="lede">mcp-forge turns HTTP and GraphQL endpoints, SQL queries and NoSQL operations into curated
+    <abbr title="Model Context Protocol">MCP</abbr> tools for Claude and other agents.
+    You decide which tools exist, what they are called, and exactly what comes back.</p>
+    <div class="actions">
+      <a class="btn primary" href="#install">Install mcp-forge</a>
+      <a class="btn" href="docs/">Read the guide</a>
+    </div>
+    <p class="fine">One binary with a web UI. macOS, Linux and Windows. MIT or Apache-2.0. No telemetry.</p>
+  </div>
+
+  <div class="wrap">
+    <figure class="app" aria-label="The mcp-forge web UI: a project's tools, each with its kind, and the test console showing what an agent gets back.">
+      <div class="app-bar" aria-hidden="true"><i></i><i></i><i></i><span>127.0.0.1:7410 / github</span></div>
+      <div class="app-body" aria-hidden="true">
+        <aside class="app-side">
+          <p class="app-brand"><b>m</b> mcp-forge</p>
+          <p class="app-label">Projects</p>
+          <p class="app-nav on">github</p>
+          <p class="app-nav">shop</p>
+          <p class="app-nav">support</p>
+          <p class="app-label">Server</p>
+          <p class="app-nav">Approvals <em>1</em></p>
+          <p class="app-nav">Users</p>
+        </aside>
+        <div class="app-main">
+          <div class="app-head">
+            <p class="app-title">github</p>
+            <p class="app-url">http://127.0.0.1:7410/mcp/github</p>
+          </div>
+          <p class="app-tabs"><span class="on">Tools</span><span>Specs</span><span>Auth</span><span>Databases</span><span>Context</span><span>Quality</span><span>Calls</span><span>Connect</span></p>
+          <ul class="app-tools">
+            <li style="--i:0"><b>get_repo</b><span class="chip get">GET</span><code>/repos/{owner}/{repo}</code><i class="sw on"></i></li>
+            <li style="--i:1"><b>user</b><span class="chip">GraphQL</span><code>query User($login)</code><i class="sw on"></i></li>
+            <li style="--i:2"><b>recent_orders</b><span class="chip">SQL</span><code>shop · SELECT id, status…</code><i class="sw on"></i></li>
+            <li style="--i:3"><b>orders_for</b><span class="chip">NoSQL</span><code>mongo · find orders</code><i class="sw on"></i></li>
+            <li style="--i:4"><b>user_overview</b><span class="chip">Chain</span><code>get_user → repos</code><i class="sw on"></i></li>
+            <li style="--i:5"><b>close_issue</b><span class="chip del">PATCH</span><code>/issues/{n} · needs approval</code><i class="sw"></i></li>
+          </ul>
+        </div>
+        <div class="app-console">
+          <p class="app-label">Test console · get_repo</p>
+          <p class="app-arg">owner <span>rust-lang</span></p>
+          <p class="app-arg">repo <span>rust</span></p>
+          <p class="app-run">Run</p>
+          <p class="app-label">Agent sees · 200 · 184 ms</p>
+          <pre><code><span class="ln" style="--d:900ms">{"name": "rust-lang/rust",</span><span class="ln" style="--d:1050ms"> "stars": 104000,</span><span class="ln" style="--d:1200ms"> "language": "Rust"}</span></code></pre>
+        </div>
       </div>
-      <p class="fine">Free and open source, MIT or Apache-2.0. macOS, Linux and Windows. No telemetry.</p>
+    </figure>
+  </div>
+</section>
+
+<section class="logos" aria-labelledby="works-with">
+  <div class="wrap">
+    <h2 id="works-with" class="kicker">Works with what you already run</h2>
+  </div>
+  <div class="marquee">
+    <ul class="marquee-row">
+      <li>OpenAPI 3</li><li>Swagger 2</li><li>Postman</li><li>HAR</li><li>curl</li><li>GraphQL</li><li>PostgreSQL</li><li>MySQL</li><li>SQL Server</li><li>SQLite</li><li>ClickHouse</li><li>MongoDB</li><li>Redis</li><li>DynamoDB</li><li>Elasticsearch</li>
+    </ul>
+    <ul class="marquee-row" aria-hidden="true">
+      <li>OpenAPI 3</li><li>Swagger 2</li><li>Postman</li><li>HAR</li><li>curl</li><li>GraphQL</li><li>PostgreSQL</li><li>MySQL</li><li>SQL Server</li><li>SQLite</li><li>ClickHouse</li><li>MongoDB</li><li>Redis</li><li>DynamoDB</li><li>Elasticsearch</li>
+    </ul>
+  </div>
+  <p class="wrap clients">Agents connect from <strong>Claude Code</strong>, <strong>Claude Desktop</strong>, <strong>claude.ai</strong> connectors and any MCP client, over streamable HTTP or stdio.</p>
+</section>
+
+<section class="wrap section" aria-labelledby="uses">
+  <p class="kicker">Built for</p>
+  <h2 id="uses">The moment an agent needs real data, and you need control.</h2>
+  <ul class="cards three" data-reveal>
+    <li class="card">
+      <p class="card-tag">Support</p>
+      <h3>“What did this customer order?”</h3>
+      <p>Publish one read-only query with a typed customer id. Emails stay masked, results stay under the row limit, and the agent never sees a table you didn't allow.</p>
+    </li>
+    <li class="card">
+      <p class="card-tag">Platform teams</p>
+      <h3>Internal APIs, with a person in the loop</h3>
+      <p>Import the spec, keep the twenty operations that matter, and require approval on anything that changes data. Each client gets its own access key.</p>
+    </li>
+    <li class="card">
+      <p class="card-tag">Data and analytics</p>
+      <h3>Let agents explore, not wander</h3>
+      <p>Turn on list, describe and run-SQL for a warehouse, limited to the tables you name. Every statement is parsed first and runs read-only with a time limit.</p>
+    </li>
+  </ul>
+</section>
+
+<section class="band" aria-labelledby="curate">
+  <div class="wrap split curate">
+    <div>
+      <p class="kicker">Curate, don't dump</p>
+      <h2 id="curate">One API answer is a hundred fields. Your agent needs three.</h2>
+      <p>Each tool gets a name and a description written for the model, typed parameters, and an optional jq response shape. Agents see the fields that matter, spend fewer tokens, and pick the right tool more often.</p>
+      <ul class="ticks">
+        <li>Rename tools, hide parameters, give them fixed values</li>
+        <li>Shape responses with jq before the agent sees them</li>
+        <li>Re-import when the spec changes; your edits are kept</li>
+        <li>Hundreds of operations? Offer <code>search_tools</code> and <code>call_tool</code> instead</li>
+      </ul>
     </div>
 
     <figure class="forge" data-forge aria-label="What mcp-forge does">
@@ -158,61 +250,10 @@
   </div>
 </section>
 
-<section id="install" class="band">
+<section id="tour" class="band">
   <div class="wrap">
-    <h2>Install</h2>
-    <div class="tabs" data-tabs>
-      <div role="tablist" aria-label="Operating system">
-        <button role="tab" id="t-unix" aria-controls="p-unix" aria-selected="true">macOS and Linux</button>
-        <button role="tab" id="t-win" aria-controls="p-win" aria-selected="false" tabindex="-1">Windows</button>
-        <button role="tab" id="t-docker" aria-controls="p-docker" aria-selected="false" tabindex="-1">Docker</button>
-      </div>
-      <div role="tabpanel" id="p-unix" aria-labelledby="t-unix" class="cmd">
-        <pre><code>curl --proto '=https' --tlsv1.2 -LsSf https://github.com/jaydip187/mcp-forge/releases/latest/download/mcp-forge-installer.sh | sh</code></pre>
-        <button class="copy" type="button">Copy</button>
-      </div>
-      <div role="tabpanel" id="p-win" aria-labelledby="t-win" class="cmd" hidden>
-        <pre><code>powershell -ExecutionPolicy Bypass -c "irm https://github.com/jaydip187/mcp-forge/releases/latest/download/mcp-forge-installer.ps1 | iex"</code></pre>
-        <button class="copy" type="button">Copy</button>
-      </div>
-      <div role="tabpanel" id="p-docker" aria-labelledby="t-docker" class="cmd" hidden>
-        <pre><code>git clone https://github.com/jaydip187/mcp-forge && cd mcp-forge
-docker build -t mcp-forge .
-docker run -d --name mcp-forge -p 127.0.0.1:7410:7410 -v mcp-forge-data:/data \
-  -e MCP_FORGE_ADMIN_TOKEN="$(openssl rand -hex 24)" mcp-forge</code></pre>
-        <button class="copy" type="button">Copy</button>
-      </div>
-    </div>
-    <p class="note">The installers put <code>mcp-forge</code> in <code>~/.cargo/bin</code>. Prefer a manual install?
-    Download an archive from the <a href="https://github.com/jaydip187/mcp-forge/releases">releases page</a>.</p>
-  </div>
-</section>
-
-<section class="wrap section">
-  <h2>From nothing to a working tool in five minutes</h2>
-  <ol class="steps" data-reveal>
-    <li>
-      <h3>Start the server</h3>
-      <p>Run <code>mcp-forge serve</code> and open <code>http://127.0.0.1:7410</code>. The first run prints a one-time setup code in the log; use it to create your account.</p>
-    </li>
-    <li>
-      <h3>Create a project</h3>
-      <p>A project is one MCP server. Call it <code>github</code> and agents connect to <code>/mcp/github</code>.</p>
-    </li>
-    <li>
-      <h3>Add or import tools</h3>
-      <p>Describe a request by hand, or import an OpenAPI 3.x or Swagger 2.0 spec and keep the operations you want. Try each one in the test console before an agent does.</p>
-    </li>
-    <li>
-      <h3>Connect your agent</h3>
-      <p>Copy a snippet from the Connect tab and ask Claude a question. It calls your tool.</p>
-    </li>
-  </ol>
-</section>
-
-<section id="features" class="band">
-  <div class="wrap">
-    <h2>What it does, one feature at a time</h2>
+    <p class="kicker">See it in action</p>
+    <h2>Every feature, one short example at a time.</h2>
     <p class="measure note">Each feature plays a short example. Pick one to watch it, or let them run in turn.</p>
 
     <div class="tour" data-forge>
@@ -343,38 +384,80 @@ docker run -d --name mcp-forge -p 127.0.0.1:7410:7410 -v mcp-forge-data:/data \
   </div>
 </section>
 
-<section class="wrap section split">
-  <div>
-    <h2>HTTP APIs, shaped for agents</h2>
-    <p>Large API responses waste an agent's context and confuse it. Each tool gets a name, a description written for the model, typed parameters and an optional jq response shape, so agents see the fields that matter and nothing else.</p>
-    <ul class="ticks">
-      <li>Import OpenAPI 3.x and Swagger 2.0, from a URL or a file, and re-import when the spec changes</li>
-      <li>Rename tools, hide parameters, set defaults</li>
-      <li>Read-only projects expose only GET, HEAD and OPTIONS tools</li>
-      <li>Hundreds of operations? Offer <code>search_tools</code> and <code>call_tool</code> instead of listing them all</li>
-      <li>Export a project as <code>tools.yaml</code> and import it on another machine</li>
+<section id="features" class="wrap section" aria-labelledby="packed">
+  <p class="kicker">Feature packed</p>
+  <h2 id="packed">Everything between your systems and an agent, in one place.</h2>
+  <ul class="cards grid" data-reveal>
+    <li class="card"><h3>Guided setup</h3><p>Every form opens one step at a time, and Next checks the step with the server.</p><p class="arrow">→ Mistakes caught where you make them</p></li>
+    <li class="card"><h3>Test console</h3><p>Run a tool with sample arguments and see exactly what an agent will get back.</p><p class="arrow">→ Try it before any agent does</p></li>
+    <li class="card"><h3>Response shaping</h3><p>A jq expression trims each answer; null stripping and a size cap are set per project.</p><p class="arrow">→ Fewer tokens, clearer answers</p></li>
+    <li class="card"><h3>Chained tools</h3><p>Several tools in order with jq between steps, offered to agents as one tool.</p><p class="arrow">→ One call, one answer</p></li>
+    <li class="card"><h3>Resources and prompts</h3><p>Documents and database schemas to read, prompt templates that become slash commands.</p><p class="arrow">→ Context, not just tools</p></li>
+    <li class="card"><h3>Description quality</h3><p>A score per tool with a hint for each weak spot, and optional wording from Claude.</p><p class="arrow">→ Agents pick the right tool</p></li>
+    <li class="card"><h3>Approvals</h3><p>Calls that change things wait for a person, in the client or on the Approvals page.</p><p class="arrow">→ Nothing happens unseen</p></li>
+    <li class="card"><h3>Call log</h3><p>Every call with redacted arguments, timing, client and errors, plus a summary chart.</p><p class="arrow">→ See what agents actually do</p></li>
+    <li class="card"><h3>Access keys</h3><p>Per-project keys, limited to some tools, with expiry. App sign-in for claude.ai connectors.</p><p class="arrow">→ Each client on its own key</p></li>
+  </ul>
+  <p class="kicker more">Packed with more</p>
+  <ul class="tags">
+    <li>OAuth2 with PKCE</li><li>keyring secrets</li><li>stdio and streamable HTTP</li><li>live tool updates</li><li>tools.yaml export</li><li>spec re-import</li><li>dry_run on writes</li><li>audit log</li><li>column masks</li><li>table allowlists</li><li>read-only projects</li><li>tag and path filters</li><li>accounts and roles</li><li>Docker image</li>
+  </ul>
+</section>
+
+<section class="band numbers" aria-labelledby="numbers">
+  <div class="wrap">
+    <h2 id="numbers" class="kicker">The numbers</h2>
+    <ul class="stats">
+      <li><b data-count="6">6</b><span>ways to import: OpenAPI, Swagger, Postman, HAR, curl, GraphQL</span></li>
+      <li><b data-count="9">9</b><span>databases, SQL and NoSQL</span></li>
+      <li><b data-count="5">5</b><span>independent layers in front of every SQL statement</span></li>
+      <li><b data-count="2">2</b><span>transports: streamable HTTP and stdio</span></li>
+      <li><b data-count="1">1</b><span>binary, web UI included</span></li>
+      <li><b>0</b><span>telemetry, and no secrets stored</span></li>
     </ul>
   </div>
-  <div class="snippet">
-    <p class="pane-title">Connect Claude Code</p>
-    <pre><code>claude mcp add --transport http github \
-  http://127.0.0.1:7410/mcp/github</code></pre>
-    <p class="pane-title">Or any client, over stdio</p>
-    <pre><code>{
-  "mcpServers": {
-    "github": {
-      "command": "mcp-forge",
-      "args": ["stdio", "--project", "github"]
-    }
-  }
-}</code></pre>
-  </div>
+</section>
+
+<section id="install" class="wrap section" aria-labelledby="start">
+  <p class="kicker">Get started</p>
+  <h2 id="start">From nothing to a working tool in five minutes.</h2>
+  <ol class="steps" data-reveal>
+    <li><h3>Install</h3><p>One command on macOS, Linux or Windows, or the Docker image.</p></li>
+    <li><h3>Start and sign in</h3><p>Run <code>mcp-forge serve</code>, open <code>127.0.0.1:7410</code>, and create your account with the setup code from the log.</p></li>
+    <li><h3>Add or import tools</h3><p>Describe a request, import a spec, or connect a database, then try it in the test console.</p></li>
+    <li><h3>Connect your agent</h3><p>Copy a snippet from the Connect tab and ask Claude a question. It calls your tool.</p></li>
+  </ol>
+    <div class="tabs" data-tabs>
+      <div role="tablist" aria-label="Operating system">
+        <button role="tab" id="t-unix" aria-controls="p-unix" aria-selected="true">macOS and Linux</button>
+        <button role="tab" id="t-win" aria-controls="p-win" aria-selected="false" tabindex="-1">Windows</button>
+        <button role="tab" id="t-docker" aria-controls="p-docker" aria-selected="false" tabindex="-1">Docker</button>
+      </div>
+      <div role="tabpanel" id="p-unix" aria-labelledby="t-unix" class="cmd">
+        <pre><code>curl --proto '=https' --tlsv1.2 -LsSf https://github.com/jaydip187/mcp-forge/releases/latest/download/mcp-forge-installer.sh | sh</code></pre>
+        <button class="copy" type="button">Copy</button>
+      </div>
+      <div role="tabpanel" id="p-win" aria-labelledby="t-win" class="cmd" hidden>
+        <pre><code>powershell -ExecutionPolicy Bypass -c "irm https://github.com/jaydip187/mcp-forge/releases/latest/download/mcp-forge-installer.ps1 | iex"</code></pre>
+        <button class="copy" type="button">Copy</button>
+      </div>
+      <div role="tabpanel" id="p-docker" aria-labelledby="t-docker" class="cmd" hidden>
+        <pre><code>git clone https://github.com/jaydip187/mcp-forge && cd mcp-forge
+docker build -t mcp-forge .
+docker run -d --name mcp-forge -p 127.0.0.1:7410:7410 -v mcp-forge-data:/data \
+  -e MCP_FORGE_ADMIN_TOKEN="$(openssl rand -hex 24)" mcp-forge</code></pre>
+        <button class="copy" type="button">Copy</button>
+      </div>
+    </div>
+    <p class="note">The installers put <code>mcp-forge</code> in <code>~/.cargo/bin</code>. Prefer a manual install?
+    Download an archive from the <a href="https://github.com/jaydip187/mcp-forge/releases">releases page</a>.</p>
 </section>
 
 <section id="databases" class="band">
   <div class="wrap split">
     <div>
-      <h2>SQL databases, read-only until you say otherwise</h2>
+      <p class="kicker">Databases</p>
+      <h2>Read-only until you say otherwise.</h2>
       <p>Connect PostgreSQL, MySQL, SQL Server, SQLite or ClickHouse. Publish saved queries with typed <code>:name</code> parameters, and optionally let agents list tables, describe them and write their own SELECT statements. Values are always sent separately from the SQL, never pasted into it.</p>
       <p>Mask sensitive columns such as <code>users.password_hash</code> or <code>*.email</code>, and limit which tables agents may explore.</p>
       <p>MongoDB, Redis, DynamoDB and Elasticsearch connect the same way, with the same access modes, allowed names, masks and limits.</p>
@@ -395,7 +478,8 @@ docker run -d --name mcp-forge -p 127.0.0.1:7410:7410 -v mcp-forge-data:/data \
 </section>
 
 <section id="security" class="wrap section">
-  <h2>Built to fail closed</h2>
+  <p class="kicker">Security</p>
+  <h2>Built to fail closed.</h2>
   <p class="measure">Agents get real access to your systems, so every SQL statement passes through independent layers. Each one is enough on its own to stop a write on a read-only connection.</p>
   <ol class="layers" data-reveal>
     <li><p><strong>Database login.</strong> Use a login that may only SELECT. The Test button shows what yours can do.</p></li>
@@ -411,8 +495,67 @@ docker run -d --name mcp-forge -p 127.0.0.1:7410:7410 -v mcp-forge-data:/data \
   </div>
 </section>
 
+<section class="wrap section" aria-labelledby="compare">
+  <p class="kicker">Why not write an MCP server yourself?</p>
+  <h2 id="compare">You can. Here is what you'd be building.</h2>
+  <div class="table-wrap">
+    <table class="compare">
+      <thead><tr><th scope="col"></th><th scope="col">A hand-written server</th><th scope="col">mcp-forge</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">A new tool</th><td>Code, build, redeploy</td><td>A few fields in the UI, live for connected agents</td></tr>
+        <tr><th scope="row">A changed API</th><td>Update the code by hand</td><td>Re-import the spec; your edits are kept</td></tr>
+        <tr><th scope="row">Secrets</th><td>Up to you</td><td>References only, redacted everywhere</td></tr>
+        <tr><th scope="row">SQL safety</th><td>Up to you</td><td>Parsed, read-only, limited, masked, audited</td></tr>
+        <tr><th scope="row">Approvals and access keys</th><td>Build them</td><td>Built in</td></tr>
+        <tr><th scope="row">Seeing what agents did</th><td>Add logging</td><td>Call log and audit log</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="band" aria-labelledby="agency">
+  <div class="wrap split manifesto">
+    <div>
+      <p class="kicker">No lock-in</p>
+      <h2 id="agency">Your tools. Your machine. Your call.</h2>
+      <p>mcp-forge is free and open source under MIT or Apache-2.0. It runs where you run it, connects only to the APIs and databases you configure, and exports every project as a plain <code>tools.yaml</code> you can keep in git.</p>
+      <div class="actions">
+        <a class="btn primary" href="https://github.com/jaydip187/mcp-forge">View on GitHub</a>
+        <a class="btn" href="https://github.com/jaydip187/mcp-forge/releases">Releases</a>
+      </div>
+    </div>
+    <pre class="code yaml" aria-label="Part of an exported tools.yaml"><code><span class="c"># tools.yaml</span>
+<span class="k">tools:</span>
+- name: get_repo
+  auth: github
+  response_shape: '{name: .full_name, stars: .stargazers_count}'
+  kind:
+    type: http
+    method: GET
+    path_template: /repos/{owner}/{repo}
+<span class="k">auth_configs:</span>
+- name: github
+  secret_ref: <span class="p">env:GITHUB_TOKEN</span></code></pre>
+  </div>
+</section>
+
+<section id="new" class="wrap section" aria-labelledby="whatsnew">
+  <p class="kicker">New</p>
+  <h2 id="whatsnew">What's new</h2>
+  <p class="note">Everything above 0.2.0 is on the main branch and ships in the next release.</p>
+  <ol class="changelog">
+    <li><time datetime="2026-11-02">Nov 2</time><p><strong>Guided setup.</strong> Create forms open as step-by-step dialogs, and Next checks each step with the server.</p></li>
+    <li><time datetime="2026-11-01">Nov 1</time><p><strong>Description quality.</strong> A score per tool, hints for weak spots, optional wording from Claude.</p></li>
+    <li><time datetime="2026-11-01">Nov 1</time><p><strong>Chained tools</strong>, <strong>resources and prompts</strong>, and <strong>NoSQL</strong>: MongoDB, Redis, DynamoDB and Elasticsearch.</p></li>
+    <li><time datetime="2026-10-31">Oct 31</time><p><strong>GraphQL tools</strong> and <strong>access keys</strong> for <code>/mcp</code>.</p></li>
+    <li><time datetime="2026-10-30">Oct 30</time><p><strong>Approvals</strong> and the <strong>call log</strong>.</p></li>
+    <li><time datetime="2026-10-22">Oct 22</time><p><strong>Release 0.2.0.</strong> <a href="https://github.com/jaydip187/mcp-forge/releases">Release notes</a></p></li>
+  </ol>
+</section>
+
 <section id="faq" class="band">
   <div class="wrap">
+    <p class="kicker">FAQ</p>
     <h2>Questions</h2>
     <div class="faq">
       <details>
@@ -443,27 +586,50 @@ docker run -d --name mcp-forge -p 127.0.0.1:7410:7410 -v mcp-forge-data:/data \
   </div>
 </section>
 
-<section class="wrap section closing">
-  <h2>Try it on your own API</h2>
-  <p>Install it, start <code>mcp-forge serve</code>, and point it at an API or database you already use.</p>
-  <div class="actions">
-    <a class="btn primary" href="#install">Install mcp-forge</a>
-    <a class="btn" href="docs/">Read the guide</a>
+<section class="cta" aria-labelledby="ready">
+  <div class="glow" aria-hidden="true"></div>
+  <div class="wrap">
+    <h2 id="ready">Ready to put an agent on your API?</h2>
+    <p>Install it, start <code>mcp-forge serve</code>, and point it at an API or database you already use.</p>
+    <div class="actions">
+      <a class="btn primary" href="#install">Install mcp-forge</a>
+      <a class="btn" href="docs/">Read the guide</a>
+    </div>
   </div>
 </section>
 
 </main>
 
 <footer class="foot">
-  <div class="wrap foot-inner">
-    <p>mcp-forge 0.2.0. Licensed MIT or Apache-2.0.</p>
-    <nav aria-label="Footer">
-      <a href="docs/">Docs</a>
+  <div class="wrap foot-grid">
+    <div>
+      <a class="brand" href="./">
+        <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true"><rect width="32" height="32" rx="7" fill="currentColor"/><path d="M9 22V10l7 7 7-7v12" fill="none" stroke="var(--bg)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        mcp-forge
+      </a>
+      <p>Curated MCP tools for your APIs and databases.</p>
+    </div>
+    <nav aria-label="Product">
+      <p>Product</p>
+      <a href="#features">Features</a>
+      <a href="#tour">Tour</a>
+      <a href="#security">Security</a>
+      <a href="#new">What's new</a>
+    </nav>
+    <nav aria-label="Resources">
+      <p>Resources</p>
+      <a href="docs/">Guide</a>
+      <a href="https://github.com/jaydip187/mcp-forge#readme">README</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <nav aria-label="Project">
+      <p>Project</p>
       <a href="https://github.com/jaydip187/mcp-forge">Source</a>
       <a href="https://github.com/jaydip187/mcp-forge/releases">Releases</a>
       <a href="https://github.com/jaydip187/mcp-forge/issues">Report an issue</a>
     </nav>
   </div>
+  <p class="wrap foot-fine">mcp-forge 0.2.0. Licensed MIT or Apache-2.0.</p>
 </footer>
 
 <script src="site.js" defer></script>
