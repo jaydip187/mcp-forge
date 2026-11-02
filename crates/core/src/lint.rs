@@ -134,6 +134,42 @@ fn generated_description(t: &ToolDef) -> bool {
     }
 }
 
+/// A fix hint for an undocumented parameter, from its name and type.
+fn param_hint(name: &str, schema: &Value) -> &'static str {
+    let n = name.to_ascii_lowercase();
+    let has = |words: &[&str]| words.iter().any(|w| n.contains(w));
+    if schema.get("enum").is_some() {
+        return "Say what each allowed value means.";
+    }
+    match schema.get("type").and_then(Value::as_str) {
+        Some("boolean") => "Say what true does, e.g. \"true to include archived items\".",
+        Some("integer" | "number") if has(&["limit", "per_page", "page_size", "count", "max"]) => {
+            "Say the range and default, e.g. \"1–100, default 30\"."
+        }
+        Some("integer" | "number") if has(&["page", "offset"]) => {
+            "Say where counting starts, e.g. \"Page number, starting at 1\"."
+        }
+        Some("integer" | "number") if n == "id" || n.ends_with("_id") => {
+            "Say which record it identifies and where agents get it, e.g. \"Order id from list_orders\"."
+        }
+        Some("integer" | "number") => "Say the unit and range, e.g. \"Minutes, 1–60\".",
+        Some("array") => "Say what each item is, e.g. \"Label names, like bug\".",
+        Some("object") => "List the fields it expects.",
+        _ if has(&["date", "time", "since", "until", "before", "after"]) || n.ends_with("_at") => {
+            "Give the format, e.g. \"ISO date, like 2026-01-31\"."
+        }
+        _ if has(&["email"]) => "Say what it matches, e.g. \"Customer email, exact match\".",
+        _ if n == "id" || n.ends_with("_id") || name.ends_with("Id") => {
+            "Say which record it identifies and where agents get it, e.g. \"Order id from list_orders\"."
+        }
+        _ if matches!(n.as_str(), "q" | "query" | "search" | "term" | "keyword" | "keywords") => {
+            "Say what it searches, e.g. \"Words to find in titles and bodies\"."
+        }
+        _ if has(&["url", "uri", "link"]) => "Say which URL, e.g. \"Full https URL of the page\".",
+        _ => "Say what to pass, with an example value, e.g. \"Account login, like ada\".",
+    }
+}
+
 /// Lists everything (no WHERE / filter / page parameter in sight).
 fn lists_things(t: &ToolDef) -> bool {
     match &t.kind {
@@ -155,7 +191,16 @@ pub fn lint_tool(t: &ToolDef, avg_response_chars: Option<u64>) -> ToolLint {
     let mut f = Vec::new();
     let desc = t.description.trim();
     if !generated_description(t) {
-        if desc.is_empty() {
+        if desc.is_empty() && matches!(t.kind, ToolKind::Chain(_)) {
+            f.push(LintFinding {
+                rule: "missing_description",
+                severity: Severity::Info,
+                field: "description".into(),
+                message: "Agents see a generated line listing the steps (\"Runs 2 steps in order: …\")."
+                    .into(),
+                hint: "A sentence on what the chain is for helps agents pick it, e.g. \"A user's profile and their repositories in one call.\"".into(),
+            });
+        } else if desc.is_empty() {
             f.push(LintFinding {
                 rule: "missing_description",
                 severity: Severity::Warning,
@@ -196,7 +241,7 @@ pub fn lint_tool(t: &ToolDef, avg_response_chars: Option<u64>) -> ToolLint {
                 severity: Severity::Info,
                 field: format!("params.{name}"),
                 message: format!("`{name}` has no description."),
-                hint: "Say what to pass and its format, e.g. \"ISO date, like 2026-01-31\".".into(),
+                hint: param_hint(&name, &schema).into(),
             });
         }
         let lower = name.to_ascii_lowercase();

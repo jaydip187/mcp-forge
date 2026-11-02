@@ -18,6 +18,12 @@ fn needs_by_route() {
         "test console"
     );
     assert_eq!(need(&Method::DELETE, &p("/api-keys/x")), Need::Write(pid));
+    assert_eq!(
+        need(&Method::POST, &p("/prompts/x/render")),
+        Need::Read(pid),
+        "prompt preview"
+    );
+    assert_eq!(need(&Method::POST, &p("/prompts")), Need::Write(pid));
     assert_eq!(need(&Method::GET, &p("/calls")), Need::Read(pid));
     assert_eq!(
         need(&Method::GET, "/projects/not-a-uuid/tools"),

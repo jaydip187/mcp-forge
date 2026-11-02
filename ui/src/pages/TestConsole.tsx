@@ -351,7 +351,7 @@ function ChainRunResult({ run }: { run: ChainTestRun }) {
                 {i + 1}. {s.tool}
                 {s.skipped ? " · skipped (dry run)" : s.is_error ? " · failed" : ""}
               </p>
-              <Output text={`args: ${JSON.stringify(s.args)}\nresult: ${JSON.stringify(s.result, null, 2)}`} />
+              <Output text={`args: ${JSON.stringify(s.args)}\n${typeof s.result === "string" ? `${s.is_error ? "error" : "result"}:\n${s.result}` : `result: ${JSON.stringify(s.result, null, 2)}`}`} />
             </div>
           ))}
         </TabsContent>

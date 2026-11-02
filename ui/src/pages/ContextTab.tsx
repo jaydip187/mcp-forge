@@ -38,6 +38,7 @@ export function ContextTab({ project, onSaved }: { project: Project; onSaved: (p
   const [editingRes, setEditingRes] = useState<ResourceDef | "new" | null>(null);
   const [editingPrompt, setEditingPrompt] = useState<PromptDef | "new" | null>(null);
   const [preview, setPreview] = useState<{ uri: string; text: string } | null>(null);
+  const [trying, setTrying] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [r, p, v] = await Promise.all([
@@ -134,20 +135,26 @@ export function ContextTab({ project, onSaved }: { project: Project; onSaved: (p
           {prompts.length === 0 && editingPrompt === null && <p className="text-sm text-muted-foreground">No prompts yet.</p>}
           <ul className="divide-y rounded-md border empty:hidden">
             {prompts.map((p) => (
-              <li key={p.id} className="flex items-center gap-3 px-3 py-2">
-                <MessageSquareTextIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                <div className="min-w-0 flex-1">
-                  <p className="font-mono text-sm">{p.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {p.description || p.template}
-                    {p.arguments.length > 0 && ` · ${p.arguments.map((a) => a.name).join(", ")}`}
-                  </p>
-                </div>
-                {canWrite && (
-                  <Button size="sm" variant="outline" onClick={() => setEditingPrompt(p)}>
-                    Edit
+              <li key={p.id} className="space-y-2 px-3 py-2">
+                <div className="flex items-center gap-3">
+                  <MessageSquareTextIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-mono text-sm">{p.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {p.description || p.template}
+                      {p.arguments.length > 0 && ` · ${p.arguments.map((a) => a.name).join(", ")}`}
+                    </p>
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={() => setTrying(trying === p.id ? null : p.id)} aria-expanded={trying === p.id}>
+                    Try
                   </Button>
-                )}
+                  {canWrite && (
+                    <Button size="sm" variant="outline" onClick={() => setEditingPrompt(p)}>
+                      Edit
+                    </Button>
+                  )}
+                </div>
+                {trying === p.id && <PromptPreview projectId={project.id} prompt={p} />}
               </li>
             ))}
           </ul>
@@ -297,6 +304,50 @@ function ResourceForm({ projectId, existing, onDone }: { projectId: string; exis
             </Button>
           ))}
       </div>
+    </form>
+  );
+}
+
+/** Fills a prompt in with sample arguments: the text an agent's app would send. */
+function PromptPreview({ projectId, prompt }: { projectId: string; prompt: PromptDef }) {
+  const [args, setArgs] = useState<Record<string, string>>({});
+  const [out, setOut] = useState<{ text?: string; error?: string } | null>(null);
+
+  async function fill(e: FormEvent) {
+    e.preventDefault();
+    try {
+      const filled = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== ""));
+      setOut(await api.renderPrompt(projectId, prompt.id, filled));
+    } catch (e) {
+      setOut({ error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  return (
+    <form onSubmit={fill} className="grid gap-2 rounded-md border bg-muted/30 p-3">
+      {prompt.arguments.map((a) => (
+        <div key={a.name} className="grid gap-1">
+          <Label htmlFor={`pp-${prompt.id}-${a.name}`} className="font-mono text-xs">
+            {a.name}
+            {a.required && <span className="text-destructive"> *</span>}
+          </Label>
+          <Input
+            id={`pp-${prompt.id}-${a.name}`}
+            value={args[a.name] ?? ""}
+            onChange={(e) => setArgs({ ...args, [a.name]: e.target.value })}
+            placeholder={a.description || undefined}
+          />
+        </div>
+      ))}
+      <div>
+        <Button type="submit" size="sm" variant="outline">
+          Fill in
+        </Button>
+      </div>
+      {out?.error && <p className="text-xs text-destructive">{out.error}</p>}
+      {out?.text !== undefined && (
+        <pre className="max-h-64 overflow-auto rounded border bg-background p-2 text-xs whitespace-pre-wrap">{out.text}</pre>
+      )}
     </form>
   );
 }

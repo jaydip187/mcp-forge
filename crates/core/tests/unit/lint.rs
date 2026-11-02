@@ -73,6 +73,27 @@ fn params() {
 }
 
 #[test]
+fn param_hints_fit_the_parameter() {
+    let hint = |name: &str, schema: Value| param_hint(name, &schema);
+    assert!(hint("since", json!({ "type": "string" })).contains("ISO date"));
+    assert!(hint("per_page", json!({ "type": "integer" })).contains("range and default"));
+    assert!(hint("customer_id", json!({ "type": "string" })).contains("which record"));
+    assert!(hint("archived", json!({ "type": "boolean" })).contains("true"));
+    let login = hint("login", json!({ "type": "string" }));
+    assert!(!login.contains("ISO date"), "{login}");
+}
+
+#[test]
+fn chains_without_a_description_get_a_mild_finding() {
+    let kind = json!({ "type": "chain", "params": [], "output": null,
+        "steps": [{ "tool": "get_user", "args": "{}" }, { "tool": "list_repos", "args": "{}" }] });
+    let l = lint_tool(&tool(json!({ "description": "", "kind": kind })), None);
+    assert_eq!(rules(&l), ["missing_description"]);
+    assert_eq!(l.findings[0].severity, Severity::Info);
+    assert_eq!(l.score, 95);
+}
+
+#[test]
 fn long_outputs() {
     let list = json!({ "type": "http", "method": "GET", "base_url": "https://api.example.com",
         "path_template": "/issues", "params": [], "body_schema": null, "auth_ref": null, "timeout_ms": 30000 });
