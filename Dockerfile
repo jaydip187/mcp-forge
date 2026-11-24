@@ -23,6 +23,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 # 3. Runtime: no compilers, a non-root user, data in a volume.
 FROM debian:bookworm-slim
+# The MCP Registry checks this label against the name in server.json.
+LABEL io.modelcontextprotocol.server.name="io.github.jaydip187/mcp-forge" \
+      org.opencontainers.image.source="https://github.com/jaydip187/mcp-forge" \
+      org.opencontainers.image.description="Turn HTTP/GraphQL APIs and SQL/NoSQL databases into curated MCP tools." \
+      org.opencontainers.image.licenses="MIT OR Apache-2.0"
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \

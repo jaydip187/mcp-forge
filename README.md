@@ -1,5 +1,18 @@
 # mcp-forge
 
+[![Release](https://img.shields.io/github/v/release/jaydip187/mcp-forge)](https://github.com/jaydip187/mcp-forge/releases/latest)
+[![CI](https://github.com/jaydip187/mcp-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/jaydip187/mcp-forge/actions/workflows/ci.yml)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
+[![Website](https://img.shields.io/badge/site-guide-4338ca)](https://jaydip187.github.io/mcp-forge/)
+
+**Read-only by default. One binary. No telemetry.** Give Claude and other agents exactly the tools you choose, tried in a test console before any agent sees them.
+
+<p align="center"><img src=".github/assets/demo.gif" width="560" alt="Asked how many stars rust-lang/rust has, Claude calls the get_repo tool; mcp-forge sends GET to the GitHub API, trims about a hundred fields to three with a jq shape, and Claude answers."></p>
+
+You build and test each tool in the web UI, then agents reach the project at one URL:
+
+![The mcp-forge web UI: a project's MCP URL and its tools, each with its method, path and description](site/docs/img/tools-tab.png)
+
 Turn HTTP and GraphQL APIs, SQL and NoSQL databases into **curated MCP tools** for Claude and other AI
 agents, from one self-hosted binary with a web UI.
 

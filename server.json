@@ -1,0 +1,44 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.jaydip187/mcp-forge",
+  "title": "mcp-forge",
+  "description": "Turn HTTP/GraphQL APIs and SQL/NoSQL databases into curated MCP tools. Read-only by default.",
+  "version": "0.3.0",
+  "websiteUrl": "https://jaydip187.github.io/mcp-forge/",
+  "repository": {
+    "url": "https://github.com/jaydip187/mcp-forge",
+    "source": "github",
+    "id": "1429632680"
+  },
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/jaydip187/mcp-forge:0.3.0",
+      "runtimeHint": "docker",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "-v",
+          "value": "mcp-forge-data:/data",
+          "description": "Volume holding the projects and tools you made in the mcp-forge web UI (docker run ... ghcr.io/jaydip187/mcp-forge serve)."
+        }
+      ],
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "stdio"
+        },
+        {
+          "type": "named",
+          "name": "--project",
+          "description": "Slug of the mcp-forge project whose tools to serve, as shown in the web UI.",
+          "isRequired": true,
+          "placeholder": "github"
+        }
+      ],
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
