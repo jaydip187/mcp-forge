@@ -124,7 +124,12 @@ function Shell({ info, user, onSignedOut }: { info: ServerInfo; user: User | nul
   return (
     <SidebarProvider>
       <AppSidebar activeProject={activeProject} version={info.version} user={user} onSignedOut={onSignedOut} />
-      <SidebarInset className="min-w-0">
+      <SidebarInset className="relative isolate min-w-0">
+        <div aria-hidden="true" className="ribbons top">
+          <i />
+          <i />
+          <i />
+        </div>
         <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b bg-background/85 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/70 sm:px-4">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-1 self-center data-[orientation=vertical]:h-5" />
@@ -293,7 +298,7 @@ function AppSidebar({
           className="flex items-center gap-2.5 rounded-md px-1 py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Logo className="size-7" />
-          <span className="font-semibold tracking-tight">mcp-forge</span>
+          <span className="font-heading font-extrabold tracking-tight">mcp-forge</span>
         </a>
       </SidebarHeader>
       <SidebarContent>

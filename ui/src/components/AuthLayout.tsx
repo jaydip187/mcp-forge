@@ -14,14 +14,18 @@ export function AuthLayout({ title, description, children }: { title: string; de
   return (
     <main className="grid min-h-svh bg-background lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
       <aside className="relative hidden overflow-hidden bg-sidebar p-10 text-sidebar-foreground lg:flex lg:flex-col">
-        <div aria-hidden="true" className="auth-grid pointer-events-none absolute inset-0 opacity-60" />
+        <div aria-hidden="true" className="ribbons">
+          <i />
+          <i />
+          <i />
+        </div>
         <div className="relative flex items-center gap-2.5">
           <Logo className="size-8" />
-          <span className="text-lg font-semibold tracking-tight">mcp-forge</span>
+          <span className="font-heading text-lg font-extrabold tracking-tight">mcp-forge</span>
         </div>
         <div className="relative mt-auto max-w-md space-y-8">
-          <p className="text-3xl font-semibold leading-tight tracking-tight text-balance">
-            Your APIs and databases, as tools your agents can use safely.
+          <p className="font-heading text-4xl leading-[1.05] font-black tracking-tight text-balance">
+            Your APIs and databases. <span className="text-primary">Agent-ready.</span>
           </p>
           <ul className="space-y-4">
             {POINTS.map(({ icon: Icon, text }) => (
@@ -39,9 +43,9 @@ export function AuthLayout({ title, description, children }: { title: string; de
         <div className="w-full max-w-sm">
           <div className="mb-8 flex items-center gap-2.5 lg:hidden">
             <Logo className="size-8" />
-            <span className="text-lg font-semibold tracking-tight">mcp-forge</span>
+            <span className="font-heading text-lg font-extrabold tracking-tight">mcp-forge</span>
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight">{title}</h1>
           <p className="mt-1.5 text-sm text-muted-foreground">{description}</p>
           <div className="mt-8">{children}</div>
         </div>
